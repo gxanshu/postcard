@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=in.gxanshu.postbox
+Exec=@bindir@/postbox --gapplication-service

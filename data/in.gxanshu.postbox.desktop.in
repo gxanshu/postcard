@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Postbox
+Exec=postbox
+Icon=in.gxanshu.postbox
+Terminal=false
+Type=Application
+Categories=Utility;
+Keywords=GTK;
+StartupNotify=true
+DBusActivatable=true

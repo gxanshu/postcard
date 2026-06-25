@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="postbox">
+	<schema id="in.gxanshu.postbox" path="/in/gxanshu/postbox/">
+	</schema>
+</schemalist>

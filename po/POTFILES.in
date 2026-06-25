@@ -1,0 +1,8 @@
+# List of source files containing translatable strings.
+# Please keep this file sorted alphabetically.
+data/in.gxanshu.postbox.desktop.in
+data/in.gxanshu.postbox.metainfo.xml.in
+data/in.gxanshu.postbox.gschema.xml
+src/main.vala
+src/window.vala
+src/window.ui

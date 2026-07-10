@@ -1,10 +1,15 @@
 application_id = 'in.gxanshu.postbox'
 
-scalable_dir = 'hicolor' / 'scalable' / 'apps'
-install_data(
-  scalable_dir / ('@0@.svg').format(application_id),
-  install_dir: get_option('datadir') / 'icons' / scalable_dir
-)
+# App icon (rasterized from the project logo) installed at the standard
+# hicolor sizes. The shell/desktop picks the best size by name automatically.
+icon_sizes = ['48', '64', '128', '256', '512']
+foreach size : icon_sizes
+  size_dir = 'hicolor' / (size + 'x' + size) / 'apps'
+  install_data(
+    size_dir / ('@0@.png').format(application_id),
+    install_dir: get_option('datadir') / 'icons' / size_dir
+  )
+endforeach
 
 symbolic_dir = 'hicolor' / 'symbolic' / 'apps'
 install_data(

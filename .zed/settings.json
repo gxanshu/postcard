@@ -1,0 +1,28 @@
+{
+  // Project-local Zed settings for the Postbox GTK/libadwaita app.
+  "lsp": {
+    // The Vala language server reads build/compile_commands.json to know
+    // your include paths and packages. Keep a `build/` dir around (Step 3).
+    "vala-language-server": {
+      "binary": {
+        "path": "/usr/bin/vala-language-server"
+      }
+    }
+  },
+  "languages": {
+    "Vala": {
+      "tab_size": 4,
+      "hard_tabs": false,
+      "format_on_save": "off"
+    },
+    "Blueprint": {
+      "tab_size": 2
+    }
+  },
+  // Keep build artifacts out of the file finder / project panel noise.
+  "file_scan_exclusions": [
+    "**/build",
+    "**/.flatpak-builder",
+    "**/_build"
+  ]
+}

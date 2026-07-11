@@ -1,7 +1,7 @@
 {
     "id" : "in.gxanshu.postbox",
     "runtime" : "org.gnome.Platform",
-    "runtime-version" : "48",
+    "runtime-version" : "49",
     "sdk" : "org.gnome.Sdk",
     "sdk-extensions" : [
         "org.freedesktop.Sdk.Extension.vala"
@@ -32,6 +32,18 @@
         "*.a"
     ],
     "modules" : [
+        {
+            "name" : "blueprint-compiler",
+            "buildsystem" : "meson",
+            "cleanup" : [ "*" ],
+            "sources" : [
+                {
+                    "type" : "git",
+                    "url" : "https://gitlab.gnome.org/jwestman/blueprint-compiler",
+                    "tag" : "v0.20.4"
+                }
+            ]
+        },
         {
             "name" : "postbox",
             "builddir" : true,

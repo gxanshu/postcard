@@ -17,7 +17,7 @@ namespace Postbox {
                 sender: sender,
                 subject: subject,
                 preview: preview,
-                data: date,
+                date: date,
                 unread: unread
             );
         }

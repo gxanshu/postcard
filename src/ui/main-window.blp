@@ -21,9 +21,14 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
           }
         }
 
-        content: Adw.StatusPage {
-          title: _("Folders");
-          /* TODO Phase 2: real folder list */
+        content: Gtk.ScrolledWindow {
+          hscrollbar-policy: never;
+
+          child: Gtk.ListBox folder_list {
+            selection-mode: single;
+
+            styles ["navigation-sidebar"]
+          };
         };
       };
     };
@@ -36,20 +41,82 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
           child: Adw.ToolbarView {
             [top]
             Adw.HeaderBar {}
-            content: Adw.StatusPage {
-              title: _("No Conversations");
-              /* TODO Phase 2: real conversation list */
+
+            content: Gtk.ScrolledWindow {
+              hscrollbar-policy: never;
+
+              child: Gtk.ListView coversation_list {
+              styles ["navigation-sidebar"]
+              };
             };
           };
         };
+
         content: Adw.NavigationPage {
           title: _("Reader");
           child: Adw.ToolbarView {
             [top]
             Adw.HeaderBar {}
-            content: Adw.StatusPage {
-              title: _("Select a Conversation");
-              /* TODO Phase 2: real reader */
+            content: Gtk.Stack reader_stack {
+              StackPage {
+                name: "empty";
+                child: Adw.StatusPage {
+                  icon-name: "mail-unread-symbolic";
+                  title: _("Select a Conversation");
+                  description: _("Pick a message from the list to read it here.");
+                };
+              }
+
+              StackPage {
+                name: "message";
+                child: Gtk.ScrolledWindow {
+                  hscrollbar-policy: never;
+
+                  child: Gtk.Box {
+                    orientation: vertical;
+                    spacing: 12;
+                    margin-top: 24;
+                    margin-bottom: 24;
+                    margin-start: 24;
+                    margin-end: 24;
+
+                    Gtk.Box {
+                      spacing: 12;
+
+                      Adw.Avatar reader_avatar {
+                        size: 48;
+                        show-initials: true;
+                      }
+
+                      Gtk.Label reader_sender {
+                        xalign: 0;
+                        styles ["heading"]
+                      }
+
+                      Gtk.Label reader_date {
+                        xalign: 0;
+                        styles ["dim-label"]
+                      }
+                    }
+
+                    Gtk.Label reader_subject {
+                      xalign: 0;
+                      wrap: true;
+
+                      styles ["title-2"]
+                    }
+
+                    Gtk.Separator {}
+
+                    Gtk.Label reader_body {
+                      xalign: 0;
+                      yalign: 0;
+                      wrap: true;
+                      vexpand: true;
+                    }
+                  };
+                };
+              }
             };
           };
         };

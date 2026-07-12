@@ -2,7 +2,8 @@ postbox_sources = [
   'main.vala',
   'application.vala',
   'ui/main-window.vala',
-  'fake-data.vala'
+  'fake-data.vala',
+  'ui/conversation-row.vala'
 ]
 
 postbox_deps = [

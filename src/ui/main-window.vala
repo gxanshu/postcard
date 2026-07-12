@@ -20,8 +20,6 @@
 
 [GtkTemplate (ui = "/in/gxanshu/postbox/ui/main-window.ui")]
 public class Postbox.MainWindow : Adw.ApplicationWindow {
-    [GtkChild]
-    private unowned Gtk.Label label;
 
     public MainWindow (Gtk.Application app) {
         Object (application: app);

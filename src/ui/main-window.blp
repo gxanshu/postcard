@@ -3,26 +3,76 @@ using Adw 1;
 
 template $PostboxMainWindow: Adw.ApplicationWindow {
   title: _("Postbox");
-  default-width: 800;
-  default-height: 600;
+  default-width: 1600;
+  default-height: 900;
 
-  content: Adw.ToolbarView {
-    [top]
-    Adw.HeaderBar {
-      [end]
-      Gtk.MenuButton {
-        primary: true;
-        icon-name: "open-menu-symbolic";
-        tooltip-text: _("Main Menu");
-        menu-model: primary_menu;
-      }
-    }
+  content: Adw.NavigationSplitView outer_split {
+    sidebar: Adw.NavigationPage {
+      title: _("Folders");
+      child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {
+          [end]
+          Gtk.MenuButton {
+            primary: true;
+            icon-name: "open-menu-symbolic";
+            tooltip-text: _("Main Menu");
+            menu-model: primary_menu;
+          }
+        }
 
-    content: Gtk.Label label {
-      label: _("Hello, World!");
-      styles ["title-1"]
+        content: Adw.StatusPage {
+          title: _("Folders");
+          /* TODO Phase 2: real folder list */
+        };
+      };
+    };
+
+    content: Adw.NavigationPage {
+      title: _("Postbox");
+      child: Adw.NavigationSplitView inner_split {
+        sidebar: Adw.NavigationPage {
+          title: _("Conversations");
+          child: Adw.ToolbarView {
+            [top]
+            Adw.HeaderBar {}
+            content: Adw.StatusPage {
+              title: _("No Conversations");
+              /* TODO Phase 2: real conversation list */
+            };
+          };
+        };
+        content: Adw.NavigationPage {
+          title: _("Reader");
+          child: Adw.ToolbarView {
+            [top]
+            Adw.HeaderBar {}
+            content: Adw.StatusPage {
+              title: _("Select a Conversation");
+              /* TODO Phase 2: real reader */
+            };
+          };
+        };
+      };
     };
   };
+
+  Adw.Breakpoint {
+    condition ("max-width: 700sp")
+
+    setters {
+      outer_split.collapsed: true;
+    }
+  }
+
+  Adw.Breakpoint {
+    condition ("max-width: 400sp")
+
+    setters {
+      outer_split.collapsed: true;
+      inner_split.collapsed: true;
+    }
+  }
 }
 
 menu primary_menu {

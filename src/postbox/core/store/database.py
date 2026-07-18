@@ -62,20 +62,56 @@ class Database:
 
     # --- accounts -----------------------------------------------------------
 
+    def _account_from_row(self, row: sqlite3.Row) -> Account:
+        return Account(
+            id=row["id"],
+            email=row["email"],
+            display_name=row["display_name"],
+            imap_host=row["imap_host"],
+            imap_port=row["imap_port"],
+            smtp_host=row["smtp_host"],
+            smtp_port=row["smtp_port"],
+        )
+
     def accounts(self) -> list[Account]:
         rows = self._conn.execute("SELECT * FROM accounts ORDER BY id").fetchall()
-        return [
-            Account(
-                id=row["id"],
-                email=row["email"],
-                display_name=row["display_name"],
-                imap_host=row["imap_host"],
-                imap_port=row["imap_port"],
-                smtp_host=row["smtp_host"],
-                smtp_port=row["smtp_port"],
+        return [self._account_from_row(row) for row in rows]
+    
+    def save_account(
+        self,
+        email: str,
+        display_name: str,
+        imap_host: str,
+        imap_port: int,
+        smtp_host: str,
+        smtp_port: int
+    ) -> Account:
+        cursor = self._conn.execute(
+            """
+            INSERT INTO accounts (email, display_name, imap_host, imap_port, smtp_host, smtp_port)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (email, display_name, imap_host, imap_port, smtp_host, smtp_port),
+        )
+        self._conn.commit()
+
+        row = self._conn.execute(
+            "SELECT * FROM accounts WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        return self._account_from_row(row)
+
+    def delete_account(self, account_id: int) -> None:
+        self._conn.execute(
+            """
+            DELETE FROM emails WHERE folder_id IN (
+                SELECT id FROM folders WHERE account_id = ?
             )
-            for row in rows
-        ]
+            """,
+            (account_id,),
+        )
+        self._conn.execute("DELETE FROM folders WHERE account_id = ?", (account_id,))
+        self._conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        self._conn.commit()
 
     # --- folders -----------------------------------------------------------
 

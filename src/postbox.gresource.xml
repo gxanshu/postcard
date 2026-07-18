@@ -3,5 +3,7 @@
   <gresource prefix="/in/gxanshu/postbox">
     <file preprocess="xml-stripblanks">ui/main-window.ui</file>
     <file preprocess="xml-stripblanks">ui/shortcuts-dialog.ui</file>
+    <file preprocess="xml-stripblanks">ui/account-dialog.ui</file>
+    <file preprocess="xml-stripblanks">ui/accounts-dialog.ui</file>
   </gresource>
 </gresources>

@@ -7,6 +7,8 @@ blueprints = custom_target('blueprints',
   input: files(
     'ui/main-window.blp',
     'ui/shortcuts-dialog.blp',
+    'ui/account-dialog.blp',
+    'ui/accounts-dialog.blp',
   ),
   output: '.',
   command: [
@@ -32,12 +34,16 @@ postbox_sources = [
   'postbox/application.py',
   'postbox/window.py',
   'postbox/conversation_row.py',
+  'postbox/account_dialog.py',
+  'postbox/accounts_dialog.py',
 ]
 python_installation.install_sources(postbox_sources, subdir: 'postbox')
 
 postbox_core_sources = [
   'postbox/core/__init__.py',
+  'postbox/core/secrets.py',
 ]
+
 python_installation.install_sources(postbox_core_sources, subdir: 'postbox/core')
 
 postbox_core_models_sources = [

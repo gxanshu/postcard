@@ -17,11 +17,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from gi.repository import Adw, Gdk, Gio, GObject, Gtk
+import threading
+from gettext import gettext as _
 
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
+
+from . import mail_sync
 from .account_dialog import PostboxAccountDialog
 
 from .conversation_row import ConversationRow
+from .core import secrets
+from .core.models.account import Account
 from .core.models.email import Email
 from .core.models.folder import Folder
 from .core.store.database import Database
@@ -44,25 +50,31 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     reader_body: Gtk.Label = Gtk.Template.Child()
     main_stack: Gtk.Stack = Gtk.Template.Child()
     add_account_button: Gtk.Button = Gtk.Template.Child()
+    refresh_button: Gtk.Button = Gtk.Template.Child()
+    sync_spinner: Gtk.Spinner = Gtk.Template.Child()
+    toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
 
     def __init__(self, app: Gtk.Application, db: Database) -> None:
         super().__init__(application=app)
 
         self._db: Database = db
         self.add_account_button.connect("clicked", self._on_add_account_clicked)
+        self.refresh_button.connect("clicked", self._on_refresh_clicked)
 
         accounts = self._db.accounts()
         if not accounts:
             self.main_stack.set_visible_child_name("no-account")
             return
 
-        self._load_mail_view(accounts[0].id)
+        self._load_mail_view(accounts[0])
 
-    def _load_mail_view(self, account_id: int) -> None:
+    def _load_mail_view(self, account: Account) -> None:
+        self._account = account
+        self._account_id = account.id
         self.main_stack.set_visible_child_name("mail")
 
         self._folders: Gio.ListStore = Gio.ListStore(item_type=Folder)
-        for folder in self._db.folders_for_account(account_id):
+        for folder in self._db.folders_for_account(self._account_id):
             self._folders.append(folder)
 
         self._selection: Gtk.SingleSelection = Gtk.SingleSelection()
@@ -81,8 +93,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _on_account_added(self, _dialog: PostboxAccountDialog) -> None:
-        accounts = self._db.accounts()
-        self._load_mail_view(accounts[0].id)
+        self._load_mail_view(self._db.accounts()[0])
 
     # A tiny bit of app CSS: the accent-coloured unread dot and a bold sender
     # name. Loaded from a string so we don't need another resource file yet.
@@ -200,3 +211,85 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         factory.connect("setup", on_setup)
         factory.connect("bind", on_bind)
         return factory
+
+    def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
+        self._start_sync()
+
+    def _start_sync(self) -> None:
+        password = secrets.lookup_password(self._account_id)
+        if not password:
+            self._toast(_("No saved password for this account."))
+            return
+
+        self._set_syncing(True)
+        thread = threading.Thread(
+            target=self._sync_worker,
+            args=(self._account, password),
+            daemon=True,
+        )
+        thread.start()
+
+    # Runs on the worker thread: network only, no Gtk/database access.
+    def _sync_worker(self, account: Account, password: str) -> None:
+        try:
+            result = mail_sync.fetch_mailbox(account, password)
+        except Exception as error:
+            GLib.idle_add(self._on_sync_error, str(error))
+            return
+        GLib.idle_add(self._on_sync_done, result)
+
+    # Back on the main thread: safe to touch the database and widgets.
+    def _on_sync_done(self, result: mail_sync.SyncResult) -> bool:
+        for name in result.folders:
+            self._db.get_or_create_folder(
+                self._account_id, name, mail_sync.icon_for_folder(name)
+            )
+        inbox = self._db.get_or_create_folder(
+            self._account_id, "INBOX", mail_sync.icon_for_folder("INBOX")
+        )
+        for message in result.messages:
+            self._db.save_incoming_email(
+                folder_id=inbox.id,
+                server_id=message.uid,
+                sender=message.sender,
+                subject=message.subject,
+                preview=message.preview,
+                date=message.date,
+                unread=message.unread,
+            )
+
+        self._reload_folders()
+        self._set_syncing(False)
+        self._toast(_("Synced {n} messages.").format(n=len(result.messages)))
+        return False
+
+    def _on_sync_error(self, message: str) -> bool:
+        self._set_syncing(False)
+        self._toast(_("Sync failed: {msg}").format(msg=message))
+        print("Sync failed:", message)
+        return False
+
+    def _set_syncing(self, syncing: bool) -> None:
+        self.refresh_button.set_sensitive(not syncing)
+        self.sync_spinner.set_visible(syncing)
+        if syncing:
+            self.sync_spinner.start()
+        else:
+            self.sync_spinner.stop()
+
+    def _reload_folders(self) -> None:
+        selected = self.folder_list.get_selected_row()
+        index = selected.get_index() if selected is not None else 0
+
+        self._folders.remove_all()
+        for folder in self._db.folders_for_account(self._account_id):
+            self._folders.append(folder)
+
+        row = self.folder_list.get_row_at_index(index)
+        if row is None:
+            row = self.folder_list.get_row_at_index(0)
+        if row is not None:
+            self.folder_list.select_row(row)
+
+    def _toast(self, text: str) -> None:
+        self.toast_overlay.add_toast(Adw.Toast(title=text))

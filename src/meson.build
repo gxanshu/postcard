@@ -36,6 +36,7 @@ postbox_sources = [
   'postbox/conversation_row.py',
   'postbox/account_dialog.py',
   'postbox/accounts_dialog.py',
+  'postbox/mail_sync.py',
 ]
 python_installation.install_sources(postbox_sources, subdir: 'postbox')
 
@@ -60,6 +61,12 @@ postbox_core_store_sources = [
   'postbox/core/store/database.py',
 ]
 python_installation.install_sources(postbox_core_store_sources, subdir: 'postbox/core/store')
+
+postbox_core_net_sources = [
+  'postbox/core/net/__init__.py',
+  'postbox/core/net/imap_session.py',
+]
+python_installation.install_sources(postbox_core_net_sources, subdir: 'postbox/core/net')
 
 conf = configuration_data()
 conf.set('PYTHON', python_installation.full_path())

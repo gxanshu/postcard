@@ -56,6 +56,9 @@ class Database:
                 date TEXT NOT NULL,
                 unread INTEGER NOT NULL DEFAULT 1
             );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid
+                ON emails (folder_id, server_id);
             """
         )
         self._conn.commit()
@@ -129,6 +132,34 @@ class Database:
             for row in rows
         ]
 
+    def get_or_create_folder(
+        self, account_id: int, name: str, icon_name: str
+    ) -> Folder:
+        row = self._conn.execute(
+            "SELECT * FROM folders WHERE account_id = ? AND name = ?",
+            (account_id, name),
+        ).fetchone()
+        if row is not None:
+            return Folder(
+                id=row["id"],
+                account_id=row["account_id"],
+                name=row["name"],
+                icon_name=row["icon_name"],
+            )
+
+        cursor = self._conn.execute(
+            "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
+            (account_id, name, icon_name),
+        )
+        self._conn.commit()
+        assert cursor.lastrowid is not None
+        return Folder(
+            id=cursor.lastrowid,
+            account_id=account_id,
+            name=name,
+            icon_name=icon_name,
+        )
+
     # --- emails -----------------------------------------------------------
 
     def emails_in_folder(self, folder_id: int) -> list[Email]:
@@ -172,6 +203,28 @@ class Database:
             "SELECT * FROM emails WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         return self._email_from_row(row)
+
+    def save_incoming_email(
+        self,
+        folder_id: int,
+        server_id: str,
+        sender: str,
+        subject: str,
+        preview: str,
+        date: str,
+        unread: bool,
+    ) -> bool:
+        """Insert one fetched email; skip it if we already have it."""
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO emails
+                (folder_id, server_id, sender, subject, preview, date, unread)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (folder_id, server_id, sender, subject, preview, date, int(unread)),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
 
     def _email_from_row(self, row: sqlite3.Row) -> Email:
         return Email(

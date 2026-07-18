@@ -6,7 +6,8 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
   default-width: 1600;
   default-height: 900;
 
-  content: Gtk.Stack main_stack {
+  content: Adw.ToastOverlay toast_overlay {
+    child: Gtk.Stack main_stack {
     StackPage {
       name: "no-account";
       child: Adw.StatusPage {
@@ -58,7 +59,18 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
               title: _("Conversations");
               child: Adw.ToolbarView {
                 [top]
-                Adw.HeaderBar {}
+                Adw.HeaderBar {
+                  [start]
+                  Gtk.Button refresh_button {
+                    icon-name: "view-refresh-symbolic";
+                    tooltip-text: _("Refresh Inbox");
+                  }
+
+                  [end]
+                  Gtk.Spinner sync_spinner {
+                    visible: false;
+                  }
+                }
 
                 content: Gtk.ScrolledWindow {
                   hscrollbar-policy: never;
@@ -142,6 +154,7 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
         };
       };
     }
+    };
   };
 
   Adw.Breakpoint {

@@ -19,6 +19,7 @@
 
 from collections.abc import Callable
 from gettext import gettext as _
+from .accounts_dialog import PostboxAcountsDialog
 
 import gi
 
@@ -46,8 +47,11 @@ class PostboxApplication(Adw.Application):
         self._create_action("about", self.on_about_action)
         self._create_action("preferences", self.on_preferences_action)
         self._create_action("new-window", self.on_new_window_action, ["<control>n"])
-        self._create_action("shortcuts", self.on_shortcuts_action, ["<control>question"])
+        self._create_action(
+            "shortcuts", self.on_shortcuts_action, ["<control>question"]
+        )
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
+        self._create_action("accounts", self.on_acounts_action)
 
     def do_activate(self) -> None:
         win = self.props.active_window or PostboxMainWindow(self, self.db)
@@ -89,4 +93,8 @@ class PostboxApplication(Adw.Application):
             "/in/gxanshu/postbox/ui/shortcuts-dialog.ui"
         )
         dialog = builder.get_object("shortcuts_dialog")
+        dialog.present(self.props.active_window)
+
+    def on_acounts_action(self, *args: object) -> None:
+        dialog = PostboxAcountsDialog(self.db)
         dialog.present(self.props.active_window)

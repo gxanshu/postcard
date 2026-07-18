@@ -2,7 +2,7 @@
 
 A step-by-step, beginner-friendly plan to build **Postbox**: a modern email client for
 Linux with the **same layout and features as Geary**, but on a clean, current stack
-(GTK 4 · libadwaita · Blueprint · Vala) and a codebase that stays *simple on purpose*.
+(GTK 4 · libadwaita · Blueprint · Python) and a codebase that stays *simple on purpose*.
 
 You already have the GNOME app template building. This roadmap takes you from that empty
 shell to a real email client, one small, satisfying step at a time. Each phase gives you
@@ -40,20 +40,24 @@ Pin these to the wall. Every time you're unsure, re-read them.
 
 | Concern | We use (modern) | Geary used (old) | Why |
 |---|---|---|---|
-| Language | **Vala** | Vala | Reads like C#, compiles to C, native GObject |
-| Build | **Meson + Ninja** | Meson | Already set up in your repo |
+| Language | **Python (PyGObject)** | Vala | Easiest to learn, no compile step, tons of GNOME examples |
+| Build | **Meson + Ninja** | Meson | Already set up in your repo; installs the app + launcher |
 | Toolkit | **GTK 4** | GTK 3 | Current, faster, better lists |
 | Design layer | **libadwaita 1.4+** | libhandy 1 | Adwaita widgets, responsive split views |
 | UI markup | **Blueprint (`.blp`)** | `.ui` XML | Readable UI files — your ask |
-| HTML mail render | **WebKitGTK 6.0** | webkit2gtk-4.1 | Sandboxed HTML rendering for GTK4 |
-| Mail parsing | **GMime 3.0** | GMime 3.0 | Parse/build MIME (don't write this yourself) |
-| Local storage | **SQLite** | SQLite | Offline cache of messages |
-| Passwords | **libsecret** | libsecret | Store credentials in the keyring, never on disk |
+| HTML mail render | **WebKitGTK 6.0** (via GI) | webkit2gtk-4.1 | Sandboxed HTML rendering for GTK4 |
+| Mail parsing | **GMime 3.0** (via GI) | GMime 3.0 | Parse/build MIME (don't write this yourself) |
+| Local storage | **SQLite** (`sqlite3` stdlib) | SQLite | Offline cache of messages |
+| Passwords | **libsecret** (`gi Secret`) | libsecret | Store credentials in the keyring, never on disk |
 | Networking | **GIO sockets + GTls** | GIO | IMAP/SMTP run over TLS sockets |
 | OAuth / HTTP | **libsoup 3.0 + json-glib** | libsoup 3 | Gmail/Outlook login (later phases) |
 
+> Everything above except SQLite is reached the same way — through **GObject
+> Introspection** (`from gi.repository import ...`). Python's own standard library gives
+> you `sqlite3` for free, so there's nothing to install for storage.
+
 **Deliberately skipped for simplicity** (add only if you truly want them): `libgee`
-(use GLib's built-in lists + `GListModel` instead), `libpeas` plugins, GNOME Online
+(use Python lists + `Gio.ListStore`/`GListModel` instead), `libpeas` plugins, GNOME Online
 Accounts. Fewer dependencies = less to learn = less to break.
 
 ---
@@ -65,35 +69,39 @@ may ever say `using Gtk;`.
 
 ```
 src/
-  main.vala                 # entry point (given)
-  application.vala          # app lifecycle + app.* actions only
-  ui/                       # EVERYTHING gtk/adwaita lives here
-    main-window.vala        # the 3-pane window
-    composer-window.vala    # writing an email (separate window)
-    folder-sidebar.vala     # left pane widget
-    conversation-list.vala  # middle pane widget
-    conversation-view.vala  # right pane widget (reader)
-    account-dialog.vala     # add-account flow
-  core/                     # ZERO gtk. pure logic + data. testable alone.
-    models/
-      account.vala          # a plain data object
-      folder.vala
-      email.vala
-      conversation.vala
-    store/
-      database.vala         # SQLite read/write
-    net/
-      imap-session.vala     # talk to the mail server
-      smtp-session.vala     # send mail
-    mime/
-      message-parser.vala   # GMime wrapper: bytes -> Email
+  postbox.in                # launcher script (meson fills in paths -> bin/postbox)
+  postbox.gresource.xml     # bundles the compiled .ui files
+  ui/                       # Blueprint (.blp) files live here
+  postbox/                  # the Python package (installed under the app's data dir)
+    __init__.py
+    main.py                 # entry point (given)
+    application.py          # app lifecycle + app.* actions only
+    window.py               # the 3-pane window
+    composer_window.py      # writing an email (separate window)
+    conversation_row.py     # a row widget for the conversation list
+    account_dialog.py       # add-account flow
+    core/                   # ZERO gtk. pure logic + data. testable alone.
+      models/
+        account.py          # a plain data object
+        folder.py
+        email.py
+        conversation.py
+      store/
+        database.py         # SQLite read/write (sqlite3 stdlib)
+      net/
+        imap_session.py     # talk to the mail server
+        smtp_session.py     # send mail
+      mime/
+        message_parser.py   # GMime wrapper: bytes -> Email
 data/                       # icons, gschema, desktop file (given)
-ui/                         # .blp Blueprint files
 ```
 
+> Python modules use `snake_case` (no hyphens) — that's why files are `window.py`, not
+> `main-window.py`. The Blueprint `.blp` files keep their dashes; only the code changes.
+>
 > When `core/` needs to tell the UI something happened ("new mail arrived"), it emits a
-> **GObject signal**. The UI connects to it. Core never calls the UI directly. That's the
-> whole trick to keeping them separate.
+> **GObject signal** (`GObject.Signal`). The UI connects to it. Core never imports `Gtk`
+> and never calls the UI directly. That's the whole trick to keeping them separate.
 
 ---
 
@@ -114,11 +122,12 @@ Every phase follows the same shape:
 - Stuck? Read the matching folder in Geary's source for inspiration, then close it and
   write your own.
 
-**Build & run** (from the repo root):
+**Build & run** (from the repo root) — everything happens inside Flatpak, the same way
+the app ships to users, so you never install GTK/Python build tools on your host:
 ```bash
-meson setup build         # first time only
-ninja -C build            # compile
-./build/src/postbox       # run
+just init                 # first time only: fetch the GNOME runtime + SDK
+just build                # build the Flatpak from your working tree
+just run                  # build, then launch it
 ```
 (Or just use GNOME Builder — press ▶.)
 
@@ -139,8 +148,8 @@ and the Blueprint language.
 2. Add the **Blueprint compiler** to the build so `.blp` files compile to `.ui`
    automatically.
 3. Convert `window.ui` → `window.blp` and `shortcuts-dialog.ui` → `.blp`.
-4. Rename things to your real structure: `window.vala` → `ui/main-window.vala`, class
-   `Postbox.MainWindow`. Update `meson.build` and the gresource file.
+4. Rename things to your real structure: `window.py` with class `PostboxMainWindow`
+   (`__gtype_name__ = "PostboxMainWindow"`). Update `meson.build` and the gresource file.
 
 **💡 Hints:**
 - Install `blueprint-compiler` (it's a Fedora package: `blueprint-compiler`).
@@ -228,21 +237,21 @@ updates — it looks like an email client, just with pretend data.
 database. The UI now reads from the database (still no network — you'll insert test rows by
 hand).
 
-**📚 You'll learn:** Designing simple data models, and reading/writing SQLite from Vala —
-your offline foundation. This is the first *engine* code.
+**📚 You'll learn:** Designing simple data models, and reading/writing SQLite with Python's
+`sqlite3` — your offline foundation. This is the first *engine* code.
 
 **🔨 Steps:**
 1. Define clean models in `core/models/`: `Account`, `Folder`, `Email`, `Conversation`.
    Keep them dumb — data + maybe a helper method, no logic.
-2. Write `core/store/database.vala`: open a DB in the user data dir, create tables
+2. Write `core/store/database.py`: open a DB in the user data dir, create tables
    (accounts, folders, emails), expose simple methods like `save_email`, `emails_in_folder`.
 3. On startup, open the DB. Seed it with a few test emails via a temporary function.
 4. Point the UI at the database instead of the fake arrays.
 
 **💡 Hints:**
-- Vala can use `sqlite3` directly (`Sqlite.Database.open`). No ORM — write plain SQL. It's
-  simpler and you'll actually understand your storage.
-- Put the DB at `GLib.Environment.get_user_data_dir()/postbox/postbox.db`.
+- Python's standard library has `sqlite3` built in (`sqlite3.connect(path)`). No ORM —
+  write plain SQL. It's simpler and you'll actually understand your storage.
+- Put the DB at `GLib.get_user_data_dir()/postbox/postbox.db`.
 - Schema tip: give every email a stable server id + a `folder_id` foreign key. Keep it
   minimal — you can add columns later; migrations for a solo project can be "bump a
   `user_version` and ALTER".
@@ -250,8 +259,8 @@ your offline foundation. This is the first *engine* code.
   it synchronous and simple. (Async comes in Phase 5 where it matters.)
 - Read Geary's `src/engine/db` for ideas on structure, but yours should be ~10× smaller.
 
-**✅ Done when:** You delete all the `Fake*` classes and the app shows rows that came from
-SQLite.
+**✅ Done when:** You delete all the `Fake*` classes (`fake_data.py`) and the app shows
+rows that came from SQLite.
 
 ---
 
@@ -274,8 +283,9 @@ a password in your database or a config file).
 
 **💡 Hints:**
 - `Adw.PasswordEntryRow` masks input for free.
-- libsecret in Vala: `Secret.password_store` / `Secret.password_lookup` with a
-  `Secret.Schema` you define once (attributes like `{"account", "server"}`).
+- libsecret via GI: `from gi.repository import Secret`, then
+  `Secret.password_store_sync` / `Secret.password_lookup_sync` with a `Secret.Schema` you
+  define once (attributes like `account`, `server`).
 - Prefill common providers later (Gmail = imap.gmail.com:993) — but ship manual entry first;
   it's simplest and works with any provider.
 - **Provider tip for learning:** pick a test account on a provider that allows plain
@@ -291,15 +301,18 @@ password in the system keyring (check with Seahorse/`secret-tool`), not in your 
 **🎯 Goal:** Connect to the real server, download the folder list and recent message headers
 into your database. The conversation list now shows **your actual inbox**.
 
-**📚 You'll learn:** TLS socket networking, a line-based protocol (IMAP), and **async/await
-in Vala** so the UI never freezes. This is the hardest phase — go slow, celebrate small wins.
+**📚 You'll learn:** TLS socket networking, a line-based protocol (IMAP), and **keeping
+the UI responsive in Python** (a worker thread that hands results back with
+`GLib.idle_add`, or GIO's async methods) so the window never freezes. This is the hardest
+phase — go slow, celebrate small wins.
 
 **🔨 Steps (smallest-first, resist doing it all at once):**
 1. Open a TLS connection to `host:993` and print the server greeting. *That alone is a win.*
 2. Log in (`LOGIN` or `AUTHENTICATE`), then `LIST` folders → save to DB → show in sidebar.
 3. `SELECT INBOX`, then `FETCH` the most recent N message **headers** (envelope: from,
    subject, date, flags) → save → show in list.
-4. Make all of this **async** so the spinner spins and the window stays responsive.
+4. Move all of this **off the main thread** so the spinner spins and the window stays
+   responsive.
 5. Add a manual "Refresh" button before you attempt any automatic syncing.
 
 **💡 Hints:**
@@ -307,12 +320,14 @@ in Vala** so the UI never freezes. This is the hardest phase — go slow, celebr
   `TlsClientConnection`). Read/write with `DataInputStream`/`OutputStream`.
 - IMAP is text: you send `a001 LOGIN user pass\r\n`, read lines until `a001 OK`. Tag each
   command with an incrementing id. Start **read-only** — no deleting anything.
-- Async in Vala: mark methods `async`, call I/O with `yield`. This is *the* Vala superpower
-  — learn it here and reuse it forever. UI handlers can call async methods without blocking.
+- Staying responsive in Python: the simplest reliable pattern is a `threading.Thread` doing
+  the blocking socket I/O, then `GLib.idle_add(callback, result)` to touch widgets back on
+  the main thread (GTK is **not** thread-safe — only the main thread may call into it).
+  Learn this pattern here and reuse it forever.
 - **Read `/home/anshu/code/projects/geary/src/engine/imap`** — it's a production IMAP
   implementation. You don't need 90% of it. Grab the ideas for parsing responses; write a
   minimal version. Your goal is "works for one account," not "handles every server quirk."
-- Keep the socket code in `core/net/imap-session.vala`. When mail arrives, emit a signal;
+- Keep the socket code in `core/net/imap_session.py`. When mail arrives, emit a signal;
   the UI listens. (Golden rule again.)
 - Save-then-display: always write to the DB, then let the UI read the DB. Never let a widget
   hold the only copy of your mail.
@@ -332,7 +347,7 @@ and safely rendering HTML with **WebKitGTK**.
 **🔨 Steps:**
 1. `FETCH` the full raw message (RFC822 body) on demand when a conversation is opened; cache
    it in the DB.
-2. Parse it with GMime in `core/mime/message-parser.vala` → extract text body, HTML body,
+2. Parse it with GMime in `core/mime/message_parser.py` → extract text body, HTML body,
    and attachment parts.
 3. Render plain text in a label; render HTML in a `WebKit.WebView`.
 4. **Block remote images by default** (privacy — this is a real feature, not optional) with
@@ -363,7 +378,7 @@ with a Drafts + Outbox so nothing is lost.
 send queue.
 
 **🔨 Steps:**
-1. Composer as a **separate window** (`ui/composer-window.vala`) — recipients, subject,
+1. Composer as a **separate window** (`composer_window.py`) — recipients, subject,
    body. Start plain-text; add rich text later.
 2. "Reply"/"Forward" prefill it from the open message (quote the original, set To/Subject).
 3. Build the outgoing message with GMime, then send over SMTP (`SUBMIT`/`DATA`) via TLS.
@@ -373,7 +388,7 @@ send queue.
 
 **💡 Hints:**
 - SMTP mirrors IMAP: TLS socket, line protocol (`EHLO`, `AUTH`, `MAIL FROM`, `RCPT TO`,
-  `DATA`). Put it in `core/net/smtp-session.vala`.
+  `DATA`). Put it in `core/net/smtp_session.py`.
 - Build MIME with `GMime.Message` + `GMime.Multipart` — the inverse of parsing.
 - The Outbox is what makes sending feel reliable — model it as a small table + a queue that
   drains when online. Geary's `src/engine/outbox` is the reference.
@@ -521,16 +536,16 @@ Learn these *as they come up* in the phases above, not all upfront.
 
 | Concept | Phase | One-liner | Where to look |
 |---|---|---|---|
-| Vala basics | 0 | C#-like syntax, compiles to C | valadoc.org, GNOME Vala tutorial |
-| GObject & properties | 2 | The object system everything uses | GObject docs |
-| GTK templates | 0 | `.ui`/`.blp` bound to a class | GTK4 docs |
+| Python + PyGObject basics | 0 | Python with `from gi.repository import ...` | PyGObject docs, GNOME Python tutorial |
+| GObject & properties | 2 | The object system everything uses | PyGObject GObject guide |
+| GTK templates | 0 | `.ui`/`.blp` bound to a `@Gtk.Template` class | PyGObject + GTK4 docs |
 | Blueprint | 0 | Readable UI markup | Blueprint compiler docs |
 | Actions (`app.`/`win.`) | 1 | Decoupled commands for menus/keys | GAction docs |
 | `Adw.NavigationSplitView` | 1 | Responsive multi-pane | libadwaita docs |
 | `GListModel` + `ListView` | 2 | Scalable lists | GTK4 list widget guide |
-| SQLite from Vala | 3 | Plain SQL, no ORM | sqlite.org + Vala sqlite3 vapi |
+| SQLite (`sqlite3` stdlib) | 3 | Plain SQL, no ORM | sqlite.org + Python `sqlite3` docs |
 | libsecret | 4 | Keyring password storage | libsecret docs |
-| async/await | 5 | Non-blocking I/O | Vala async tutorial |
+| Threads + `GLib.idle_add` | 5 | Non-blocking I/O without freezing the UI | PyGObject threading guide |
 | IMAP protocol | 5 | Reading mail | RFC 3501 + Geary's engine |
 | GMime / MIME | 6 | Parsing & building mail | GMime docs |
 | WebKitGTK | 6 | Rendering HTML mail | WebKitGTK docs |
@@ -577,14 +592,19 @@ Tick these off to know you've matched Geary. (Phase that delivers it in parenthe
 ## 🐞 Appendix C — Gotchas & debugging survival kit
 
 - **UI not showing / "type not found":** almost always a mismatch between the Blueprint
-  `template` class name, the Vala class name, or the gresource path. Check all three.
-- **App freezes during network calls:** you forgot `async`/`yield`. Blocking the main loop
-  freezes the UI — every socket/DB-heavy call must be async.
+  `template` class name, the Python class's `__gtype_name__`, or the gresource path. Check
+  all three.
+- **App freezes during network calls:** you did blocking I/O on the main thread. Blocking
+  the main loop freezes the UI — move socket/DB-heavy work to a worker thread and hand
+  results back with `GLib.idle_add`.
+- **`ValueError: unknown type name` at startup:** your `@Gtk.Template` class
+  `__gtype_name__` doesn't match the Blueprint `template $Name` — or the class module was
+  never imported before the `.ui` loads. Check both.
 - **Widget shows nothing:** in GTK4 you must `set_child`/`append` *and* the parent must be
   visible; also check `hexpand`/`vexpand`.
 - **Blaming the server:** run `openssl s_client -connect host:993` (IMAP) to talk to the
   server by hand and see the raw protocol — invaluable for Phases 5 & 7.
-- **Print-debug freely:** `message()`, `warning()`, `debug()` go to the terminal. Run from a
+- **Print-debug freely:** `print(...)` or Python's `logging` go to the terminal. Run from a
   terminal (not just Builder) to see them.
 - **Read the reference, don't copy it:** Geary at `/home/anshu/code/projects/geary` is your
   encyclopedia. Understand, then write your own smaller version. Copied code you don't

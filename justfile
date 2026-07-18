@@ -9,7 +9,7 @@
 # The Flatpak build compiles your CURRENT working tree (uncommitted edits
 # included) — the manifest uses a "dir" source, so no need to commit first.
 #
-# Requires: flatpak, flatpak-builder. (meson/ninja/valac come from the SDK.)
+# Requires: flatpak, flatpak-builder. (meson/ninja/python come from the SDK.)
 
 app-id   := "in.gxanshu.postbox"
 manifest := app-id + ".json"
@@ -19,8 +19,8 @@ fp-builddir := ".flatpak/build"
 fp-repo     := ".flatpak/repo"
 bundle      := "postbox.flatpak"
 
-# A plain meson build dir, used ONLY to generate compile_commands.json for the
-# editor's Vala language server. The app is never *run* from here — see `run`.
+# A plain host meson build dir, used ONLY by `pot` to regenerate translations.
+# The app is never *built* or *run* from here — see `build`/`run`.
 builddir := "build"
 
 # Show the recipe list (default when you just run `just`).
@@ -81,9 +81,9 @@ lint:
 # Editor tooling & housekeeping
 # ----------------------------------------------------------------------------
 
-# Editor-only (needs GTK4/libadwaita dev packages on host); use `just run` to run the app.
-# Generate compile_commands.json so your editor's Vala LSP gets autocomplete.
-lsp:
+# Regenerate the .pot translation template. Opt-in dev tool: needs `meson`,
+# `ninja`, and `gettext` on the host (not required for `build`/`run`).
+pot:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ ! -d "{{builddir}}" ]; then
@@ -91,9 +91,6 @@ lsp:
     else
         meson setup --reconfigure "{{builddir}}"
     fi
-
-# Regenerate the .pot translation template.
-pot: lsp
     ninja -C "{{builddir}}" postbox-pot
 
 # Remove all build artifacts (flatpak + meson + bundle).

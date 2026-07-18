@@ -1,16 +1,7 @@
-postbox_sources = [
-  'main.vala',
-  'application.vala',
-  'ui/main-window.vala',
-  'fake-data.vala',
-  'ui/conversation-row.vala'
-]
+python = import('python')
+python_installation = python.find_installation('python3')
 
-postbox_deps = [
-  config_dep,
-  dependency('gtk4'),
-  dependency('libadwaita-1', version: '>= 1.4'),
-]
+pkgdatadir = get_option('prefix') / get_option('datadir') / meson.project_name()
 
 blueprints = custom_target('blueprints',
   input: files(
@@ -27,14 +18,35 @@ blueprints = custom_target('blueprints',
   ],
 )
 
-postbox_sources += gnome.compile_resources('postbox-resources',
+gnome.compile_resources('postbox',
   'postbox.gresource.xml',
-  c_name: 'postbox',
+  gresource_bundle: true,
+  install: true,
+  install_dir: pkgdatadir,
   dependencies: blueprints,
 )
 
-executable('postbox', postbox_sources,
-  dependencies: postbox_deps,
-  include_directories: config_inc,
-       install: true,
+postbox_sources = [
+  'postbox/__init__.py',
+  'postbox/main.py',
+  'postbox/application.py',
+  'postbox/window.py',
+  'postbox/conversation_row.py',
+  'postbox/fake_data.py',
+]
+python_installation.install_sources(postbox_sources, subdir: 'postbox')
+
+conf = configuration_data()
+conf.set('PYTHON', python_installation.full_path())
+conf.set('VERSION', meson.project_version())
+conf.set('localedir', get_option('prefix') / get_option('localedir'))
+conf.set('pkgdatadir', pkgdatadir)
+
+configure_file(
+  input: 'postbox.in',
+  output: 'postbox',
+  configuration: conf,
+  install: true,
+  install_dir: get_option('bindir'),
+  install_mode: 'r-xr-xr-x',
 )

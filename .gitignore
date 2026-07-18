@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# Build artifacts
+/build
+/.flatpak
+/.flatpak-builder
+*.flatpak

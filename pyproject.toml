@@ -1,0 +1,18 @@
+# Dev tooling config. None of this is needed to build or run the Flatpak —
+# it only powers your editor's linting, formatting, and type checking.
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+# A sane starter set: pyflakes (F), pycodestyle (E/W), isort (I), and a few
+# bug-catchers. Add more rules as you get comfortable.
+select = ["E", "W", "F", "I", "UP", "B", "SLF"]
+
+[tool.pyright]
+# "basic" catches real mistakes without fighting GTK's incomplete type stubs.
+# Bump to "strict" later if you want more rigour.
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+include = ["src/postbox"]

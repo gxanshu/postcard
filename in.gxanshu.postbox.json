@@ -3,9 +3,6 @@
     "runtime" : "org.gnome.Platform",
     "runtime-version" : "49",
     "sdk" : "org.gnome.Sdk",
-    "sdk-extensions" : [
-        "org.freedesktop.Sdk.Extension.vala"
-    ],
     "command" : "postbox",
     "finish-args" : [
         "--share=network",
@@ -14,11 +11,6 @@
         "--device=dri",
         "--socket=wayland"
     ],
-    "build-options" : {
-        "append-path" : "/usr/lib/sdk/vala/bin",
-        "prepend-ld-library-path" : "/usr/lib/sdk/vala/lib",
-        "env" : {        }
-    },
     "cleanup" : [
         "/include",
         "/lib/pkgconfig",
@@ -27,7 +19,6 @@
         "/share/gtk-doc",
         "/share/man",
         "/share/pkgconfig",
-        "/share/vala",
         "*.la",
         "*.a"
     ],

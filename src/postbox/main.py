@@ -19,12 +19,9 @@
 
 import sys
 
-from .core.database import Database
 from .application import PostboxApplication
 
 
 def main(version: str) -> int:
-    db = Database()
-
     app = PostboxApplication(version)
     return app.run(sys.argv)

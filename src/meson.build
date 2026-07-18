@@ -32,15 +32,28 @@ postbox_sources = [
   'postbox/application.py',
   'postbox/window.py',
   'postbox/conversation_row.py',
-  'postbox/fake_data.py',
 ]
 python_installation.install_sources(postbox_sources, subdir: 'postbox')
 
 postbox_core_sources = [
   'postbox/core/__init__.py',
-  'postbox/core/database.py',
 ]
 python_installation.install_sources(postbox_core_sources, subdir: 'postbox/core')
+
+postbox_core_models_sources = [
+  'postbox/core/models/__init__.py',
+  'postbox/core/models/account.py',
+  'postbox/core/models/folder.py',
+  'postbox/core/models/email.py',
+  'postbox/core/models/conversation.py',
+]
+python_installation.install_sources(postbox_core_models_sources, subdir: 'postbox/core/models')
+
+postbox_core_store_sources = [
+  'postbox/core/store/__init__.py',
+  'postbox/core/store/database.py',
+]
+python_installation.install_sources(postbox_core_store_sources, subdir: 'postbox/core/store')
 
 conf = configuration_data()
 conf.set('PYTHON', python_installation.full_path())

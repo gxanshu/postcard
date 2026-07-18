@@ -19,9 +19,10 @@
 
 from gi.repository import Adw, Gdk, Gio, GObject, Gtk
 
-from . import fake_data
 from .conversation_row import ConversationRow
-from .fake_data import FakeEmail, FakeFolder
+from .core.models.email import Email
+from .core.models.folder import Folder
+from .core.store.database import Database
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postbox/ui/main-window.ui")
@@ -40,10 +41,18 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     reader_subject: Gtk.Label = Gtk.Template.Child()
     reader_body: Gtk.Label = Gtk.Template.Child()
 
-    def __init__(self, app: Gtk.Application) -> None:
+    def __init__(self, app: Gtk.Application, db: Database) -> None:
         super().__init__(application=app)
 
-        self._folders: Gio.ListStore = fake_data.fake_folders()
+        self._db: Database = db
+        # Single-account for now — Phase 4 adds the "add account" flow and
+        # picking between several.
+        account_id = self._db.accounts()[0].id
+
+        self._folders: Gio.ListStore = Gio.ListStore(item_type=Folder)
+        for folder in self._db.folders_for_account(account_id):
+            self._folders.append(folder)
+
         self._selection: Gtk.SingleSelection = Gtk.SingleSelection()
 
         self._load_styles()
@@ -77,7 +86,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
     def _build_folder_row(self, item: GObject.Object) -> Gtk.Widget:
         folder = item
-        assert isinstance(folder, FakeFolder)
+        assert isinstance(folder, Folder)
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         box.set_margin_top(6)
@@ -89,7 +98,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         name = Gtk.Label(label=folder.name, xalign=0, hexpand=True)
         box.append(name)
 
-        count = folder.emails.get_n_items()
+        count = self._db.unread_count_in_folder(folder.id)
         if count > 0:
             badge = Gtk.Label(label=str(count))
             badge.add_css_class("dim-label")
@@ -102,8 +111,13 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             return
 
         folder = self._folders.get_item(row.get_index())
-        assert isinstance(folder, FakeFolder)
-        self._selection.set_model(folder.emails)
+        assert isinstance(folder, Folder)
+
+        emails = Gio.ListStore(item_type=Email)
+        for email in self._db.emails_in_folder(folder.id):
+            emails.append(email)
+
+        self._selection.set_model(emails)
         self._selection.unselect_all()
         self.reader_stack.set_visible_child_name("empty")
 
@@ -127,7 +141,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
     def _update_reader(self) -> None:
         email = self._selection.get_selected_item()
-        if not isinstance(email, FakeEmail):
+        if not isinstance(email, Email):
             self.reader_stack.set_visible_child_name("empty")
             return
 
@@ -137,8 +151,9 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self.reader_subject.set_label(email.subject)
         self.reader_body.set_label(email.preview)
 
-        # Opening a message marks it read (pretend, for now).
-        email.unread = False
+        if email.unread:
+            email.unread = False
+            self._db.mark_email_read(email.id)
 
         self.reader_stack.set_visible_child_name("message")
 
@@ -156,7 +171,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             row = item.get_child()
             email = item.get_item()
             assert isinstance(row, ConversationRow)
-            assert isinstance(email, FakeEmail)
+            assert isinstance(email, Email)
             row.bind(email)
 
         factory.connect("setup", on_setup)

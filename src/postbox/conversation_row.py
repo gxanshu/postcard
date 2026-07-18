@@ -4,7 +4,7 @@
 
 from gi.repository import Adw, Gtk, Pango
 
-from .fake_data import FakeEmail
+from .core.models.email import Email
 
 
 class ConversationRow(Gtk.Box):
@@ -57,7 +57,7 @@ class ConversationRow(Gtk.Box):
         bottom.append(self._unread_dot)
 
     # Fill this row from an email. Called every time the row is (re)used.
-    def bind(self, email: FakeEmail) -> None:
+    def bind(self, email: Email) -> None:
         self._avatar.set_text(email.sender)
         self._sender_label.set_label(email.sender)
         self._date_label.set_label(email.date)

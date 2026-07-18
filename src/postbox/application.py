@@ -27,6 +27,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gio, Gtk
 
+from .core.store.database import Database
 from .window import PostboxMainWindow
 
 
@@ -40,6 +41,7 @@ class PostboxApplication(Adw.Application):
             resource_base_path="/in/gxanshu/postbox",
         )
         self.version = version
+        self.db = Database()
 
         self._create_action("about", self.on_about_action)
         self._create_action("preferences", self.on_preferences_action)
@@ -48,7 +50,7 @@ class PostboxApplication(Adw.Application):
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
 
     def do_activate(self) -> None:
-        win = self.props.active_window or PostboxMainWindow(self)
+        win = self.props.active_window or PostboxMainWindow(self, self.db)
         win.present()
 
     # Register an app.<name> action, optionally with keyboard accelerators.
@@ -80,7 +82,7 @@ class PostboxApplication(Adw.Application):
         print("app.preferences action activated")
 
     def on_new_window_action(self, *args: object) -> None:
-        PostboxMainWindow(self).present()
+        PostboxMainWindow(self, self.db).present()
 
     def on_shortcuts_action(self, *args: object) -> None:
         builder = Gtk.Builder.new_from_resource(

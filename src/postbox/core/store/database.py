@@ -1,10 +1,3 @@
-# database.py
-#
-# Local SQLite cache: the offline foundation. Plain SQL, no ORM. Everything
-# the UI shows is read from here — nothing is held only in memory.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 import os
 import sqlite3
 
@@ -27,7 +20,6 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
 
         self._create_tables()
-        self._seed_if_empty()
 
     def close(self) -> None:
         self._conn.close()
@@ -156,119 +148,3 @@ class Database:
             date=row["date"],
             unread=bool(row["unread"]),
         )
-
-    # --- first-run sample data ----------------------------------------------
-
-    # Temporary: gives the UI something real to read before Phase 4 (accounts)
-    # and Phase 5 (IMAP) exist. Delete once accounts can be added by hand.
-    def _seed_if_empty(self) -> None:
-        if self._conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"]:
-            return
-
-        account_id = self._conn.execute(
-            """
-            INSERT INTO accounts (email, display_name, imap_host, imap_port, smtp_host, smtp_port)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            ("anshu@postbox.dev", "Anshu", "imap.postbox.dev", 993, "smtp.postbox.dev", 587),
-        ).lastrowid
-
-        folder_specs = [
-            ("inbox", "mail-inbox-symbolic"),
-            ("Starred", "starred-symbolic"),
-            ("Sent", "mail-send-symbolic"),
-            ("Drafts", "document-edit-symbolic"),
-            ("Trash", "user-trash-symbolic"),
-        ]
-        folder_ids = {}
-        for name, icon_name in folder_specs:
-            folder_ids[name] = self._conn.execute(
-                "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
-                (account_id, name, icon_name),
-            ).lastrowid
-
-        inbox_emails = [
-            (
-                "GNOME Foundation",
-                "Welcome to GNOME 48",
-                "Thanks for joining the community — here's what shipped this cycle and how to get involved.",
-                "09:42",
-                True,
-            ),
-            (
-                "Migadu Support",
-                "Your mailbox is ready",
-                "Your new mailbox anshu@postbox.dev is provisioned. IMAP and SMTP settings are below.",
-                "08:15",
-                True,
-            ),
-            (
-                "Ada Lovelace",
-                "Re: Lunch on Thursday?",
-                "Thursday works great for me. Let's meet at the usual place around noon.",
-                "Yesterday",
-                False,
-            ),
-            (
-                "Vala Weekly",
-                "Async/await, explained simply",
-                "This week: a gentle walk through yield, plus a reader question about GListModel.",
-                "Mon",
-                False,
-            ),
-            (
-                "Grace Hopper",
-                "Debugging tips",
-                "Attached are the notes from the talk. The bit about reading the reference, not copying it, applies here too.",
-                "Sun",
-                False,
-            ),
-        ]
-        for sender, subject, preview, date, unread in inbox_emails:
-            self._conn.execute(
-                """
-                INSERT INTO emails (folder_id, sender, subject, preview, date, unread)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (folder_ids["inbox"], sender, subject, preview, date, int(unread)),
-            )
-
-        self._conn.execute(
-            """
-            INSERT INTO emails (folder_id, sender, subject, preview, date, unread)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                folder_ids["Starred"],
-                "Ada Lovelace",
-                "Re: Lunch on Thursday?",
-                "Thursday works great for me. Let's meet at the usual place around noon.",
-                "Yesterday",
-                0,
-            ),
-        )
-
-        self._conn.execute(
-            """
-            INSERT INTO emails (folder_id, sender, subject, preview, date, unread)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                folder_ids["Sent"],
-                "Me",
-                "Re: Your mailbox is ready",
-                "Thanks! Got it working. Now building an email client to actually read it in.",
-                "08:31",
-                0,
-            ),
-        )
-
-        self._conn.execute(
-            """
-            INSERT INTO emails (folder_id, sender, subject, preview, date, unread)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (folder_ids["Drafts"], "Me", "(no subject)", "Hey, just wanted to say —", "10:02", 0),
-        )
-
-        self._conn.commit()

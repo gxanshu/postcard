@@ -49,12 +49,13 @@ Pin these to the wall. Every time you're unsure, re-read them.
 | Mail parsing | **GMime 3.0** (via GI) | GMime 3.0 | Parse/build MIME (don't write this yourself) |
 | Local storage | **SQLite** (`sqlite3` stdlib) | SQLite | Offline cache of messages |
 | Passwords | **libsecret** (`gi Secret`) | libsecret | Store credentials in the keyring, never on disk |
-| Networking | **GIO sockets + GTls** | GIO | IMAP/SMTP run over TLS sockets |
+| Networking | **Python stdlib `imaplib` + `smtplib`** | GIO sockets + GTls | Both ship in Python already; they handle the TLS socket, auth, and protocol framing for you |
 | OAuth / HTTP | **libsoup 3.0 + json-glib** | libsoup 3 | Gmail/Outlook login (later phases) |
 
-> Everything above except SQLite is reached the same way — through **GObject
-> Introspection** (`from gi.repository import ...`). Python's own standard library gives
-> you `sqlite3` for free, so there's nothing to install for storage.
+> Everything above except SQLite and networking is reached the same way — through
+> **GObject Introspection** (`from gi.repository import ...`). Python's own standard
+> library gives you `sqlite3`, `imaplib`, and `smtplib` for free, so there's nothing to
+> install for storage or for talking to a mail server.
 
 **Deliberately skipped for simplicity** (add only if you truly want them): `libgee`
 (use Python lists + `Gio.ListStore`/`GListModel` instead), `libpeas` plugins, GNOME Online
@@ -89,8 +90,8 @@ src/
       store/
         database.py         # SQLite read/write (sqlite3 stdlib)
       net/
-        imap_session.py     # talk to the mail server
-        smtp_session.py     # send mail
+        imap_session.py     # talk to the mail server (wraps stdlib imaplib)
+        smtp_session.py     # send mail (wraps stdlib smtplib)
       mime/
         message_parser.py   # GMime wrapper: bytes -> Email
 data/                       # icons, gschema, desktop file (given)
@@ -301,36 +302,44 @@ password in the system keyring (check with Seahorse/`secret-tool`), not in your 
 **🎯 Goal:** Connect to the real server, download the folder list and recent message headers
 into your database. The conversation list now shows **your actual inbox**.
 
-**📚 You'll learn:** TLS socket networking, a line-based protocol (IMAP), and **keeping
-the UI responsive in Python** (a worker thread that hands results back with
-`GLib.idle_add`, or GIO's async methods) so the window never freezes. This is the hardest
-phase — go slow, celebrate small wins.
+**📚 You'll learn:** the IMAP conversation (login → list folders → select a mailbox → fetch
+headers by UID), wrapping stdlib `imaplib` behind a small clean class, and **keeping the UI
+responsive in Python** (a worker thread that hands results back with `GLib.idle_add`) so the
+window never freezes. That threading dance is the part that matters for every GTK app you'll
+ever write — go slow, celebrate small wins.
 
 **🔨 Steps (smallest-first, resist doing it all at once):**
-1. Open a TLS connection to `host:993` and print the server greeting. *That alone is a win.*
-2. Log in (`LOGIN` or `AUTHENTICATE`), then `LIST` folders → save to DB → show in sidebar.
-3. `SELECT INBOX`, then `FETCH` the most recent N message **headers** (envelope: from,
-   subject, date, flags) → save → show in list.
+1. Open an `imaplib.IMAP4_SSL(host, port)` connection and print the server greeting.
+   *That alone is a win.*
+2. `login(...)`, then `list()` folders → save to DB → show in sidebar.
+3. `select("INBOX", readonly=True)`, then `fetch(...)` the most recent N message **headers**
+   (UID, flags, from/subject/date) → save → show in list.
 4. Move all of this **off the main thread** so the spinner spins and the window stays
    responsive.
 5. Add a manual "Refresh" button before you attempt any automatic syncing.
 
 **💡 Hints:**
-- Connect with `GLib.SocketClient` and set `tls = true` (or wrap with
-  `TlsClientConnection`). Read/write with `DataInputStream`/`OutputStream`.
-- IMAP is text: you send `a001 LOGIN user pass\r\n`, read lines until `a001 OK`. Tag each
-  command with an incrementing id. Start **read-only** — no deleting anything.
-- Staying responsive in Python: the simplest reliable pattern is a `threading.Thread` doing
-  the blocking socket I/O, then `GLib.idle_add(callback, result)` to touch widgets back on
+- `imaplib` is standard library — zero install, ships with your Flatpak's Python already.
+  It handles the TLS socket, certificate checks, command tagging, and the fiddly "literal"
+  byte-blocks headers arrive in, so you don't hand-parse the wire protocol.
+- Stay **read-only**: `select(mailbox, readonly=True)` plus `BODY.PEEK[...]` in your fetch
+  request means "look without touching" — a plain writable select or `BODY[...]` would mark
+  messages as read on the server just by glancing at them.
+- Use the message **UID** (stable) as your DB's `server_id`, not the message *number*
+  (1, 2, 3…), which shifts as mail arrives/leaves. `SELECT` reports how many messages exist,
+  so fetch the range `count-N+1 : count` for "the newest N."
+- Staying responsive in Python: the reliable pattern is a `threading.Thread` doing the
+  blocking `imaplib` calls, then `GLib.idle_add(callback, result)` to touch widgets back on
   the main thread (GTK is **not** thread-safe — only the main thread may call into it).
   Learn this pattern here and reuse it forever.
-- **Read `/home/anshu/code/projects/geary/src/engine/imap`** — it's a production IMAP
-  implementation. You don't need 90% of it. Grab the ideas for parsing responses; write a
-  minimal version. Your goal is "works for one account," not "handles every server quirk."
-- Keep the socket code in `core/net/imap_session.py`. When mail arrives, emit a signal;
-  the UI listens. (Golden rule again.)
+- Keep `imaplib` wrapped behind a small class in `core/net/imap_session.py` exposing just
+  `connect/login/list_folders/select/fetch_recent_headers/logout` — nothing else in the app
+  should need to know you're using `imaplib`. When mail arrives, hand back plain data (or
+  emit a signal); the UI never touches the socket layer directly. (Golden rule again.)
 - Save-then-display: always write to the DB, then let the UI read the DB. Never let a widget
   hold the only copy of your mail.
+- Want to *see* the protocol anyway, just to understand what `imaplib` is doing for you? Set
+  `imaplib.Debug = 4` temporarily — it prints the whole conversation to your terminal.
 
 **✅ Done when:** You launch Postbox and see today's real inbox headers, fetched live, with
 the UI staying smooth.
@@ -381,15 +390,20 @@ send queue.
 1. Composer as a **separate window** (`composer_window.py`) — recipients, subject,
    body. Start plain-text; add rich text later.
 2. "Reply"/"Forward" prefill it from the open message (quote the original, set To/Subject).
-3. Build the outgoing message with GMime, then send over SMTP (`SUBMIT`/`DATA`) via TLS.
+3. Build the outgoing message with GMime, then send it over SMTP using stdlib `smtplib`.
 4. Add an **Outbox**: save the message, try to send, keep it queued and retry on failure so a
    dropped connection never loses a mail. Save unfinished mails to **Drafts**.
 5. Save sent mail to the Sent folder (append via IMAP or let the server do it).
 
 **💡 Hints:**
-- SMTP mirrors IMAP: TLS socket, line protocol (`EHLO`, `AUTH`, `MAIL FROM`, `RCPT TO`,
-  `DATA`). Put it in `core/net/smtp_session.py`.
-- Build MIME with `GMime.Message` + `GMime.Multipart` — the inverse of parsing.
+- `smtplib` is `imaplib`'s twin — also standard library, also already in your runtime. Use
+  `smtplib.SMTP_SSL(host, port)` for implicit TLS (port 465), or `SMTP(host, port)` +
+  `starttls()` for port 587. It handles `EHLO`/`AUTH`/`MAIL FROM`/`RCPT TO`/`DATA` for you.
+  Put it in `core/net/smtp_session.py`, wrapped the same small-clean-class way as
+  `imap_session.py` — and sending happens on a worker thread + `GLib.idle_add`, same dance
+  as Phase 5.
+- Build MIME with `GMime.Message` + `GMime.Multipart` — the inverse of parsing — then hand
+  the resulting bytes to `smtplib.SMTP.sendmail(...)` / `send_message(...)`.
 - The Outbox is what makes sending feel reliable — model it as a small table + a queue that
   drains when online. Geary's `src/engine/outbox` is the reference.
 - Attachments = add file parts to the multipart. Reuse your Phase 6 attachment model.
@@ -546,10 +560,10 @@ Learn these *as they come up* in the phases above, not all upfront.
 | SQLite (`sqlite3` stdlib) | 3 | Plain SQL, no ORM | sqlite.org + Python `sqlite3` docs |
 | libsecret | 4 | Keyring password storage | libsecret docs |
 | Threads + `GLib.idle_add` | 5 | Non-blocking I/O without freezing the UI | PyGObject threading guide |
-| IMAP protocol | 5 | Reading mail | RFC 3501 + Geary's engine |
+| IMAP + `imaplib` | 5 | Reading mail via stdlib's IMAP client | Python `imaplib` docs, RFC 3501 |
 | GMime / MIME | 6 | Parsing & building mail | GMime docs |
 | WebKitGTK | 6 | Rendering HTML mail | WebKitGTK docs |
-| SMTP protocol | 7 | Sending mail | RFC 5321 |
+| SMTP + `smtplib` | 7 | Sending mail via stdlib's SMTP client | Python `smtplib` docs, RFC 5321 |
 | SQLite FTS5 | 9 | Full-text search | sqlite.org/fts5 |
 | GSettings | 11 | Persisted preferences | GSettings docs |
 | OAuth2 | 11 | Modern provider login | provider dev docs |

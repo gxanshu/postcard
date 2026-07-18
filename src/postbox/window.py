@@ -56,9 +56,10 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             self.main_stack.set_visible_child_name("no-account")
             return
 
-        self.main_stack.set_visible_child_name("mail")
+        self._load_mail_view(accounts[0].id)
 
-        account_id = accounts[0].id
+    def _load_mail_view(self, account_id: int) -> None:
+        self.main_stack.set_visible_child_name("mail")
 
         self._folders: Gio.ListStore = Gio.ListStore(item_type=Folder)
         for folder in self._db.folders_for_account(account_id):
@@ -76,7 +77,12 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
     def _on_add_account_clicked(self, _button: Gtk.Button) -> None:
         dialog = PostboxAccountDialog(self._db)
+        dialog.connect("account-added", self._on_account_added)
         dialog.present(self)
+
+    def _on_account_added(self, _dialog: PostboxAccountDialog) -> None:
+        accounts = self._db.accounts()
+        self._load_mail_view(accounts[0].id)
 
     # A tiny bit of app CSS: the accent-coloured unread dot and a bold sender
     # name. Loaded from a string so we don't need another resource file yet.

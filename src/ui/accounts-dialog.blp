@@ -1,7 +1,7 @@
 using Gtk 4.0;
 using Adw 1;
 
-template $PostboxAccountsDialog: Adw.dialog {
+template $PostboxAccountsDialog: Adw.Dialog {
     title: _("Accounts");
     content-width: 480;
     content-height: 480;
@@ -18,12 +18,12 @@ template $PostboxAccountsDialog: Adw.dialog {
                     [header-suffix]
                     Gtk.Button add_button {
                         icon-name: "list-add-symbolic";
-                        tooltip-text: _("Add Acount");
+                        tooltip-text: _("Add Account");
                         
                         styles ["flat"]
                       }
                   }
-              }
-          }
-      }
+              };
+          };
+      };
   }

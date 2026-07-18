@@ -20,7 +20,7 @@ class PostboxAccountsDialog(Adw.Dialog):
         self._rows: list[Adw.ActionRow] = []
 
         self.add_button.connect("clicked", self._on_add_clicked)
-        self.reload()
+        self._reload()
 
     def _reload(self) -> None:
         for row in self._rows:

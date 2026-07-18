@@ -19,7 +19,6 @@
 
 from collections.abc import Callable
 from gettext import gettext as _
-from .accounts_dialog import PostboxAcountsDialog
 
 import gi
 
@@ -28,6 +27,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gio, Gtk
 
+from .accounts_dialog import PostboxAccountsDialog
 from .core.store.database import Database
 from .window import PostboxMainWindow
 
@@ -51,7 +51,7 @@ class PostboxApplication(Adw.Application):
             "shortcuts", self.on_shortcuts_action, ["<control>question"]
         )
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
-        self._create_action("accounts", self.on_acounts_action)
+        self._create_action("accounts", self.on_accounts_action)
 
     def do_activate(self) -> None:
         win = self.props.active_window or PostboxMainWindow(self, self.db)
@@ -95,6 +95,6 @@ class PostboxApplication(Adw.Application):
         dialog = builder.get_object("shortcuts_dialog")
         dialog.present(self.props.active_window)
 
-    def on_acounts_action(self, *args: object) -> None:
-        dialog = PostboxAcountsDialog(self.db)
+    def on_accounts_action(self, *args: object) -> None:
+        dialog = PostboxAccountsDialog(self.db)
         dialog.present(self.props.active_window)

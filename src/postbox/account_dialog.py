@@ -47,7 +47,7 @@ class PostboxAccountDialog(Adw.Dialog):
             self.smtp_host_row.get_text(),
         )
 
-        self.add_button.set_sensitive(all(filed.strip() for filed in required))
+        self.add_button.set_sensitive(all(field.strip() for field in required))
 
     def _on_add_clicked(self, _button: Gtk.Button) -> None:
         account = self._db.save_account(

@@ -1,0 +1,29 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $PostboxAccountsDialog: Adw.dialog {
+    title: _("Accounts");
+    content-width: 480;
+    content-height: 480;
+
+    child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {}
+
+        content: Gtk.ScrolledWindow {
+            child: Adw.PreferencesPage {
+                Adw.PreferencesGroup accounts_group {
+                    title: _("Mail Accounts");
+
+                    [header-suffix]
+                    Gtk.Button add_button {
+                        icon-name: "list-add-symbolic";
+                        tooltip-text: _("Add Acount");
+                        
+                        styles ["flat"]
+                      }
+                  }
+              }
+          }
+      }
+  }

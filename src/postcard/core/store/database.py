@@ -112,11 +112,24 @@ class Database:
             INSERT INTO emails_fts(emails_fts) VALUES ('rebuild');
             """
         )
+
+        # Migration: add per-protocol security columns for existing databases.
+        for col in ("imap_security", "smtp_security"):
+            try:
+                self._conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
         self._conn.commit()
 
     # --- accounts -----------------------------------------------------------
 
     def _account_from_row(self, row: sqlite3.Row) -> Account:
+        imap_sec = row["imap_security"]
+        if imap_sec is None:
+            imap_sec = "tls"  # legacy: always used IMAP4_SSL
+        smtp_sec = row["smtp_security"]
+        if smtp_sec is None:
+            smtp_sec = "tls" if row["smtp_port"] == 465 else "starttls"
         return Account(
             id=row["id"],
             email=row["email"],
@@ -125,6 +138,8 @@ class Database:
             imap_port=row["imap_port"],
             smtp_host=row["smtp_host"],
             smtp_port=row["smtp_port"],
+            imap_security=imap_sec,
+            smtp_security=smtp_sec,
         )
 
     def accounts(self) -> list[Account]:
@@ -139,14 +154,28 @@ class Database:
         imap_port: int,
         smtp_host: str,
         smtp_port: int,
+        imap_security: str = "tls",
+        smtp_security: str | None = None,
     ) -> Account:
+        if smtp_security is None:
+            smtp_security = "tls" if smtp_port == 465 else "starttls"
         cursor = self._conn.execute(
             """
             INSERT INTO accounts
-                (email, display_name, imap_host, imap_port, smtp_host, smtp_port)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (email, display_name, imap_host, imap_port, smtp_host, smtp_port,
+                 imap_security, smtp_security)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (email, display_name, imap_host, imap_port, smtp_host, smtp_port),
+            (
+                email,
+                display_name,
+                imap_host,
+                imap_port,
+                smtp_host,
+                smtp_port,
+                imap_security,
+                smtp_security,
+            ),
         )
         self._conn.commit()
 

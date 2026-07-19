@@ -54,7 +54,7 @@ def fetch_mailbox(
     `offset` pages backwards: 0 is the newest `limit`, `limit` is the page
     before that (used to load older mail on scroll).
     """
-    session = ImapSession(account.imap_host, account.imap_port)
+    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
 
     try:
@@ -88,7 +88,7 @@ def fetch_full_message(
     account: Account, password: str, folder_name: str, uid: str
 ) -> bytes:
     """Connect, login, open one folder, and download a single full message"""
-    session = ImapSession(account.imap_host, account.imap_port)
+    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
 
     try:
@@ -108,7 +108,7 @@ def set_flag(
     add: bool,
 ) -> None:
     """Add or remove an IMAP flag on every message in a conversation."""
-    session = ImapSession(account.imap_host, account.imap_port)
+    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.login(account.email, password)
@@ -127,7 +127,7 @@ def move_messages(
     destination: str,
 ) -> None:
     """Move every message in a conversation to another mailbox."""
-    session = ImapSession(account.imap_host, account.imap_port)
+    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.login(account.email, password)

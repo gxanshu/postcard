@@ -6,17 +6,18 @@ class SmtpError(Exception):
 
 
 class SmtpSession:
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, security: str = "tls") -> None:
         self._host = host
         self._port = port
+        self._security = security
         self._smtp: smtplib.SMTP | None = None
 
     def connect(self) -> None:
-        if self._port == 465:
-            self._smtp = smtplib.SMTP_SSL(self._host, self._port, timeout=30)
-        else:
+        if self._security == "starttls":
             self._smtp = smtplib.SMTP(self._host, self._port, timeout=30)
             self._smtp.starttls()
+        else:
+            self._smtp = smtplib.SMTP_SSL(self._host, self._port, timeout=30)
 
     def login(self, user: str, password: str) -> None:
         try:

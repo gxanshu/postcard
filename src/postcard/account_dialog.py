@@ -17,6 +17,8 @@ class PostcardAccountDialog(Adw.Dialog):
     imap_port_row: Adw.EntryRow = Gtk.Template.Child()
     smtp_host_row: Adw.EntryRow = Gtk.Template.Child()
     smtp_port_row: Adw.EntryRow = Gtk.Template.Child()
+    imap_security_row: Adw.ComboRow = Gtk.Template.Child()
+    smtp_security_row: Adw.ComboRow = Gtk.Template.Child()
 
     __gsignals__ = {
         "account-added": (GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -50,13 +52,16 @@ class PostcardAccountDialog(Adw.Dialog):
         self.add_button.set_sensitive(all(field.strip() for field in required))
 
     def _on_add_clicked(self, _button: Gtk.Button) -> None:
+        _sec_options = ["tls", "starttls"]
         account = self._db.save_account(
             email=self.email_row.get_text().strip(),
             display_name=self.display_name_row.get_text().strip(),
             imap_host=self.imap_host_row.get_text().strip(),
             imap_port=int(self.imap_port_row.get_text().strip()),
+            imap_security=_sec_options[self.imap_security_row.get_selected()],
             smtp_host=self.smtp_host_row.get_text().strip(),
             smtp_port=int(self.smtp_port_row.get_text().strip()),
+            smtp_security=_sec_options[self.smtp_security_row.get_selected()],
         )
 
         secrets.store_password(account.id, self.password_row.get_text())

@@ -63,6 +63,8 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     compose_button: Gtk.Button = Gtk.Template.Child()
     reply_button: Gtk.Button = Gtk.Template.Child()
     forward_button: Gtk.Button = Gtk.Template.Child()
+    mark_read_button: Gtk.Button = Gtk.Template.Child()
+    star_button: Gtk.Button = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
 
     def __init__(self, app: Gtk.Application, db: Database) -> None:
@@ -72,6 +74,10 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._current_folder: Folder | None = None
         self._active_view: MessageView | None = None
         self._search_timeout: int = 0
+        self._rendered_id: int | None = None
+        self._suppress_folder_refresh: bool = False
+
+        self._setup_actions()
 
         self.add_account_button.connect("clicked", self._on_add_account_clicked)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
@@ -167,7 +173,106 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
     def _on_composer_finished(self, _composer: PostboxComposerWindow) -> None:
         self._reload_folders()
+        self._refresh_conversations()
         self._drain_outbox()
+
+    # --- mail actions -----------------------------------------------------
+
+    def _setup_actions(self) -> None:
+        for name, handler in (
+            ("toggle-read", self._on_toggle_read),
+            ("toggle-star", self._on_toggle_star),
+        ):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", handler)
+            self.add_action(action)
+
+    def _on_toggle_read(self, _action: Gio.SimpleAction, _param: object) -> None:
+        conversation = self._selection.get_selected_item()
+        if not isinstance(conversation, Conversation):
+            return
+
+        unread = not conversation.unread
+        for mail in conversation.emails:
+            mail.unread = unread
+            if unread:
+                self._db.mark_email_unread(mail.id)
+            else:
+                self._db.mark_email_read(mail.id)
+
+        def revert() -> None:
+            for mail in conversation.emails:
+                mail.unread = not unread
+                if unread:
+                    self._db.mark_email_read(mail.id)
+                else:
+                    self._db.mark_email_unread(mail.id)
+            self._after_flag_change(conversation)
+
+        self._after_flag_change(conversation)
+        uids = [mail.server_id for mail in conversation.emails]
+        self._run_flag_worker(uids, "\\Seen", add=not unread, revert=revert)
+
+    def _on_toggle_star(self, _action: Gio.SimpleAction, _param: object) -> None:
+        conversation = self._selection.get_selected_item()
+        if not isinstance(conversation, Conversation):
+            return
+
+        starred = not conversation.starred
+        for mail in conversation.emails:
+            mail.starred = starred
+            self._db.set_email_starred(mail.id, starred)
+
+        def revert() -> None:
+            for mail in conversation.emails:
+                mail.starred = not starred
+                self._db.set_email_starred(mail.id, not starred)
+            self._after_flag_change(conversation)
+
+        self._after_flag_change(conversation)
+        uids = [mail.server_id for mail in conversation.emails]
+        self._run_flag_worker(uids, "\\Flagged", add=starred, revert=revert)
+
+    # Update badges and the list after a flag change, keeping this
+    # conversation selected (so the reader doesn't reload).
+    def _after_flag_change(self, conversation: Conversation) -> None:
+        self._reload_folders()
+        self._refresh_conversations(keep_id=conversation.id)
+
+    def _run_flag_worker(
+        self, uids: list[str], flag: str, add: bool, revert: Callable[[], None]
+    ) -> None:
+        password = secrets.lookup_password(self._account_id)
+        folder = self._current_folder
+        if not password or folder is None:
+            return
+        thread = threading.Thread(
+            target=self._flag_worker,
+            args=(self._account, password, folder.name, uids, flag, add, revert),
+            daemon=True,
+        )
+        thread.start()
+
+    # Runs on the worker thread: network only, no Gtk/database access.
+    def _flag_worker(
+        self,
+        account: Account,
+        password: str,
+        folder_name: str,
+        uids: list[str],
+        flag: str,
+        add: bool,
+        revert: Callable[[], None],
+    ) -> None:
+        try:
+            mail_sync.set_flag(account, password, folder_name, uids, flag, add)
+        except Exception as error:
+            GLib.idle_add(self._on_action_failed, revert, str(error))
+
+    def _on_action_failed(self, revert: Callable[[], None], message: str) -> bool:
+        revert()
+        self._toast(_("Action failed: {msg}").format(msg=message))
+        return False
 
     # A tiny bit of app CSS: the accent-coloured unread dot and a bold sender
     # name. Loaded from a string so we don't need another resource file yet.
@@ -221,11 +326,14 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         folder = self._folders.get_item(row.get_index())
         assert isinstance(folder, Folder)
         self._current_folder = folder
-        self._refresh_conversations()
+        if not self._suppress_folder_refresh:
+            self._refresh_conversations()
 
     # Rebuild the conversation list from the current folder, applying the
     # search query if one is typed. Called on folder change and search change.
-    def _refresh_conversations(self) -> None:
+    # keep_id re-selects that conversation if it's still in the list, so a mail
+    # action can refresh without reloading the reader.
+    def _refresh_conversations(self, keep_id: int | None = None) -> None:
         if self._current_folder is None:
             return
 
@@ -243,8 +351,20 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             conversations.append(conversation)
 
         self._selection.set_model(conversations)
-        self._selection.unselect_all()
-        self.reader_stack.set_visible_child_name("empty")
+
+        target = -1
+        if keep_id is not None:
+            for index in range(conversations.get_n_items()):
+                if conversations.get_item(index).id == keep_id:
+                    target = index
+                    break
+
+        if target >= 0:
+            self._selection.set_selected(target)
+        else:
+            self._selection.unselect_all()
+            self._rendered_id = None
+            self.reader_stack.set_visible_child_name("empty")
 
     # Debounce keystrokes: query the database ~200ms after typing stops instead
     # of on every letter.
@@ -287,16 +407,47 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._update_reader()
 
     def _update_reader(self) -> None:
-        self.reply_button.set_sensitive(False)
-        self.forward_button.set_sensitive(False)
-
         conversation = self._selection.get_selected_item()
         if not isinstance(conversation, Conversation):
+            self._rendered_id = None
+            self.reply_button.set_sensitive(False)
+            self.forward_button.set_sensitive(False)
+            self.mark_read_button.set_sensitive(False)
+            self.star_button.set_sensitive(False)
             self.reader_stack.set_visible_child_name("empty")
             return
 
+        self._update_action_buttons(conversation)
+
+        # Already showing this thread (e.g. after a flag change) — don't rebuild.
+        if conversation.id == self._rendered_id:
+            self.reader_stack.set_visible_child_name("message")
+            return
+
+        self._rendered_id = conversation.id
+        self.reply_button.set_sensitive(False)
+        self.forward_button.set_sensitive(False)
         self._active_view = None
         self._render_thread(conversation)
+
+    # Reflect the selected conversation's state on the action buttons.
+    def _update_action_buttons(self, conversation: Conversation) -> None:
+        self.mark_read_button.set_sensitive(True)
+        self.star_button.set_sensitive(True)
+
+        if conversation.unread:
+            self.mark_read_button.set_icon_name("mail-read-symbolic")
+            self.mark_read_button.set_tooltip_text(_("Mark Read"))
+        else:
+            self.mark_read_button.set_icon_name("mail-unread-symbolic")
+            self.mark_read_button.set_tooltip_text(_("Mark Unread"))
+
+        if conversation.starred:
+            self.star_button.set_icon_name("starred-symbolic")
+            self.star_button.set_tooltip_text(_("Unstar"))
+        else:
+            self.star_button.set_icon_name("non-starred-symbolic")
+            self.star_button.set_tooltip_text(_("Star"))
 
     # Build one MessageView per email, oldest first. The newest starts expanded
     # (which loads its body); older ones load lazily when the user expands them.
@@ -505,6 +656,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
         if sent_count:
             self._reload_folders()
+            self._refresh_conversations()
             self._toast(_("Sent {n} queued message(s).").format(n=sent_count))
         return False
 
@@ -556,6 +708,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._db.reassign_conversations(inbox.id)
 
         self._reload_folders()
+        self._refresh_conversations()
         self._set_syncing(False)
         self._toast(_("Synced {n} messages.").format(n=len(result.messages)))
         return False
@@ -574,10 +727,14 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         else:
             self.sync_spinner.stop()
 
+    # Rebuild the folder sidebar (refreshes the unread badges). Re-selecting the
+    # row is suppressed so it doesn't rebuild the conversation list — callers
+    # that want that refresh it explicitly.
     def _reload_folders(self) -> None:
         selected = self.folder_list.get_selected_row()
         index = selected.get_index() if selected is not None else 0
 
+        self._suppress_folder_refresh = True
         self._folders.remove_all()
         for folder in self._db.folders_for_account(self._account_id):
             self._folders.append(folder)
@@ -587,6 +744,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             row = self.folder_list.get_row_at_index(0)
         if row is not None:
             self.folder_list.select_row(row)
+        self._suppress_folder_refresh = False
 
     def _toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text))

@@ -34,6 +34,10 @@ class ConversationRow(Gtk.Box):
         self._sender_label.add_css_class("conversation-sender")
         top.append(self._sender_label)
 
+        self._star = Gtk.Image.new_from_icon_name("starred-symbolic")
+        self._star.set_pixel_size(12)
+        top.append(self._star)
+
         self._date_label = Gtk.Label(xalign=1)
         self._date_label.add_css_class("dim-label")
         top.append(self._date_label)
@@ -64,6 +68,7 @@ class ConversationRow(Gtk.Box):
 
         self._avatar.set_text(conversation.latest.sender)
         self._sender_label.set_label(conversation.participants)
+        self._star.set_visible(conversation.starred)
         self._date_label.set_label(conversation.date)
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)

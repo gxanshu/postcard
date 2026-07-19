@@ -117,6 +117,22 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
               child: Adw.ToolbarView {
                 [top]
                 Adw.HeaderBar {
+                  [start]
+                  Gtk.Button mark_read_button {
+                    icon-name: "mail-read-symbolic";
+                    tooltip-text: _("Mark Read");
+                    action-name: "win.toggle-read";
+                    sensitive: false;
+                  }
+
+                  [start]
+                  Gtk.Button star_button {
+                    icon-name: "non-starred-symbolic";
+                    tooltip-text: _("Star");
+                    action-name: "win.toggle-star";
+                    sensitive: false;
+                  }
+
                   [end]
                   Gtk.Button forward_button {
                     icon-name: "mail-forward-symbolic";

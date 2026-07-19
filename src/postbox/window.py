@@ -556,6 +556,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
                 in_reply_to=message.in_reply_to,
                 references=message.references,
             )
+        self._db.reassign_conversations(inbox.id)
 
         self._reload_folders()
         self._set_syncing(False)

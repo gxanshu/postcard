@@ -3,7 +3,9 @@ import sqlite3
 
 from gi.repository import GLib
 
+from .. import threader
 from ..models.account import Account
+from ..models.conversation import Conversation
 from ..models.email import Email
 from ..models.folder import Folder
 
@@ -173,6 +175,31 @@ class Database:
             "SELECT * FROM emails WHERE folder_id = ? ORDER BY id DESC", (folder_id,)
         ).fetchall()
         return [self._email_from_row(row) for row in rows]
+
+    def reassign_conversations(self, folder_id: int) -> None:
+        """Recompute the thread grouping for a folder and store it on each row."""
+        emails = self.emails_in_folder(folder_id)
+        for email_id, conversation_id in threader.group(emails).items():
+            self._conn.execute(
+                "UPDATE emails SET conversation_id = ? WHERE id = ?",
+                (conversation_id, email_id),
+            )
+        self._conn.commit()
+
+    def conversations_in_folder(self, folder_id: int) -> list[Conversation]:
+        """Group a folder's emails into threads, newest thread first."""
+        emails = self._conn.execute(
+            "SELECT * FROM emails WHERE folder_id = ? ORDER BY id", (folder_id,)
+        ).fetchall()
+
+        groups: dict[int, list[Email]] = {}
+        for row in emails:
+            key = row["conversation_id"] if row["conversation_id"] else row["id"]
+            groups.setdefault(key, []).append(self._email_from_row(row))
+
+        conversations = [Conversation(mails) for mails in groups.values()]
+        conversations.sort(key=lambda c: c.emails[-1].id, reverse=True)
+        return conversations
 
     def unread_count_in_folder(self, folder_id: int) -> int:
         row = self._conn.execute(

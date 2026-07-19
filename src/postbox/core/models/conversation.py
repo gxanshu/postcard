@@ -1,16 +1,47 @@
-# conversation.py
-#
-# Grouping of related emails into one thread. Real threading logic lands in
-# Phase 8 — this is a placeholder so the target module layout exists now.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from gi.repository import GObject
+
+from .email import Email
 
 
 class Conversation(GObject.Object):
     __gtype_name__ = "PostboxConversation"
 
-    def __init__(self, id: int) -> None:
+    def __init__(self, emails: list[Email]) -> None:
         super().__init__()
-        self.id: int = id
+        self.emails: list[Email] = emails
+
+    @property
+    def id(self) -> int:
+        return self.emails[0].conversation_id or self.emails[0].id
+
+    @property
+    def latest(self) -> Email:
+        return self.emails[-1]
+
+    @property
+    def subject(self) -> str:
+        return self.latest.subject
+
+    @property
+    def date(self) -> str:
+        return self.latest.date
+
+    @property
+    def preview(self) -> str:
+        return self.latest.preview
+
+    @property
+    def count(self) -> int:
+        return len(self.emails)
+
+    @property
+    def unread(self) -> bool:
+        return any(mail.unread for mail in self.emails)
+
+    @property
+    def participants(self) -> str:
+        seen: list[str] = []
+        for mail in self.emails:
+            if mail.sender not in seen:
+                seen.append(mail.sender)
+        return ", ".join(seen)

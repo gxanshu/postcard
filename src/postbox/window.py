@@ -80,6 +80,13 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
         self._db: Database = db
         self._settings: Gio.Settings = settings
+
+        self.set_default_size(
+            settings.get_int("window-width"), settings.get_int("window-height")
+        )
+        if settings.get_boolean("window-maximized"):
+            self.maximize()
+
         self._current_folder: Folder | None = None
         self._active_view: MessageView | None = None
         self._search_timeout: int = 0
@@ -1184,6 +1191,10 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._settings.disconnect(self._interval_handler)
         if self._sync_timer_id:
             GLib.source_remove(self._sync_timer_id)
+        width, height = self.get_default_size()
+        self._settings.set_int("window-width", width)
+        self._settings.set_int("window-height", height)
+        self._settings.set_boolean("window-maximized", self.is_maximized())
         return False
 
     def _set_syncing(self, syncing: bool) -> None:

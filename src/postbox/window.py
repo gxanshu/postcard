@@ -17,31 +17,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import gi
-
-gi.require_version("WebKit", "6.0")
-
 import email
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from email import policy
 from email.utils import parseaddr
 from gettext import gettext as _
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, WebKit
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import mail_send, mail_sync
 from .account_dialog import PostboxAccountDialog
 from .composer_window import PostboxComposerWindow
 from .conversation_row import ConversationRow
 from .core import compose, secrets
-from .core.mime import message_parser
 from .core.models.account import Account
 from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
 from .core.models.email import Email
 from .core.models.folder import Folder
 from .core.store.database import Database
+from .message_view import MessageView
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postbox/ui/main-window.ui")
@@ -54,16 +51,8 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     folder_list: Gtk.ListBox = Gtk.Template.Child()
     conversation_list: Gtk.ListView = Gtk.Template.Child()
     reader_stack: Gtk.Stack = Gtk.Template.Child()
-    reader_avatar: Adw.Avatar = Gtk.Template.Child()
-    reader_sender: Gtk.Label = Gtk.Template.Child()
-    reader_date: Gtk.Label = Gtk.Template.Child()
     reader_subject: Gtk.Label = Gtk.Template.Child()
-    reader_body: Gtk.Label = Gtk.Template.Child()
-    reader_body_stack: Gtk.Stack = Gtk.Template.Child()
-    reader_webview: WebKit.WebView = Gtk.Template.Child()
-    images_banner: Adw.Banner = Gtk.Template.Child()
-    attachments_group: Gtk.Box = Gtk.Template.Child()
-    attachments_list: Gtk.ListBox = Gtk.Template.Child()
+    thread_box: Gtk.Box = Gtk.Template.Child()
     main_stack: Gtk.Stack = Gtk.Template.Child()
     add_account_button: Gtk.Button = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
@@ -78,13 +67,8 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
         self._db: Database = db
         self._current_folder: Folder | None = None
-        self._current_email_id: int | None = None
-        self._current_html: str | None = None
-        self._current_raw: bytes | None = None
-        self._current_parsed: message_parser.ParsedMessage | None = None
+        self._active_view: MessageView | None = None
 
-        self._setup_webview()
-        self.images_banner.connect("button-clicked", self._on_show_images_clicked)
         self.add_account_button.connect("clicked", self._on_add_account_clicked)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         self.compose_button.connect("clicked", self._on_compose_clicked)
@@ -131,23 +115,25 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._open_composer()
 
     def _on_reply_clicked(self, _button: Gtk.Button) -> None:
-        if self._current_raw is None:
+        if self._active_view is None or self._active_view.raw is None:
             return
-        headers = email.message_from_bytes(self._current_raw, policy=policy.default)
+        headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
         to_addr = parseaddr(str(headers["From"] or ""))[1]
         subject = compose.reply_subject(str(headers["Subject"] or ""))
-        original_text = self._current_parsed.text_body if self._current_parsed else ""
+        parsed = self._active_view.parsed
+        original_text = parsed.text_body if parsed else ""
         body = compose.quote_reply_body(
             str(headers["From"] or ""), str(headers["Date"] or ""), original_text or ""
         )
         self._open_composer(to=to_addr, subject=subject, body=body)
 
     def _on_forward_clicked(self, _button: Gtk.Button) -> None:
-        if self._current_raw is None:
+        if self._active_view is None or self._active_view.raw is None:
             return
-        headers = email.message_from_bytes(self._current_raw, policy=policy.default)
+        headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
         subject = compose.forward_subject(str(headers["Subject"] or ""))
-        original_text = self._current_parsed.text_body if self._current_parsed else ""
+        parsed = self._active_view.parsed
+        original_text = parsed.text_body if parsed else ""
         body = compose.forward_body(
             str(headers["From"] or ""),
             str(headers["Date"] or ""),
@@ -185,13 +171,6 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             Gtk.StyleContext.add_provider_for_display(
                 display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
-
-    # Remote-content lockdown, set once. Re-applied per message in _show_html
-    # so opting in on one email never carries over to the next.
-    def _setup_webview(self) -> None:
-        settings = self.reader_webview.get_settings()
-        settings.set_enable_javascript(False)
-        settings.set_auto_load_images(False)
 
     # The folder list is small and fixed, so a Gtk.ListBox is the simplest
     # tool. bind_model() builds one row per folder and keeps them in sync with
@@ -267,126 +246,93 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             self.reader_stack.set_visible_child_name("empty")
             return
 
-        email = conversation.latest
-        self.reader_avatar.set_text(email.sender)
-        self.reader_sender.set_label(email.sender)
-        self.reader_date.set_label(email.date)
-        self.reader_subject.set_label(email.subject)
+        self._active_view = None
+        self._render_thread(conversation)
 
-        if email.unread:
-            email.unread = False
-            self._db.mark_email_read(email.id)
+    # Build one MessageView per email, oldest first. The newest starts expanded
+    # (which loads its body); older ones load lazily when the user expands them.
+    def _render_thread(self, conversation: Conversation) -> None:
+        self.reader_subject.set_label(conversation.subject)
 
-        self._open_email(email)
+        child = self.thread_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.thread_box.remove(child)
+            child = next_child
 
-    def _open_email(self, email: Email) -> None:
-        self._current_email_id = email.id
+        emails = conversation.emails
+        last = len(emails) - 1
+        for index, mail in enumerate(emails):
+            newest = index == last
+            view = MessageView(
+                mail,
+                on_load=self._load_body,
+                on_save_attachment=self._save_attachment,
+                on_rendered=self._on_newest_rendered if newest else None,
+                expanded=newest,
+            )
+            self.thread_box.append(view)
 
-        cached = self._db.get_raw_message(email.id)
+        self.reader_stack.set_visible_child_name("message")
+
+    def _on_newest_rendered(self, _view: MessageView) -> None:
+        self._active_view = _view
+        self.reply_button.set_sensitive(True)
+        self.forward_button.set_sensitive(True)
+
+    # Fetch one message's raw bytes for a MessageView: mark it read, serve the
+    # cached copy if we have it, else pull it over IMAP on a worker thread.
+    def _load_body(self, mail: Email, callback: Callable) -> None:
+        if mail.unread:
+            mail.unread = False
+            self._db.mark_email_read(mail.id)
+
+        cached = self._db.get_raw_message(mail.id)
         if cached is not None:
-            self._render_message(email.id, cached)
+            callback(cached, None)
             return
 
-        self.reader_stack.set_visible_child_name("loading")
         assert self._current_folder is not None
         thread = threading.Thread(
-            target=self._fetch_body_worker,
-            args=(email, self._current_folder.name),
+            target=self._body_worker,
+            args=(mail, self._current_folder.name, callback),
             daemon=True,
         )
         thread.start()
 
-    # Runs on the worker thread: network only, no Gtk/database access --
-    # same rule as _sync_worker below.
-    def _fetch_body_worker(self, email: Email, folder_name: str) -> None:
+    # Runs on the worker thread: network only, no Gtk/database access.
+    def _body_worker(
+        self, mail: Email, folder_name: str, callback: Callable
+    ) -> None:
         password = secrets.lookup_password(self._account_id)
         if not password:
-            GLib.idle_add(self._on_body_error, email.id, "no saved password")
+            GLib.idle_add(
+                self._deliver_body, callback, mail.id, None, "no saved password"
+            )
             return
         try:
             raw = mail_sync.fetch_full_message(
-                self._account, password, folder_name, email.server_id
+                self._account, password, folder_name, mail.server_id
             )
         except Exception as error:
-            GLib.idle_add(self._on_body_error, email.id, str(error))
+            GLib.idle_add(self._deliver_body, callback, mail.id, None, str(error))
             return
-        GLib.idle_add(self._on_body_fetched, email.id, raw)
+        GLib.idle_add(self._deliver_body, callback, mail.id, raw, None)
 
-    # Back on the main thread: safe to touch the database and widgets.
-    def _on_body_fetched(self, email_id: int, raw: bytes) -> bool:
-        self._db.save_raw_message(email_id, raw)
-        if email_id == self._current_email_id:
-            self._render_message(email_id, raw)
+    # Back on the main thread: cache the body, then hand it to the MessageView.
+    def _deliver_body(
+        self,
+        callback: Callable,
+        email_id: int,
+        raw: bytes | None,
+        error: str | None,
+    ) -> bool:
+        if raw is not None:
+            self._db.save_raw_message(email_id, raw)
+        callback(raw, error)
         return False
 
-    def _on_body_error(self, email_id: int, message: str) -> bool:
-        if email_id == self._current_email_id:
-            self.reader_stack.set_visible_child_name("message")
-            self._toast(_("Couldn't load message: {msg}").format(msg=message))
-        return False
-
-    def _render_message(self, email_id: int, raw: bytes) -> None:
-        parsed = message_parser.parse_message(raw)
-        self._current_raw = raw
-        self._current_parsed = parsed
-
-        if parsed.html_body:
-            self._show_html(parsed.html_body)
-        else:
-            self._show_text(parsed.text_body or "")
-
-        self._populate_attachments(parsed.attachments)
-        self.reader_stack.set_visible_child_name("message")
-        self.reply_button.set_sensitive(True)
-        self.forward_button.set_sensitive(True)
-
-    def _show_text(self, text: str) -> None:
-        self.images_banner.set_revealed(False)
-        self.reader_body.set_label(text)
-        self.reader_body_stack.set_visible_child_name("text")
-
-    def _show_html(self, html: str) -> None:
-        self._current_html = html
-        self.reader_webview.get_settings().set_auto_load_images(False)
-        self.images_banner.set_revealed(True)
-        self.reader_webview.load_html(html, None)
-        self.reader_body_stack.set_visible_child_name("html")
-
-    def _on_show_images_clicked(self, _banner: Adw.Banner) -> None:
-        self.reader_webview.get_settings().set_auto_load_images(True)
-        self.images_banner.set_revealed(False)
-        if self._current_html is not None:
-            self.reader_webview.load_html(self._current_html, None)
-
-    def _populate_attachments(self, attachments: list[Attachment]) -> None:
-        child = self.attachments_list.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self.attachments_list.remove(child)
-            child = next_child
-
-        self.attachments_group.set_visible(bool(attachments))
-        for attachment in attachments:
-            row = Adw.ActionRow(
-                title=attachment.filename,
-                subtitle=_human_size(attachment.size),
-            )
-            row.add_prefix(Gtk.Image.new_from_icon_name("mail-attachment-symbolic"))
-
-            save_button = Gtk.Button(
-                icon_name="document-save-symbolic", valign=Gtk.Align.CENTER
-            )
-            save_button.add_css_class("flat")
-            save_button.connect(
-                "clicked", self._on_save_attachment_clicked, attachment
-            )
-            row.add_suffix(save_button)
-
-            self.attachments_list.append(row)
-
-    def _on_save_attachment_clicked(
-        self, _button: Gtk.Button, attachment: Attachment
-    ) -> None:
+    def _save_attachment(self, attachment: Attachment) -> None:
         dialog = Gtk.FileDialog(initial_name=attachment.filename)
         dialog.save(self, None, self._on_save_dialog_done, attachment)
 
@@ -595,12 +541,3 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
     def _toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text))
-
-
-def _human_size(num_bytes: int) -> str:
-    size = float(num_bytes)
-    for unit in ("B", "KB", "MB"):
-        if size < 1024:
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} GB"

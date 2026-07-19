@@ -35,6 +35,7 @@ postbox_sources = [
   'postbox/application.py',
   'postbox/window.py',
   'postbox/conversation_row.py',
+  'postbox/message_view.py',
   'postbox/account_dialog.py',
   'postbox/accounts_dialog.py',
   'postbox/composer_window.py',
@@ -47,6 +48,7 @@ postbox_core_sources = [
   'postbox/core/__init__.py',
   'postbox/core/secrets.py',
   'postbox/core/compose.py',
+  'postbox/core/threader.py',
 ]
 
 python_installation.install_sources(postbox_core_sources, subdir: 'postbox/core')

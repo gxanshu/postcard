@@ -1,6 +1,5 @@
 using Gtk 4.0;
 using Adw 1;
-using WebKit 6.0;
 
 template $PostboxMainWindow: Adw.ApplicationWindow {
   title: _("Postbox");
@@ -137,97 +136,27 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
                     name: "message";
                     child: Gtk.Box {
                       orientation: vertical;
-                      spacing: 12;
 
-                      Gtk.Box {
-                        orientation: vertical;
-                        spacing: 12;
+                      Gtk.Label reader_subject {
+                        xalign: 0;
+                        wrap: true;
                         margin-top: 24;
                         margin-start: 24;
                         margin-end: 24;
+                        margin-bottom: 12;
 
-                        Gtk.Box {
-                          spacing: 12;
-
-                          Adw.Avatar reader_avatar {
-                            size: 48;
-                            show-initials: true;
-                          }
-
-                          Gtk.Label reader_sender {
-                            xalign: 0;
-                            styles ["heading"]
-                          }
-
-                          Gtk.Label reader_date {
-                            xalign: 0;
-                            styles ["dim-label"]
-                          }
-                        }
-
-                        Gtk.Label reader_subject {
-                          xalign: 0;
-                          wrap: true;
-
-                          styles ["title-2"]
-                        }
-
-                        Adw.Banner images_banner {
-                          title: _("Remote images are blocked to protect your privacy.");
-                          button-label: _("Show Images");
-                        }
-
-                        Gtk.Separator {}
+                        styles ["title-2"]
                       }
 
-                      Gtk.Stack reader_body_stack {
+                      Gtk.ScrolledWindow {
+                        hscrollbar-policy: never;
                         vexpand: true;
 
-                        StackPage {
-                          name: "text";
-                          child: Gtk.ScrolledWindow {
-                            hscrollbar-policy: never;
-                            vexpand: true;
-
-                            child: Gtk.Label reader_body {
-                              xalign: 0;
-                              yalign: 0;
-                              wrap: true;
-                              margin-start: 24;
-                              margin-end: 24;
-                              margin-bottom: 24;
-                            };
-                          };
-                        }
-
-                        StackPage {
-                          name: "html";
-                          child: WebKit.WebView reader_webview {
-                            vexpand: true;
-                            hexpand: true;
-                          };
-                        }
-                      }
-
-                      Gtk.Box attachments_group {
-                        orientation: vertical;
-                        spacing: 6;
-                        margin-start: 24;
-                        margin-end: 24;
-                        margin-bottom: 16;
-                        visible: false;
-
-                        Gtk.Label {
-                          xalign: 0;
-                          label: _("Attachments");
-                          styles ["heading"]
-                        }
-
-                        Gtk.ListBox attachments_list {
-                          selection-mode: none;
-
-                          styles ["boxed-list"]
-                        }
+                        child: Gtk.Box thread_box {
+                          orientation: vertical;
+                          spacing: 6;
+                          margin-bottom: 12;
+                        };
                       }
                     };
                   }

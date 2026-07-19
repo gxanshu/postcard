@@ -55,7 +55,11 @@ class Database:
                 preview TEXT NOT NULL,
                 date TEXT NOT NULL,
                 unread INTEGER NOT NULL DEFAULT 1,
-                raw_message BLOB
+                raw_message BLOB,
+                message_id TEXT,
+                in_reply_to TEXT,
+                reference_ids TEXT,
+                conversation_id INTEGER
             );
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid
@@ -227,15 +231,22 @@ class Database:
         preview: str,
         date: str,
         unread: bool,
+        message_id: str = "",
+        in_reply_to: str = "",
+        references: str = "",
     ) -> bool:
         """Insert one fetched email; skip it if we already have it."""
         cursor = self._conn.execute(
             """
             INSERT OR IGNORE INTO emails
-                (folder_id, server_id, sender, subject, preview, date, unread)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (folder_id, server_id, sender, subject, preview, date, unread,
+                 message_id, in_reply_to, reference_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (folder_id, server_id, sender, subject, preview, date, int(unread)),
+            (
+                folder_id, server_id, sender, subject, preview, date, int(unread),
+                message_id, in_reply_to, references,
+            ),
         )
         self._conn.commit()
         return cursor.rowcount > 0
@@ -254,4 +265,8 @@ class Database:
             preview=row["preview"],
             date=row["date"],
             unread=bool(row["unread"]),
+            message_id=row["message_id"] or "",
+            in_reply_to=row["in_reply_to"] or "",
+            references=row["reference_ids"] or "",
+            conversation_id=row["conversation_id"],
         )

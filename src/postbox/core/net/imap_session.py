@@ -74,7 +74,8 @@ class ImapSession:
         typ, data = self._require_imap().fetch(
             f"{start}:{exists}",
             # BODY.PEEK[...] = look at the header WITHOUT marking it \Seen.
-            "(UID FLAGS BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])",
+            "(UID FLAGS BODY.PEEK[HEADER.FIELDS "
+            "(DATE FROM SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
         )
         if typ != "OK":
             raise ImapError(f"fetch failed: {data}")
@@ -119,5 +120,8 @@ class ImapSession:
             "from": str(headers["From"]) if headers["From"] else "",
             "subject": str(headers["Subject"]) if headers["Subject"] else "",
             "date": str(headers["Date"]) if headers["Date"] else "",
+            "message_id": str(headers["Message-ID"]) if headers["Message-ID"] else "",
+            "in_reply_to": str(headers["In-Reply-To"]) if headers["In-Reply-To"] else "",
+            "references": str(headers["References"]) if headers["References"] else "",
             "seen": seen,
         }

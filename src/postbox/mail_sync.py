@@ -16,6 +16,9 @@ class MessageHeader:
     date: str
     unread: bool
     preview: str = ""
+    message_id: str = ""
+    in_reply_to: str = ""
+    references: str = ""
 
 
 @dataclass
@@ -46,6 +49,9 @@ def fetch_mailbox(
             subject=item["subject"] or "(no subject)",
             date=_format_date(item["date"]),
             unread=not item["seen"],
+            message_id=item["message_id"],
+            in_reply_to=item["in_reply_to"],
+            references=item["references"],
         )
         for item in raw
     ]

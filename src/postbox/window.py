@@ -552,6 +552,9 @@ class PostboxMainWindow(Adw.ApplicationWindow):
                 preview=message.preview,
                 date=message.date,
                 unread=message.unread,
+                message_id=message.message_id,
+                in_reply_to=message.in_reply_to,
+                references=message.references,
             )
 
         self._reload_folders()

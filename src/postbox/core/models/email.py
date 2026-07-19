@@ -21,6 +21,10 @@ class Email(GObject.Object):
         preview: str,
         date: str,
         unread: bool,
+        message_id: str = "",
+        in_reply_to: str = "",
+        references: str = "",
+        conversation_id: int | None = None,
     ) -> None:
         super().__init__()
         self.id: int = id
@@ -31,3 +35,7 @@ class Email(GObject.Object):
         self.preview: str = preview
         self.date: str = date
         self.unread: bool = unread
+        self.message_id: str = message_id
+        self.in_reply_to: str = in_reply_to
+        self.references: str = references
+        self.conversation_id: int | None = conversation_id

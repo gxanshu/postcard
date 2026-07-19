@@ -263,9 +263,7 @@ class Database:
         conversations.sort(key=lambda c: _arrival_key(c.latest), reverse=True)
         return conversations
 
-    def search_conversations(
-        self, folder_id: int, query: str
-    ) -> list[Conversation]:
+    def search_conversations(self, folder_id: int, query: str) -> list[Conversation]:
         """Full-text search a folder; return the matching conversations."""
         match = _fts_query(query)
         if not match:
@@ -371,8 +369,17 @@ class Database:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                folder_id, server_id, sender, subject, preview, date, int(unread),
-                int(starred), message_id, in_reply_to, references,
+                folder_id,
+                server_id,
+                sender,
+                subject,
+                preview,
+                date,
+                int(unread),
+                int(starred),
+                message_id,
+                in_reply_to,
+                references,
             ),
         )
         self._conn.commit()

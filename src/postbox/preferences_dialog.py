@@ -23,9 +23,7 @@ class PostboxPreferencesDialog(Adw.PreferencesDialog):
         flags = Gio.SettingsBindFlags.DEFAULT
         settings.bind("notifications", self.notifications_row, "active", flags)
         settings.bind("load-remote-images", self.images_row, "active", flags)
-        settings.bind(
-            "signature-enabled", self.signature_enabled_row, "active", flags
-        )
+        settings.bind("signature-enabled", self.signature_enabled_row, "active", flags)
         settings.bind(
             "signature-enabled",
             self.signature_view,
@@ -60,6 +58,4 @@ class PostboxPreferencesDialog(Adw.PreferencesDialog):
 
     def _on_signature_changed(self, buffer: Gtk.TextBuffer) -> None:
         start, end = buffer.get_bounds()
-        self._settings.set_string(
-            "signature-text", buffer.get_text(start, end, False)
-        )
+        self._settings.set_string("signature-text", buffer.get_text(start, end, False))

@@ -11,9 +11,7 @@ from gi.repository import GObject
 class Folder(GObject.Object):
     __gtype_name__ = "PostboxFolder"
 
-    def __init__(
-        self, id: int, account_id: int, name: str, icon_name: str
-    ) -> None:
+    def __init__(self, id: int, account_id: int, name: str, icon_name: str) -> None:
         super().__init__()
         self.id: int = id
         self.account_id: int = account_id

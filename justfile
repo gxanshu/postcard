@@ -81,6 +81,10 @@ lint:
 # Editor tooling & housekeeping
 # ----------------------------------------------------------------------------
 
+# Format the codebase with ruff.
+fmt:
+    ruff format src
+
 # Regenerate the .pot translation template. Opt-in dev tool: needs `meson`,
 # `ninja`, and `gettext` on the host (not required for `build`/`run`).
 pot:

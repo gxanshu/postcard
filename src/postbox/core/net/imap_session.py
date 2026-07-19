@@ -146,7 +146,9 @@ class ImapSession:
             "subject": str(headers["Subject"]) if headers["Subject"] else "",
             "date": str(headers["Date"]) if headers["Date"] else "",
             "message_id": str(headers["Message-ID"]) if headers["Message-ID"] else "",
-            "in_reply_to": str(headers["In-Reply-To"]) if headers["In-Reply-To"] else "",
+            "in_reply_to": str(headers["In-Reply-To"])
+            if headers["In-Reply-To"]
+            else "",
             "references": str(headers["References"]) if headers["References"] else "",
             "seen": seen,
             "flagged": flagged,

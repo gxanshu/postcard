@@ -7,8 +7,9 @@ from gi.repository import Secret
 _SCHEMA = Secret.Schema.new(
     "in.gxanshu.postbox.Account",
     Secret.SchemaFlags.NONE,
-    {"account-id": Secret.SchemaAttributeType.INTEGER}
+    {"account-id": Secret.SchemaAttributeType.INTEGER},
 )
+
 
 def store_password(account_id: int, password: str) -> None:
     Secret.password_store_sync(
@@ -19,6 +20,7 @@ def store_password(account_id: int, password: str) -> None:
         password,
         None,
     )
+
 
 def lookup_password(account_id: int) -> str | None:
     return Secret.password_lookup_sync(_SCHEMA, {"account-id": str(account_id)}, None)

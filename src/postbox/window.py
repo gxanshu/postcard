@@ -170,9 +170,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         # refresh: swapping in a new Gio.ListStore each time (the previous
         # approach) makes GtkListView treat it as a brand new list and reset
         # scroll to the top, which fights load-on-scroll.
-        self._conversation_store: Gio.ListStore = Gio.ListStore(
-            item_type=Conversation
-        )
+        self._conversation_store: Gio.ListStore = Gio.ListStore(item_type=Conversation)
         self._selection: Gtk.SingleSelection = Gtk.SingleSelection(
             model=self._conversation_store
         )
@@ -208,9 +206,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
                 title=account.email, subtitle=account.display_name, activatable=True
             )
             if account.id == self._account_id:
-                row.add_suffix(
-                    Gtk.Image.new_from_icon_name("object-select-symbolic")
-                )
+                row.add_suffix(Gtk.Image.new_from_icon_name("object-select-symbolic"))
             row.connect("activated", self._on_account_row_activated, account)
             accounts_list.append(row)
         box.append(accounts_list)
@@ -507,7 +503,10 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     def _folder_with_role(self, role: str) -> Folder | None:
         current_id = self._current_folder.id if self._current_folder else None
         for folder in self._db.folders_for_account(self._account_id):
-            if folder.id != current_id and mail_sync.role_for_folder(folder.name) == role:
+            if (
+                folder.id != current_id
+                and mail_sync.role_for_folder(folder.name) == role
+            ):
                 return folder
         return None
 
@@ -953,9 +952,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access.
-    def _body_worker(
-        self, mail: Email, folder_name: str, callback: Callable
-    ) -> None:
+    def _body_worker(self, mail: Email, folder_name: str, callback: Callable) -> None:
         password = secrets.lookup_password(self._account_id)
         if not password:
             GLib.idle_add(
@@ -1092,9 +1089,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         GLib.idle_add(self._on_outbox_drained, results)
 
     # Back on the main thread: safe to touch the database and widgets.
-    def _on_outbox_drained(
-        self, results: list[tuple[int, str, bytes, bool]]
-    ) -> bool:
+    def _on_outbox_drained(self, results: list[tuple[int, str, bytes, bool]]) -> bool:
         sent_folder: Folder | None = None
         sent_count = 0
         for email_id, subject, raw, ok in results:
@@ -1201,9 +1196,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         # Mirror the server's folder list, keeping only the local Outbox. This
         # clears stale rows like a duplicate "INBOX" from earlier versions.
         if result.folders:
-            self._db.prune_folders(
-                self._account_id, set(result.folders) | {"Outbox"}
-            )
+            self._db.prune_folders(self._account_id, set(result.folders) | {"Outbox"})
 
         target = self._db.get_or_create_folder(
             self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
@@ -1231,9 +1224,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         # newest-page poll never forgets how far the user has scrolled back),
         # and offer "more" only while messages remain beyond it.
         reached = result.offset + len(result.messages)
-        loaded = min(
-            result.exists, max(self._loaded_count.get(target.id, 0), reached)
-        )
+        loaded = min(result.exists, max(self._loaded_count.get(target.id, 0), reached))
         self._loaded_count[target.id] = loaded
         self._has_more[target.id] = result.exists > loaded
 
@@ -1290,7 +1281,9 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             self._start_sync()
 
     # network-changed fires on any change; act only on real online/offline flips.
-    def _on_network_changed(self, _monitor: Gio.NetworkMonitor, available: bool) -> None:
+    def _on_network_changed(
+        self, _monitor: Gio.NetworkMonitor, available: bool
+    ) -> None:
         if available == self._online:
             return
         self._online = available

@@ -21,9 +21,9 @@ _AUTH_HINTS = (
 # subclass OSError, so the specific cases are checked first.
 def classify(exc: Exception, host: str) -> tuple[str, str]:
     if isinstance(exc, ssl.SSLError):
-        return "tls", _(
-            "Couldn't establish a secure connection to {host}."
-        ).format(host=host)
+        return "tls", _("Couldn't establish a secure connection to {host}.").format(
+            host=host
+        )
     if isinstance(exc, socket.gaierror):
         return "unreachable", _(
             "Can't find {host}. Check the server address or your connection."

@@ -3,8 +3,6 @@ from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.policy import default as default_policy
 
-from postbox.core.models import attachment
-
 from ..models.attachment import Attachment
 
 

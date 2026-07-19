@@ -91,7 +91,10 @@ class ImapSession:
         return messages
 
     def fetch_message(self, uid: str) -> bytes:
-        """Fetch one full message (headers + body) by its stable UID, without marking it seen"""
+        """Fetch one full message (headers + body) by its stable UID.
+
+        Does not mark it seen.
+        """
         type, data = self._require_imap().uid("fetch", uid, "(BODY.PEEK[])")
         if type != "OK":
             raise ImapError(f"could not fetch message {uid}: {data}")

@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 
-from .core.net.imap_session import ImapSession
 from .core.models.account import Account
+from .core.net.imap_session import ImapSession
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50

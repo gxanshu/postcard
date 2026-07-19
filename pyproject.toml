@@ -10,6 +10,13 @@ target-version = "py312"
 # bug-catchers. Add more rules as you get comfortable.
 select = ["E", "W", "F", "I", "UP", "B", "SLF"]
 
+[tool.ruff.lint.per-file-ignores]
+# gi.require_version() must run before the gi.repository import it configures,
+# which pushes that import (and everything after it) below E402's threshold.
+"src/postbox/application.py" = ["E402"]
+"src/postbox/core/secrets.py" = ["E402"]
+"src/postbox/window.py" = ["E402"]
+
 [tool.pyright]
 # "basic" catches real mistakes without fighting GTK's incomplete type stubs.
 # Bump to "strict" later if you want more rigour.

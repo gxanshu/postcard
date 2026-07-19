@@ -28,7 +28,6 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, WebKit
 
 from . import mail_sync
 from .account_dialog import PostboxAccountDialog
-
 from .conversation_row import ConversationRow
 from .core import secrets
 from .core.mime import message_parser

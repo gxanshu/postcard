@@ -92,7 +92,8 @@ class Database:
     ) -> Account:
         cursor = self._conn.execute(
             """
-            INSERT INTO accounts (email, display_name, imap_host, imap_port, smtp_host, smtp_port)
+            INSERT INTO accounts
+                (email, display_name, imap_host, imap_port, smtp_host, smtp_port)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (email, display_name, imap_host, imap_port, smtp_host, smtp_port),
@@ -205,7 +206,8 @@ class Database:
     ) -> Email:
         cursor = self._conn.execute(
             """
-            INSERT INTO emails (folder_id, server_id, sender, subject, preview, date, unread)
+            INSERT INTO emails
+                (folder_id, server_id, sender, subject, preview, date, unread)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (folder_id, server_id, sender, subject, preview, date, int(unread)),

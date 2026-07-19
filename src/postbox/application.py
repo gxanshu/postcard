@@ -19,6 +19,7 @@
 
 from collections.abc import Callable
 from gettext import gettext as _
+from typing import cast
 
 import gi
 
@@ -92,7 +93,7 @@ class PostboxApplication(Adw.Application):
         builder = Gtk.Builder.new_from_resource(
             "/in/gxanshu/postbox/ui/shortcuts-dialog.ui"
         )
-        dialog = builder.get_object("shortcuts_dialog")
+        dialog = cast(Adw.ShortcutsDialog, builder.get_object("shortcuts_dialog"))
         dialog.present(self.props.active_window)
 
     def on_accounts_action(self, *args: object) -> None:

@@ -59,6 +59,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     sync_spinner: Gtk.Spinner = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
+    unread_button: Gtk.ToggleButton = Gtk.Template.Child()
     compose_button: Gtk.Button = Gtk.Template.Child()
     reply_button: Gtk.Button = Gtk.Template.Child()
     forward_button: Gtk.Button = Gtk.Template.Child()
@@ -83,6 +84,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self.search_bar.connect(
             "notify::search-mode-enabled", self._on_search_mode_changed
         )
+        self.unread_button.connect("toggled", self._on_unread_toggled)
 
         accounts = self._db.accounts()
         if not accounts:
@@ -233,6 +235,9 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         else:
             matches = self._db.conversations_in_folder(self._current_folder.id)
 
+        if self.unread_button.get_active():
+            matches = [c for c in matches if c.unread]
+
         conversations = Gio.ListStore(item_type=Conversation)
         for conversation in matches:
             conversations.append(conversation)
@@ -259,6 +264,9 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     ) -> None:
         if not search_bar.get_search_mode():
             self.search_entry.set_text("")
+
+    def _on_unread_toggled(self, _button: Gtk.ToggleButton) -> None:
+        self._refresh_conversations()
 
     # Potentially thousands of rows, so this uses the scalable GTK4 pattern: a
     # GListStore of data, a SingleSelection wrapper, and a factory that recycles

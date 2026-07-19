@@ -74,6 +74,12 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
                     tooltip-text: _("Refresh Inbox");
                   }
 
+                  [start]
+                  Gtk.ToggleButton unread_button {
+                    icon-name: "mail-unread-symbolic";
+                    tooltip-text: _("Show Unread Only");
+                  }
+
                   [end]
                   Gtk.ToggleButton search_button {
                     icon-name: "system-search-symbolic";

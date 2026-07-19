@@ -19,7 +19,7 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
       name: "no-account";
       child: Adw.StatusPage {
         icon-name: "mail-unread-symbolic";
-        title: _("No Accounts Yet");
+        title: _("Welcome to Postbox");
         description: _("Add a mail account to get started.");
         child: Gtk.Button add_account_button {
           label: _("Add Account");
@@ -116,12 +116,39 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
                   };
                 }
 
-                content: Gtk.ScrolledWindow {
-                  hscrollbar-policy: never;
+                content: Gtk.Stack conversation_stack {
+                  StackPage {
+                    name: "list";
+                    child: Gtk.ScrolledWindow {
+                      hscrollbar-policy: never;
 
-                  child: Gtk.ListView conversation_list {
-                  styles ["navigation-sidebar"]
-                  };
+                      child: Gtk.ListView conversation_list {
+                        styles ["navigation-sidebar"]
+                      };
+                    };
+                  }
+
+                  StackPage {
+                    name: "empty";
+                    child: Adw.StatusPage {
+                      icon-name: "mail-read-symbolic";
+                      title: _("No Messages");
+                      description: _("This folder is empty.");
+                    };
+                  }
+
+                  StackPage {
+                    name: "loading";
+                    child: Adw.StatusPage {
+                      title: _("Checking for Mail…");
+                      child: Gtk.Spinner {
+                        spinning: true;
+                        width-request: 32;
+                        height-request: 32;
+                        halign: center;
+                      };
+                    };
+                  }
                 };
               };
             };

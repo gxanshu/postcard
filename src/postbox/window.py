@@ -52,6 +52,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     # file exactly.
     folder_list: Gtk.ListBox = Gtk.Template.Child()
     conversation_list: Gtk.ListView = Gtk.Template.Child()
+    conversation_stack: Gtk.Stack = Gtk.Template.Child()
     reader_stack: Gtk.Stack = Gtk.Template.Child()
     reader_subject: Gtk.Label = Gtk.Template.Child()
     thread_box: Gtk.Box = Gtk.Template.Child()
@@ -709,6 +710,13 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
         self._selection.set_model(conversations)
 
+        if conversations.get_n_items() > 0:
+            self.conversation_stack.set_visible_child_name("list")
+        elif self._syncing:
+            self.conversation_stack.set_visible_child_name("loading")
+        else:
+            self.conversation_stack.set_visible_child_name("empty")
+
         target = -1
         if keep_id is not None:
             for index in range(conversations.get_n_items()):
@@ -1034,6 +1042,8 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
         self._background_sync = background
         self._set_syncing(True)
+        if self.conversation_stack.get_visible_child_name() == "empty":
+            self.conversation_stack.set_visible_child_name("loading")
         thread = threading.Thread(
             target=self._sync_worker,
             args=(self._account, password),
@@ -1104,9 +1114,9 @@ class PostboxMainWindow(Adw.ApplicationWindow):
                 new_count += 1
         self._db.reassign_conversations(inbox.id)
 
+        self._set_syncing(False)
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
-        self._set_syncing(False)
         self.connection_banner.set_revealed(False)
         if not self._background_sync:
             self._toast(_("Synced {n} messages.").format(n=len(result.messages)))

@@ -11,6 +11,10 @@ rebuilt on a modern stack: GTK 4, libadwaita, and Python. It's quickly growing i
 alternative: modern technology, a simple codebase, and a modern UI, without the years of
 accumulated complexity. It's built and shipped as a Flatpak.
 
+<div align="center">
+  <img src="data/screenshots/main-window.png" alt="Postbox showing the three-pane layout with folders, conversations, and reader">
+</div>
+
 ## Features
 
 - Multiple IMAP/SMTP accounts, with passwords stored in the system keyring

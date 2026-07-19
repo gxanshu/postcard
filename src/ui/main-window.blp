@@ -1,5 +1,6 @@
 using Gtk 4.0;
 using Adw 1;
+using WebKit 6.0;
 
 template $PostboxMainWindow: Adw.ApplicationWindow {
   title: _("Postbox");
@@ -98,15 +99,28 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
                   }
 
                   StackPage {
-                    name: "message";
-                    child: Gtk.ScrolledWindow {
-                      hscrollbar-policy: never;
+                    name: "loading";
+                    child: Adw.StatusPage {
+                      title: _("Loading Message…");
+                      child: Gtk.Spinner {
+                        spinning: true;
+                        width-request: 32;
+                        height-request: 32;
+                        halign: center;
+                      };
+                    };
+                  }
 
-                      child: Gtk.Box {
+                  StackPage {
+                    name: "message";
+                    child: Gtk.Box {
+                      orientation: vertical;
+                      spacing: 12;
+
+                      Gtk.Box {
                         orientation: vertical;
                         spacing: 12;
                         margin-top: 24;
-                        margin-bottom: 24;
                         margin-start: 24;
                         margin-end: 24;
 
@@ -136,15 +150,63 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
                           styles ["title-2"]
                         }
 
-                        Gtk.Separator {}
-
-                        Gtk.Label reader_body {
-                          xalign: 0;
-                          yalign: 0;
-                          wrap: true;
-                          vexpand: true;
+                        Adw.Banner images_banner {
+                          title: _("Remote images are blocked to protect your privacy.");
+                          button-label: _("Show Images");
                         }
-                      };
+
+                        Gtk.Separator {}
+                      }
+
+                      Gtk.Stack reader_body_stack {
+                        vexpand: true;
+
+                        StackPage {
+                          name: "text";
+                          child: Gtk.ScrolledWindow {
+                            hscrollbar-policy: never;
+                            vexpand: true;
+
+                            child: Gtk.Label reader_body {
+                              xalign: 0;
+                              yalign: 0;
+                              wrap: true;
+                              margin-start: 24;
+                              margin-end: 24;
+                              margin-bottom: 24;
+                            };
+                          };
+                        }
+
+                        StackPage {
+                          name: "html";
+                          child: WebKit.WebView reader_webview {
+                            vexpand: true;
+                            hexpand: true;
+                          };
+                        }
+                      }
+
+                      Gtk.Box attachments_group {
+                        orientation: vertical;
+                        spacing: 6;
+                        margin-start: 24;
+                        margin-end: 24;
+                        margin-bottom: 16;
+                        visible: false;
+
+                        Gtk.Label {
+                          xalign: 0;
+                          label: _("Attachments");
+                          styles ["heading"]
+                        }
+
+                        Gtk.ListBox attachments_list {
+                          selection-mode: none;
+
+                          styles ["boxed-list"]
+                        }
+                      }
                     };
                   }
                 };

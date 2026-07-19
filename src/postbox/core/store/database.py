@@ -240,6 +240,10 @@ class Database:
         self._conn.commit()
         return cursor.rowcount > 0
 
+    def delete_email(self, email_id: int) -> None:
+        self._conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+        self._conn.commit()
+
     def _email_from_row(self, row: sqlite3.Row) -> Email:
         return Email(
             id=row["id"],

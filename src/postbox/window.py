@@ -247,11 +247,11 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             return ""
         return self._settings.get_string("signature-text").strip()
 
-    def _on_compose_clicked(self, _button: Gtk.Button) -> None:
+    def _on_compose_clicked(self, *_args: object) -> None:
         sig = self._signature_text()
         self._open_composer(body=compose.signature_block(sig) if sig else "")
 
-    def _on_reply_clicked(self, _button: Gtk.Button) -> None:
+    def _on_reply_clicked(self, *_args: object) -> None:
         if self._active_view is None or self._active_view.raw is None:
             return
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
@@ -267,7 +267,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         )
         self._open_composer(to=to_addr, subject=subject, body=body)
 
-    def _on_forward_clicked(self, _button: Gtk.Button) -> None:
+    def _on_forward_clicked(self, *_args: object) -> None:
         if self._active_view is None or self._active_view.raw is None:
             return
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
@@ -308,6 +308,11 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             ("toggle-star", self._on_toggle_star),
             ("archive", self._on_archive),
             ("trash", self._on_trash),
+            ("compose", self._on_compose_clicked),
+            ("reply", self._on_reply_clicked),
+            ("forward", self._on_forward_clicked),
+            ("refresh", self._on_refresh_clicked),
+            ("search", self._on_search_action),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
@@ -317,13 +322,18 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         move.connect("activate", self._on_move)
         self.add_action(move)
 
-        # Ctrl-modified so they don't fire while typing in the search entry.
+        # Flag actions are Ctrl-modified so they don't fire while typing in search.
         app = self.get_application()
         for name, accels in (
             ("win.toggle-read", ["<ctrl>i"]),
             ("win.toggle-star", ["<ctrl>s"]),
             ("win.archive", ["<ctrl>e"]),
             ("win.trash", ["<ctrl>Delete"]),
+            ("win.compose", ["<ctrl>n"]),
+            ("win.reply", ["<ctrl>r"]),
+            ("win.forward", ["<ctrl><shift>f"]),
+            ("win.refresh", ["F5"]),
+            ("win.search", ["<ctrl>f"]),
         ):
             app.set_accels_for_action(name, accels)
 
@@ -925,9 +935,12 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         factory.connect("bind", on_bind)
         return factory
 
-    def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
+    def _on_refresh_clicked(self, *_args: object) -> None:
         self._drain_outbox()
         self._start_sync()
+
+    def _on_search_action(self, _action: Gio.SimpleAction, _param: object) -> None:
+        self.search_bar.set_search_mode(not self.search_bar.get_search_mode())
 
     def _drain_outbox(self) -> None:
         outbox = next(

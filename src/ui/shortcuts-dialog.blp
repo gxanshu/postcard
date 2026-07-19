@@ -5,23 +5,53 @@ Adw.ShortcutsDialog shortcuts_dialog {
   Adw.ShortcutsSection {
     title: _("General");
     Adw.ShortcutsItem {
-    title: C_("shortcut window", "Show Shortcuts");
-      action-name: "app.shortcuts";
-    }
-
-    Adw.ShortcutsItem {
       title: C_("shortcut window", "New Window");
       action-name: "app.new-window";
     }
 
     Adw.ShortcutsItem {
-      title: C_("quit", "Quit");
+      title: C_("shortcut window", "Preferences");
+      action-name: "app.preferences";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Show Shortcuts");
+      action-name: "app.shortcuts";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Quit");
       action-name: "app.quit";
     }
   }
 
   Adw.ShortcutsSection {
     title: _("Mail");
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "New Message");
+      action-name: "win.compose";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Reply");
+      action-name: "win.reply";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Forward");
+      action-name: "win.forward";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Refresh");
+      action-name: "win.refresh";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Search");
+      action-name: "win.search";
+    }
+
     Adw.ShortcutsItem {
       title: C_("shortcut window", "Mark Read/Unread");
       action-name: "win.toggle-read";

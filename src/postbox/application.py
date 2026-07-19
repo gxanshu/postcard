@@ -51,7 +51,9 @@ class PostboxApplication(Adw.Application):
         self._create_action(
             "preferences", self.on_preferences_action, ["<control>comma"]
         )
-        self._create_action("new-window", self.on_new_window_action, ["<control>n"])
+        self._create_action(
+            "new-window", self.on_new_window_action, ["<control><shift>n"]
+        )
         self._create_action(
             "shortcuts", self.on_shortcuts_action, ["<control>question"]
         )

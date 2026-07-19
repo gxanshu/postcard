@@ -1,11 +1,15 @@
 # List of source files containing translatable strings.
 # Please keep this file sorted alphabetically.
 data/in.gxanshu.postbox.desktop.in
-data/in.gxanshu.postbox.metainfo.xml.in
 data/in.gxanshu.postbox.gschema.xml
+data/in.gxanshu.postbox.metainfo.xml.in
+src/postbox/accounts_dialog.py
 src/postbox/application.py
-src/postbox/fake_data.py
-src/postbox/main.py
+src/postbox/composer_window.py
+src/postbox/message_view.py
 src/postbox/window.py
+src/ui/account-dialog.blp
+src/ui/accounts-dialog.blp
+src/ui/composer-window.blp
 src/ui/main-window.blp
 src/ui/shortcuts-dialog.blp

@@ -6,7 +6,7 @@ def send_message(
     account: Account, password: str, from_addr: str, recipients: list[str], raw: bytes
 ) -> None:
     """Connect, log in, and hand a fully-built message to the server."""
-    session = SmtpSession(account.smtp_host, account.smtp_port)
+    session = SmtpSession(account.smtp_host, account.smtp_port, account.smtp_security)
     session.connect()
 
     try:

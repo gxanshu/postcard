@@ -9,13 +9,18 @@ class ImapError(Exception):
 
 
 class ImapSession:
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, security: str = "tls") -> None:
         self._host = host
         self._port = port
-        self._imap: imaplib.IMAP4_SSL | None = None
+        self._security = security
+        self._imap: imaplib.IMAP4 | None = None
 
     def connect(self) -> str:
-        self._imap = imaplib.IMAP4_SSL(self._host, self._port, timeout=30)
+        if self._security == "starttls":
+            self._imap = imaplib.IMAP4(self._host, self._port, timeout=30)
+            self._imap.starttls()
+        else:
+            self._imap = imaplib.IMAP4_SSL(self._host, self._port, timeout=30)
         return self._imap.welcome.decode("utf-8", "replace")
 
     def login(self, user: str, password: str) -> None:

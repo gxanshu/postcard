@@ -19,6 +19,8 @@ class Account(GObject.Object):
         imap_port: int,
         smtp_host: str,
         smtp_port: int,
+        imap_security: str = "tls",
+        smtp_security: str = "tls",
     ) -> None:
         super().__init__()
         self.id: int = id
@@ -28,3 +30,5 @@ class Account(GObject.Object):
         self.imap_port: int = imap_port
         self.smtp_host: str = smtp_host
         self.smtp_port: int = smtp_port
+        self.imap_security: str = imap_security
+        self.smtp_security: str = smtp_security

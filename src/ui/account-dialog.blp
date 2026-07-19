@@ -57,6 +57,14 @@ template $PostcardAccountDialog: Adw.Dialog {
                           input-purpose: digits;
                           text: "993";
                         }
+
+                      Adw.ComboRow imap_security_row {
+                          title: _("Connection Security");
+                          model: Gtk.StringList {
+                              strings ["TLS", "STARTTLS"]
+                          };
+                          selected: 0;
+                      }
                     }
 
                   Adw.PreferencesGroup {
@@ -71,6 +79,14 @@ template $PostcardAccountDialog: Adw.Dialog {
                           input-purpose: digits;
                           text: "587";
                         }
+
+                      Adw.ComboRow smtp_security_row {
+                          title: _("Connection Security");
+                          model: Gtk.StringList {
+                              strings ["TLS", "STARTTLS"]
+                          };
+                          selected: 1;
+                      }
                     }
                 };
             };

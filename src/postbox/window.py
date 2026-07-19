@@ -65,6 +65,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     forward_button: Gtk.Button = Gtk.Template.Child()
     mark_read_button: Gtk.Button = Gtk.Template.Child()
     star_button: Gtk.Button = Gtk.Template.Child()
+    move_button: Gtk.MenuButton = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
 
     def __init__(self, app: Gtk.Application, db: Database) -> None:
@@ -76,6 +77,8 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._search_timeout: int = 0
         self._rendered_id: int | None = None
         self._suppress_folder_refresh: bool = False
+        self._pending_move: dict | None = None
+        self._pending_toast: Adw.Toast | None = None
 
         self._setup_actions()
 
@@ -182,10 +185,23 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         for name, handler in (
             ("toggle-read", self._on_toggle_read),
             ("toggle-star", self._on_toggle_star),
+            ("archive", self._on_archive),
+            ("trash", self._on_trash),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
+
+        move = Gio.SimpleAction.new("move", GLib.VariantType.new("s"))
+        move.connect("activate", self._on_move)
+        self.add_action(move)
+
+    def _set_mail_actions_enabled(self, enabled: bool) -> None:
+        for name in ("toggle-read", "toggle-star", "archive", "trash", "move"):
+            action = self.lookup_action(name)
+            if action is not None:
+                action.set_enabled(enabled)
+        self.move_button.set_sensitive(enabled)
 
     def _on_toggle_read(self, _action: Gio.SimpleAction, _param: object) -> None:
         conversation = self._selection.get_selected_item()
@@ -274,6 +290,157 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         self._toast(_("Action failed: {msg}").format(msg=message))
         return False
 
+    # --- archive / trash / move (with undo) -------------------------------
+
+    def _on_archive(self, _action: Gio.SimpleAction, _param: object) -> None:
+        self._start_move_by_role("archive", _("Archived"))
+
+    def _on_trash(self, _action: Gio.SimpleAction, _param: object) -> None:
+        self._start_move_by_role("trash", _("Deleted"))
+
+    def _on_move(self, _action: Gio.SimpleAction, param: GLib.Variant) -> None:
+        conversation = self._selection.get_selected_item()
+        if not isinstance(conversation, Conversation):
+            return
+        dest = self._find_folder_by_name(param.get_string())
+        if dest is not None:
+            self._start_move(
+                conversation, dest, _("Moved to {name}").format(name=dest.name)
+            )
+
+    def _start_move_by_role(self, role: str, verb: str) -> None:
+        conversation = self._selection.get_selected_item()
+        if not isinstance(conversation, Conversation):
+            return
+        dest = self._folder_with_role(role)
+        if dest is None:
+            self._toast(_("No {role} folder found.").format(role=role))
+            return
+        self._start_move(conversation, dest, verb)
+
+    def _folder_with_role(self, role: str) -> Folder | None:
+        current_id = self._current_folder.id if self._current_folder else None
+        for folder in self._db.folders_for_account(self._account_id):
+            if folder.id != current_id and mail_sync.role_for_folder(folder.name) == role:
+                return folder
+        return None
+
+    def _find_folder_by_name(self, name: str) -> Folder | None:
+        for folder in self._db.folders_for_account(self._account_id):
+            if folder.name == name:
+                return folder
+        return None
+
+    # Move a conversation optimistically: update the DB and drop it from the
+    # list now, then run the real IMAP MOVE ~5s later. An Undo toast cancels the
+    # server move if clicked before then.
+    def _start_move(self, conversation: Conversation, dest: Folder, verb: str) -> None:
+        source = self._current_folder
+        if source is None or dest.id == source.id:
+            return
+
+        self._commit_pending_move()
+
+        email_ids = [mail.id for mail in conversation.emails]
+        uids = [mail.server_id for mail in conversation.emails]
+        for email_id in email_ids:
+            self._db.move_email(email_id, dest.id)
+
+        self._reload_folders()
+        self._refresh_conversations()
+
+        toast = Adw.Toast(title=verb, button_label=_("Undo"))
+        toast.connect("button-clicked", self._on_undo_move)
+        self._pending_toast = toast
+        self._pending_move = {
+            "email_ids": email_ids,
+            "uids": uids,
+            "source": source,
+            "dest": dest,
+            "timeout_id": GLib.timeout_add(5000, self._on_move_timeout),
+        }
+        self.toast_overlay.add_toast(toast)
+
+    def _on_undo_move(self, _toast: Adw.Toast) -> None:
+        pending = self._pending_move
+        if pending is None:
+            return
+        GLib.source_remove(pending["timeout_id"])
+        self._pending_move = None
+        self._pending_toast = None
+        self._restore_move(pending)
+
+    # The undo window elapsed — actually send the move to the server.
+    def _on_move_timeout(self) -> bool:
+        pending = self._pending_move
+        self._pending_move = None
+        self._pending_toast = None
+        if pending is not None:
+            self._run_move_worker(pending)
+        return False
+
+    # A newer action arrived: send the previous pending move now instead of
+    # waiting for its timer.
+    def _commit_pending_move(self) -> None:
+        pending = self._pending_move
+        if pending is None:
+            return
+        GLib.source_remove(pending["timeout_id"])
+        self._pending_move = None
+        if self._pending_toast is not None:
+            self._pending_toast.dismiss()
+            self._pending_toast = None
+        self._run_move_worker(pending)
+
+    def _restore_move(self, pending: dict) -> None:
+        for email_id in pending["email_ids"]:
+            self._db.move_email(email_id, pending["source"].id)
+        self._reload_folders()
+        self._refresh_conversations()
+
+    def _run_move_worker(self, pending: dict) -> None:
+        password = secrets.lookup_password(self._account_id)
+        if not password:
+            return
+        thread = threading.Thread(
+            target=self._move_worker,
+            args=(self._account, password, pending),
+            daemon=True,
+        )
+        thread.start()
+
+    # Runs on the worker thread: network only, no Gtk/database access.
+    def _move_worker(self, account: Account, password: str, pending: dict) -> None:
+        try:
+            mail_sync.move_messages(
+                account,
+                password,
+                pending["source"].name,
+                pending["uids"],
+                pending["dest"].name,
+            )
+        except Exception as error:
+            GLib.idle_add(self._on_move_failed, pending, str(error))
+
+    def _on_move_failed(self, pending: dict, message: str) -> bool:
+        self._restore_move(pending)
+        self._toast(_("Move failed: {msg}").format(msg=message))
+        return False
+
+    # Fill the Move menu with every folder except the current one.
+    def _rebuild_move_menu(self) -> None:
+        menu = Gio.Menu()
+        current_id = self._current_folder.id if self._current_folder else None
+        for folder in self._db.folders_for_account(self._account_id):
+            if folder.id == current_id:
+                continue
+            item = Gio.MenuItem.new(folder.name, None)
+            item.set_action_and_target_value(
+                "win.move", GLib.Variant.new_string(folder.name)
+            )
+            menu.append_item(item)
+        self.move_button.set_menu_model(menu)
+
     # A tiny bit of app CSS: the accent-coloured unread dot and a bold sender
     # name. Loaded from a string so we don't need another resource file yet.
     def _load_styles(self) -> None:
@@ -326,6 +493,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         folder = self._folders.get_item(row.get_index())
         assert isinstance(folder, Folder)
         self._current_folder = folder
+        self._rebuild_move_menu()
         if not self._suppress_folder_refresh:
             self._refresh_conversations()
 
@@ -412,8 +580,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             self._rendered_id = None
             self.reply_button.set_sensitive(False)
             self.forward_button.set_sensitive(False)
-            self.mark_read_button.set_sensitive(False)
-            self.star_button.set_sensitive(False)
+            self._set_mail_actions_enabled(False)
             self.reader_stack.set_visible_child_name("empty")
             return
 
@@ -432,8 +599,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
 
     # Reflect the selected conversation's state on the action buttons.
     def _update_action_buttons(self, conversation: Conversation) -> None:
-        self.mark_read_button.set_sensitive(True)
-        self.star_button.set_sensitive(True)
+        self._set_mail_actions_enabled(True)
 
         if conversation.unread:
             self.mark_read_button.set_icon_name("mail-read-symbolic")

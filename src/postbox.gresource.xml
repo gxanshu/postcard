@@ -6,5 +6,6 @@
     <file preprocess="xml-stripblanks">ui/account-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/accounts-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/composer-window.ui</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/mail-archive-symbolic.svg</file>
   </gresource>
 </gresources>

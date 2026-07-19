@@ -133,6 +133,27 @@ template $PostboxMainWindow: Adw.ApplicationWindow {
                     sensitive: false;
                   }
 
+                  [start]
+                  Gtk.Button archive_button {
+                    icon-name: "mail-archive-symbolic";
+                    tooltip-text: _("Archive");
+                    action-name: "win.archive";
+                  }
+
+                  [start]
+                  Gtk.Button trash_button {
+                    icon-name: "user-trash-symbolic";
+                    tooltip-text: _("Delete");
+                    action-name: "win.trash";
+                  }
+
+                  [start]
+                  Gtk.MenuButton move_button {
+                    icon-name: "folder-symbolic";
+                    tooltip-text: _("Move to Folder");
+                    sensitive: false;
+                  }
+
                   [end]
                   Gtk.Button forward_button {
                     icon-name: "mail-forward-symbolic";

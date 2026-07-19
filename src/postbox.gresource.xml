@@ -5,5 +5,6 @@
     <file preprocess="xml-stripblanks">ui/shortcuts-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/account-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/accounts-dialog.ui</file>
+    <file preprocess="xml-stripblanks">ui/composer-window.ui</file>
   </gresource>
 </gresources>

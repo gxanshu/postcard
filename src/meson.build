@@ -9,6 +9,7 @@ blueprints = custom_target('blueprints',
     'ui/shortcuts-dialog.blp',
     'ui/account-dialog.blp',
     'ui/accounts-dialog.blp',
+    'ui/composer-window.blp',
   ),
   output: '.',
   command: [
@@ -36,13 +37,16 @@ postbox_sources = [
   'postbox/conversation_row.py',
   'postbox/account_dialog.py',
   'postbox/accounts_dialog.py',
+  'postbox/composer_window.py',
   'postbox/mail_sync.py',
+  'postbox/mail_send.py',
 ]
 python_installation.install_sources(postbox_sources, subdir: 'postbox')
 
 postbox_core_sources = [
   'postbox/core/__init__.py',
   'postbox/core/secrets.py',
+  'postbox/core/compose.py',
 ]
 
 python_installation.install_sources(postbox_core_sources, subdir: 'postbox/core')
@@ -66,6 +70,7 @@ python_installation.install_sources(postbox_core_store_sources, subdir: 'postbox
 postbox_core_net_sources = [
   'postbox/core/net/__init__.py',
   'postbox/core/net/imap_session.py',
+  'postbox/core/net/smtp_session.py',
 ]
 python_installation.install_sources(postbox_core_net_sources, subdir: 'postbox/core/net')
 

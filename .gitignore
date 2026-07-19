@@ -8,8 +8,5 @@ __pycache__/
 /.flatpak-builder
 *.flatpak
 
-# AI (you can have your own files like CLAUDE.md or AGENTS.md. but we don't push it)
-CLAUDE.md
-AGENTS.md
+# AI
 .claude
-.agents

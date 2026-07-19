@@ -17,21 +17,34 @@ def forward_subject(subject: str) -> str:
     return f"Fwd: {subject}"
 
 
-def quote_reply_body(original_from: str, original_date: str, original_text: str) -> str:
+def signature_block(text: str) -> str:
+    # The "-- " delimiter is the RFC 3676 convention for a signature.
+    return f"\n\n-- \n{text}"
+
+
+def quote_reply_body(
+    original_from: str, original_date: str, original_text: str, signature: str = ""
+) -> str:
     quoted = "\n".join(f"> {line}" for line in original_text.splitlines())
-    return f"\n\nOn {original_date}, {original_from} wrote:\n{quoted}"
+    quote = f"\n\nOn {original_date}, {original_from} wrote:\n{quoted}"
+    return signature_block(signature) + quote if signature else quote
 
 
 def forward_body(
-    original_from: str, original_date: str, original_subject: str, original_text: str
+    original_from: str,
+    original_date: str,
+    original_subject: str,
+    original_text: str,
+    signature: str = "",
 ) -> str:
-    return (
+    quote = (
         "\n\n---------- Forwarded message ----------\n"
         f"From: {original_from}\n"
         f"Date: {original_date}\n"
         f"Subject: {original_subject}\n\n"
         f"{original_text}"
     )
+    return signature_block(signature) + quote if signature else quote
 
 
 def build_mime_message(

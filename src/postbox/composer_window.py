@@ -46,7 +46,10 @@ class PostboxComposerWindow(Adw.Window):
 
         self.to_row.set_text(to)
         self.subject_row.set_text(subject)
-        self.body_view.get_buffer().set_text(body)
+        buffer = self.body_view.get_buffer()
+        buffer.set_text(body)
+        # Land the cursor above any preset signature/quoted text.
+        buffer.place_cursor(buffer.get_start_iter())
 
         self.cancel_button.connect("clicked", self._on_cancel_clicked)
         self.send_button.connect("clicked", self._on_send_clicked)

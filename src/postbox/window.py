@@ -134,8 +134,14 @@ class PostboxMainWindow(Adw.ApplicationWindow):
     def _on_account_added(self, _dialog: PostboxAccountDialog) -> None:
         self._load_mail_view(self._db.accounts()[0])
 
+    def _signature_text(self) -> str:
+        if not self._settings.get_boolean("signature-enabled"):
+            return ""
+        return self._settings.get_string("signature-text").strip()
+
     def _on_compose_clicked(self, _button: Gtk.Button) -> None:
-        self._open_composer()
+        sig = self._signature_text()
+        self._open_composer(body=compose.signature_block(sig) if sig else "")
 
     def _on_reply_clicked(self, _button: Gtk.Button) -> None:
         if self._active_view is None or self._active_view.raw is None:
@@ -146,7 +152,10 @@ class PostboxMainWindow(Adw.ApplicationWindow):
         parsed = self._active_view.parsed
         original_text = parsed.text_body if parsed else ""
         body = compose.quote_reply_body(
-            str(headers["From"] or ""), str(headers["Date"] or ""), original_text or ""
+            str(headers["From"] or ""),
+            str(headers["Date"] or ""),
+            original_text or "",
+            signature=self._signature_text(),
         )
         self._open_composer(to=to_addr, subject=subject, body=body)
 
@@ -162,6 +171,7 @@ class PostboxMainWindow(Adw.ApplicationWindow):
             str(headers["Date"] or ""),
             str(headers["Subject"] or ""),
             original_text or "",
+            signature=self._signature_text(),
         )
         self._open_composer(subject=subject, body=body)
 

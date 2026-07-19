@@ -10,6 +10,12 @@ from ..models.email import Email
 from ..models.folder import Folder
 
 
+def _fts_query(text: str) -> str:
+    """Turn free text into a safe FTS5 query: each word matched as a prefix."""
+    terms = [f'"{word.replace(chr(34), chr(34) * 2)}"*' for word in text.split()]
+    return " ".join(terms)
+
+
 class Database:
     def __init__(self, path: str | None = None) -> None:
         if path is None:
@@ -66,6 +72,27 @@ class Database:
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid
                 ON emails (folder_id, server_id);
+
+            -- Full-text search index over the searchable columns. It mirrors
+            -- the emails table (content='emails'), so triggers keep it in sync.
+            CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5(
+                sender, subject, preview,
+                content='emails', content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS emails_fts_insert AFTER INSERT ON emails BEGIN
+                INSERT INTO emails_fts(rowid, sender, subject, preview)
+                VALUES (new.id, new.sender, new.subject, new.preview);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS emails_fts_delete AFTER DELETE ON emails BEGIN
+                INSERT INTO emails_fts(emails_fts, rowid, sender, subject, preview)
+                VALUES ('delete', old.id, old.sender, old.subject, old.preview);
+            END;
+
+            -- Re-index any rows that predate the FTS table (cheap for a
+            -- personal mailbox, and saves deleting the database by hand).
+            INSERT INTO emails_fts(emails_fts) VALUES ('rebuild');
             """
         )
         self._conn.commit()
@@ -200,6 +227,27 @@ class Database:
         conversations = [Conversation(mails) for mails in groups.values()]
         conversations.sort(key=lambda c: c.emails[-1].id, reverse=True)
         return conversations
+
+    def search_conversations(
+        self, folder_id: int, query: str
+    ) -> list[Conversation]:
+        """Full-text search a folder; return the matching conversations."""
+        match = _fts_query(query)
+        if not match:
+            return self.conversations_in_folder(folder_id)
+
+        rows = self._conn.execute(
+            """
+            SELECT e.id, e.conversation_id
+            FROM emails_fts f
+            JOIN emails e ON e.id = f.rowid
+            WHERE e.folder_id = ? AND emails_fts MATCH ?
+            """,
+            (folder_id, match),
+        ).fetchall()
+
+        keys = {row["conversation_id"] or row["id"] for row in rows}
+        return [c for c in self.conversations_in_folder(folder_id) if c.id in keys]
 
     def unread_count_in_folder(self, folder_id: int) -> int:
         row = self._conn.execute(

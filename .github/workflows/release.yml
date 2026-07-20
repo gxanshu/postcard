@@ -1,123 +1,88 @@
-name: Release Flatpak
+name: Release
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # manual "publish now" button in the Actions tab
+  workflow_dispatch:
 
 permissions:
-  contents: write        # push the `pages` branch and the version tag
-
-concurrency:
-  group: release
-  cancel-in-progress: false
+  contents: write
 
 env:
   APP_ID: in.gxanshu.postcard
   DOMAIN: postcard.gxanshu.in
 
 jobs:
- check:
+  # Release only when the version in meson.build has no matching git tag yet.
+  check:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.detect.outputs.version }}
-      is_new: ${{ steps.detect.outputs.is_new }}
+      version: ${{ steps.v.outputs.version }}
+      new: ${{ steps.v.outputs.new }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # need all tags to check for v<version>
-
-      - id: detect
+          fetch-depth: 0
+      - id: v
         run: |
-          VERSION=$(grep -m1 'version:' meson.build | sed -E "s/.*'([^']+)'.*/\1/")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-            echo "is_new=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::v$VERSION is already released — nothing to do."
+          version=$(grep -m1 "version:" meson.build | sed -E "s/.*'([^']+)'.*/\1/")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
           else
-            echo "is_new=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::New version v$VERSION detected — releasing."
+            echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
- release:
+  release:
     needs: check
-    if: needs.check.outputs.is_new == 'true'
+    if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
     env:
       VERSION: ${{ needs.check.outputs.version }}
-      GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+      GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID }}
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Restore published site
-        uses: actions/checkout@v4
-        continue-on-error: true
-        with:
-          ref: pages
-          path: _site
-
-      - name: Ensure site layout
+      - name: Set up the build environment
         run: |
-          mkdir -p _site/repo
-          rm -rf _site/.git   # we re-init a clean orphan history when publishing
+          # A container has no machine-id (dbus won't start) and no /dev/fuse.
+          cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id
+          echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | base64 -d | gpg --import
 
-      - name: Import GPG signing key
+      - name: Build and sign the repo
         run: |
-          echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          flatpak-builder --force-clean --user --disable-rofiles-fuse \
+            --repo=repo --gpg-sign="$GPG_KEY" build "$APP_ID.json"
+          flatpak build-update-repo --gpg-sign="$GPG_KEY" repo
 
-      - name: Build Flatpak into the repo
+      - name: Assemble the site
         run: |
-          flatpak-builder --force-clean --user \
-            --repo=_site/repo --gpg-sign="$GPG_KEY_ID" \
-            _build "$APP_ID.json"
-
-      - name: Update repo metadata + static deltas
-        run: |
-          flatpak build-update-repo \
-            --generate-static-deltas --prune --prune-depth=20 \
-            --gpg-sign="$GPG_KEY_ID" _site/repo
-
-      - name: Assemble .flatpakrepo + repo metadata
-        run: |
-          cp "data/icons/hicolor/256x256/apps/$APP_ID.png" _site/icon.png
-          gpg --export "$GPG_KEY_ID" > _site/postcard.gpg
-          GPGKEY=$(base64 -w0 _site/postcard.gpg)
-          cat > _site/postcard.flatpakrepo <<EOF
+          mkdir site
+          mv repo site/repo
+          cp "data/icons/hicolor/256x256/apps/$APP_ID.png" site/icon.png
+          cat > site/postcard.flatpakrepo <<EOF
           [Flatpak Repo]
           Title=Postcard
           Url=https://$DOMAIN/repo/
           Homepage=https://github.com/gxanshu/postcard
-          Comment=A modern email client for GNOME
-          Description=Official Flatpak repository for Postcard
           Icon=https://$DOMAIN/icon.png
-          GPGKey=$GPGKEY
+          GPGKey=$(gpg --export "$GPG_KEY" | base64 -w0)
           EOF
-          echo "$DOMAIN" > _site/CNAME
-          touch _site/.nojekyll
 
       - name: Publish to the pages branch
-        run: |
-          cd _site
-          git init -q -b pages
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -q -m "Publish Postcard $VERSION"
-          git push -f \
-            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
-            pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: site
+          publish_branch: pages
+          cname: ${{ env.DOMAIN }}
+          force_orphan: true
 
       - name: Tag the release
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory '*'
           git tag "v$VERSION"
-          git push \
-            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
-            "v$VERSION"
+          git push origin "v$VERSION"

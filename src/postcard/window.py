@@ -1205,7 +1205,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         target = self._db.get_or_create_folder(
             self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
         )
-        new_count = 0
+        new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
             added = self._db.save_incoming_email(
                 folder_id=target.id,
@@ -1221,7 +1221,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 references=message.references,
             )
             if added and message.unread:
-                new_count += 1
+                new_messages.append(message)
         self._db.reassign_conversations(target.id)
 
         # Update paging state: track the deepest page loaded (max() so a
@@ -1238,22 +1238,28 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.connection_banner.set_revealed(False)
 
         # Only nag about new mail when the user isn't already looking.
-        if new_count and not self.is_active():
-            self._notify_new_mail(new_count)
+        if new_messages and not self.is_active():
+            self._notify_new_mail(new_messages)
         return False
 
-    def _notify_new_mail(self, count: int) -> None:
+    def _notify_new_mail(self, messages: list[mail_sync.MessageHeader]) -> None:
         if not self._settings.get_boolean("notifications"):
             return
         app = self.get_application()
         if app is None:
             return
-        if count == 1:
-            body = _("1 new message")
+
+        if len(messages) == 1:
+            notification = Gio.Notification.new(messages[0].sender)
+            notification.set_body(messages[0].subject)
         else:
-            body = _("{n} new messages").format(n=count)
-        notification = Gio.Notification.new(_("New mail"))
-        notification.set_body(body)
+            senders = ", ".join(dict.fromkeys(m.sender for m in messages))
+            notification = Gio.Notification.new(
+                _("{n} new messages").format(n=len(messages))
+            )
+            notification.set_body(senders)
+
+        notification.set_default_action("app.focus-mail")
         app.send_notification("new-mail", notification)
 
     def _on_sync_error(self, category: str, message: str) -> bool:

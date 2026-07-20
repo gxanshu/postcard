@@ -58,6 +58,7 @@ class PostcardApplication(Adw.Application):
             "shortcuts", self.on_shortcuts_action, ["<control>question"]
         )
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
+        self._create_action("focus-mail", lambda *_: self.do_activate())
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)

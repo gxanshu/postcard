@@ -5,7 +5,7 @@
 
   A modern email client for GNOME.
 
-  [![Version](https://img.shields.io/badge/version-1.1.0-3584e4)](https://github.com/gxanshu/postcard/releases)
+  [![Version](https://img.shields.io/badge/version-1.1.1-3584e4)](https://github.com/gxanshu/postcard/releases)
   [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4)](COPYING)
 </div>
 

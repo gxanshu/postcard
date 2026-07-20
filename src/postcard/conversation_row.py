@@ -43,6 +43,7 @@ class ConversationRow(Gtk.Box):
         top.append(self._date_label)
 
         self._subject_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        self._subject_label.add_css_class("conversation-subject")
         text.append(self._subject_label)
 
         bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -73,3 +74,8 @@ class ConversationRow(Gtk.Box):
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)
         self._unread_dot.set_visible(conversation.unread)
+
+        if conversation.unread:
+            self.add_css_class("unread")
+        else:
+            self.remove_css_class("unread")

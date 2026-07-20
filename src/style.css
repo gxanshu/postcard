@@ -1,0 +1,12 @@
+.conversation-sender {
+  font-weight: 500;
+}
+
+.unread .conversation-sender {
+  font-weight: bold;
+}
+
+.unread .conversation-subject {
+  font-weight: bold;
+  color: @accent_color;
+}

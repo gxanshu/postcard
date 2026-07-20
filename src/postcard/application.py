@@ -29,7 +29,6 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gdk, Gio, Gtk
 
-from .accounts_dialog import PostcardAccountsDialog
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
 from .window import PostcardMainWindow
@@ -59,7 +58,6 @@ class PostcardApplication(Adw.Application):
             "shortcuts", self.on_shortcuts_action, ["<control>question"]
         )
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
-        self._create_action("accounts", self.on_accounts_action)
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -119,10 +117,3 @@ class PostcardApplication(Adw.Application):
         )
         dialog = cast(Adw.ShortcutsDialog, builder.get_object("shortcuts_dialog"))
         dialog.present(self.props.active_window)
-
-    def on_accounts_action(self, *args: object) -> None:
-        dialog = PostcardAccountsDialog(self.db)
-        window = self.props.active_window
-        if isinstance(window, PostcardMainWindow):
-            dialog.connect("closed", lambda *_: window.reload_accounts())
-        dialog.present(window)

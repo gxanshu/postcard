@@ -4,6 +4,14 @@ import re
 from email import policy
 
 
+def _quote_mailbox(name: str) -> str:
+    # imaplib sends mailbox names verbatim, so "[Gmail]/Sent Mail" arrives as
+    # two tokens and the server answers BAD. Quote it (escaping \ and ") so the
+    # space stays inside one astring, per RFC 3501.
+    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 class ImapError(Exception):
     """Raised when talking to the server fails (bad login, dropped link, ..)"""
 
@@ -68,7 +76,9 @@ class ImapSession:
         readonly=True (the default) keeps us non-destructive and never marks
         mail as read. Flag/move actions open it writable.
         """
-        typ, data = self._require_imap().select(mailbox, readonly=readonly)
+        typ, data = self._require_imap().select(
+            _quote_mailbox(mailbox), readonly=readonly
+        )
         if typ != "OK":
             raise ImapError(f"could not open {mailbox}: {data}")
         return int(data[0]) if data and data[0] else 0
@@ -82,7 +92,7 @@ class ImapSession:
 
     def move(self, uid: str, destination: str) -> None:
         """Move one message by UID to another mailbox (RFC 6851 MOVE)."""
-        typ, data = self._require_imap().uid("MOVE", uid, destination)
+        typ, data = self._require_imap().uid("MOVE", uid, _quote_mailbox(destination))
         if typ != "OK":
             raise ImapError(f"could not move {uid} to {destination}: {data}")
 

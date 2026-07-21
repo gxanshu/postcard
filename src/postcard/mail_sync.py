@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
 from .core.net.imap_session import ImapSession
@@ -183,12 +183,8 @@ def icon_for_folder(name: str) -> str:
 
 def _clean_sender(value: str) -> str:
     # "Ada Lovelace <ada@example.com>" -> "Ada Lovelace"; a bare address stays.
-    value = value.strip()
-    if "<" in value:
-        name = value.split("<", 1)[0].strip().strip('"')
-        if name:
-            return name
-    return value
+    name, addr = parseaddr(value)
+    return name or addr or value
 
 
 def _format_date(value: str) -> str:

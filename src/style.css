@@ -1,3 +1,7 @@
+.unread-dot {
+  color: @accent_color;
+}
+
 .conversation-sender {
   font-weight: 500;
 }

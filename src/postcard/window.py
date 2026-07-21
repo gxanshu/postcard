@@ -124,7 +124,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
 
         self._syncing = False
-        self._background_sync = False
         self._sync_timer_id = 0
         self._interval_handler = self._settings.connect(
             "changed::sync-interval-minutes", lambda *_: self._reschedule_sync()
@@ -612,9 +611,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 
-    def _rebuild_move_menu(self) -> None:
-        self.move_button.set_menu_model(self._build_move_menu())
-
     # A menu of every folder except the current one, each targeting win.move.
     def _build_move_menu(self) -> Gio.Menu:
         menu = Gio.Menu()
@@ -745,7 +741,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         assert isinstance(folder, Folder)
         previous = self._current_folder
         self._current_folder = folder
-        self._rebuild_move_menu()
+        self.move_button.set_menu_model(self._build_move_menu())
         if self._suppress_folder_refresh:
             return
         self._refresh_conversations()
@@ -1137,7 +1133,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 self._toast(_("No saved password for this account."))
             return
 
-        self._background_sync = background
         self._set_syncing(True)
         if self.conversation_stack.get_visible_child_name() == "empty":
             self.conversation_stack.set_visible_child_name("loading")

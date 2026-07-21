@@ -27,7 +27,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
-from . import mail_send, mail_sync
+from . import mail_sync
 from .account_dialog import PostcardAccountDialog
 from .accounts_dialog import PostcardAccountsDialog
 from .composer_window import PostcardComposerWindow
@@ -112,8 +112,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
         # Connected once here (not per account load) so switching accounts
-        # doesn't stack duplicate handlers or CSS providers.
-        self._load_styles()
+        # doesn't stack duplicate handlers.
         self.folder_list.connect("row-selected", self._on_folder_selected)
 
         self.connection_banner.connect("button-clicked", self._on_banner_retry)
@@ -672,20 +671,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         return menu
 
-    # A tiny bit of app CSS: the accent-coloured unread dot and a bold sender
-    # name. Loaded from a string so we don't need another resource file yet.
-    def _load_styles(self) -> None:
-        provider = Gtk.CssProvider()
-        provider.load_from_string(
-            ".unread-dot { color: #3584e4; }\n"
-            ".conversation-sender { font-weight: bold; }\n"
-        )
-        display = Gdk.Display.get_default()
-        if display is not None:
-            Gtk.StyleContext.add_provider_for_display(
-                display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
-
     # The folder list is small and fixed, so a Gtk.ListBox is the simplest
     # tool. bind_model() builds one row per folder and keeps them in sync with
     # the store for free.
@@ -1080,7 +1065,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         results = []
         for email_id, subject, recipients, raw in items:
             try:
-                mail_send.send_message(
+                mail_sync.send_message(
                     account, password, account.email, recipients, raw
                 )
                 results.append((email_id, subject, raw, True))

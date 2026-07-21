@@ -3,6 +3,7 @@ from email.utils import parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
 from .core.net.imap_session import ImapSession
+from .core.net.smtp_session import SmtpSession
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
@@ -136,6 +137,20 @@ def move_messages(
             session.move(uid, destination)
     finally:
         session.logout()
+
+
+def send_message(
+    account: Account, password: str, from_addr: str, recipients: list[str], raw: bytes
+) -> None:
+    """Connect, log in, and hand a fully-built message to the server."""
+    session = SmtpSession(account.smtp_host, account.smtp_port, account.smtp_security)
+    session.connect()
+
+    try:
+        session.login(account.email, password)
+        session.send_raw(from_addr, recipients, raw)
+    finally:
+        session.quit()
 
 
 def role_for_folder(name: str) -> str:

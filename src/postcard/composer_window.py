@@ -5,7 +5,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
-from . import mail_send, mail_sync
+from . import mail_sync
 from .core import compose, secrets
 from .core.models.account import Account
 from .core.models.attachment import Attachment
@@ -228,7 +228,7 @@ class PostcardComposerWindow(Adw.Window):
             GLib.idle_add(self._on_send_failed, "no saved password")
             return
         try:
-            mail_send.send_message(
+            mail_sync.send_message(
                 self._account, password, self._account.email, recipients, raw
             )
         except Exception as error:

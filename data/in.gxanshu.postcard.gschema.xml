@@ -11,6 +11,11 @@
 			<summary>Load remote images</summary>
 			<description>Load remote images in messages by default instead of asking.</description>
 		</key>
+		<key name="run-in-background" type="b">
+			<default>false</default>
+			<summary>Keep running in the background</summary>
+			<description>Keep checking for new mail after the window is closed.</description>
+		</key>
 		<key name="sync-interval-minutes" type="i">
 			<range min="0" max="1440"/>
 			<default>15</default>

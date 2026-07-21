@@ -12,6 +12,7 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
 
     notifications_row: Adw.SwitchRow = Gtk.Template.Child()
     images_row: Adw.SwitchRow = Gtk.Template.Child()
+    background_row: Adw.SwitchRow = Gtk.Template.Child()
     interval_row: Adw.ComboRow = Gtk.Template.Child()
     signature_enabled_row: Adw.SwitchRow = Gtk.Template.Child()
     signature_view: Gtk.TextView = Gtk.Template.Child()
@@ -23,6 +24,7 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
         flags = Gio.SettingsBindFlags.DEFAULT
         settings.bind("notifications", self.notifications_row, "active", flags)
         settings.bind("load-remote-images", self.images_row, "active", flags)
+        settings.bind("run-in-background", self.background_row, "active", flags)
         settings.bind("signature-enabled", self.signature_enabled_row, "active", flags)
         settings.bind(
             "signature-enabled",

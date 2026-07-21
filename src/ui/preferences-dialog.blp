@@ -18,6 +18,11 @@ template $PostcardPreferencesDialog: Adw.PreferencesDialog {
         subtitle: _("Load images from the internet without asking");
       }
 
+      Adw.SwitchRow background_row {
+        title: _("Run in Background");
+        subtitle: _("Keep checking for mail after the window is closed");
+      }
+
       Adw.ComboRow interval_row {
         title: _("Check for Mail");
         subtitle: _("How often to look for new mail");

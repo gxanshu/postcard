@@ -1284,15 +1284,39 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._start_sync()
 
     def _on_close_request(self, _window: Gtk.Window) -> bool:
-        self._network.disconnect(self._network_handler)
-        self._settings.disconnect(self._interval_handler)
-        if self._sync_timer_id:
-            GLib.source_remove(self._sync_timer_id)
         width, height = self.get_default_size()
         self._settings.set_int("window-width", width)
         self._settings.set_int("window-height", height)
         self._settings.set_boolean("window-maximized", self.is_maximized())
+
+        if self._settings.get_boolean("run-in-background"):
+            self.set_visible(False)
+            self._notify_background()
+
+            # Keep the app alive so the sync timer keeps running.
+            return True
+
+        self._network.disconnect(self._network_handler)
+        self._settings.disconnect(self._interval_handler)
+        if self._sync_timer_id:
+            GLib.source_remove(self._sync_timer_id)
+
         return False
+
+    def _notify_background(self) -> None:
+        if getattr(self, "_bg_notified", False):
+            return
+
+        self._bg_notified = True
+
+        app = self.get_application()
+        if app is None:
+            return
+
+        n = Gio.Notification.new(_("Postcard is running in the background"))
+        n.set_body(_("It will keep checking for new mail. Quit to stop."))
+        n.set_default_action("app.focus-mail")
+        app.send_notification("running-background", n)
 
     def _set_syncing(self, syncing: bool) -> None:
         self._syncing = syncing

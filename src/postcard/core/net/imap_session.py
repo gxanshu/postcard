@@ -50,25 +50,29 @@ class ImapSession:
             raise ImapError("not connected")
         return self._imap
 
-    def list_folders(self) -> list[str]:
-        """Return the names of the account's selectable mailboxes."""
+    def list_folders(self) -> list[tuple[str, str, str]]:
+        """Return (name, delimiter, flags) for every listed mailbox.
+
+        Unlike the previous version, *all* mailboxes are returned (including
+        \\Noselect containers) so the caller can reconstruct the hierarchy.
+        """
         typ, data = self._require_imap().list()
-        names: list[str] = []
+        result: list[tuple[str, str, str]] = []
         for raw in data:
-            # raw is bytes like:  (\HasNoChildren) "/" "INBOX"
             if not isinstance(raw, bytes):
                 continue
             line = raw.decode("utf-8", "replace")
-            match = re.match(r'\(([^)]*)\) (?:"[^"]*"|NIL) (.+)$', line)
+            match = re.match(r'\(([^)]*)\) ("[^"]*"|NIL) (.+)$', line)
             if match is None:
                 continue
-            flags, name = match.group(1), match.group(2).strip()
-            if "\\Noselect" in flags:
-                continue  # a container like "[Gmail]" you can't actually open
+            flags_part = match.group(1)
+            delim_raw = match.group(2)
+            name = match.group(3).strip()
             if name.startswith('"') and name.endswith('"'):
-                name = name[1:-1]  # strip the surrounding quotes
-            names.append(name)
-        return names
+                name = name[1:-1]
+            delimiter = delim_raw.strip('"') if delim_raw != "NIL" else "/"
+            result.append((name, delimiter, flags_part))
+        return result
 
     def select(self, mailbox: str, readonly: bool = True) -> int:
         """Open a mailbox; return how many messages it holds.

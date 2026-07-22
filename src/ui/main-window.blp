@@ -70,9 +70,7 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
             content: Gtk.ScrolledWindow {
               hscrollbar-policy: never;
 
-              child: Gtk.ListBox folder_list {
-                selection-mode: single;
-
+              child: Gtk.ListView folder_list {
                 styles ["navigation-sidebar"]
               };
             };

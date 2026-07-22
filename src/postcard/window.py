@@ -807,6 +807,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self._current_folder is None:
             return
 
+        vadj = self.conversation_scroller.get_vadjustment()
+        scroll_pos = vadj.get_value() if vadj else 0.0
+
         query = self.search_entry.get_text().strip()
         if query:
             matches = self._db.search_conversations(self._current_folder.id, query)
@@ -843,6 +846,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self._selection.unselect_all()
             self._update_reader()
+
+        if vadj is not None and scroll_pos > 0:
+            GLib.idle_add(
+                lambda: vadj.set_value(
+                    min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                )
+                or False
+            )
 
     # Debounce keystrokes: query the database ~200ms after typing stops instead
     # of on every letter.
@@ -1250,9 +1261,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if result.folders:
             self._db.prune_folders(self._account_id, set(result.folders) | {"Outbox"})
 
-        target = self._db.get_or_create_folder(
-            self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
-        )
+        # The loop above already created/updated this folder with the right
+        # parent/delimiter. Look it up instead of re-calling get_or_create_folder
+        # with defaults, which would reset a nested folder's parent_id to NULL
+        # and make it jump to the end of the root list.
+        target = self._db.get_folder_by_name(self._account_id, result.folder)
+        if target is None:
+            target = self._db.get_or_create_folder(
+                self._account_id,
+                result.folder,
+                mail_sync.icon_for_folder(result.folder),
+            )
         new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
             added = self._db.save_incoming_email(
@@ -1403,18 +1422,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._folder_root_store.remove_all()
         for folder in self._db.root_folders(self._account_id):
             self._folder_root_store.append(folder)
-
-        self._folder_tree_model = Gtk.TreeListModel.new(
-            self._folder_root_store,
-            False,
-            True,
-            self._folder_children_func,
-            None,
-            None,
-        )
-        self._folder_selection = Gtk.SingleSelection(model=self._folder_tree_model)
-        self._folder_selection.connect("selection-changed", self._on_folder_selected)
-        self.folder_list.set_model(self._folder_selection)
 
         if keep_id is not None:
             self._select_folder_by_id(keep_id)

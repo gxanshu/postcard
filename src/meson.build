@@ -42,6 +42,8 @@ postcard_sources = [
   'postcard/composer_window.py',
   'postcard/preferences_dialog.py',
   'postcard/mail_sync.py',
+  'postcard/signature_indicator.py',
+  'postcard/signature_details_dialog.py',
 ]
 python_installation.install_sources(postcard_sources, subdir: 'postcard')
 
@@ -81,8 +83,18 @@ python_installation.install_sources(postcard_core_net_sources, subdir: 'postcard
 postcard_core_mime_sources = [
   'postcard/core/mime/__init__.py',
   'postcard/core/mime/message_parser.py',
+  'postcard/core/mime/smime.py',
 ]
 python_installation.install_sources(postcard_core_mime_sources, subdir: 'postcard/core/mime')
+
+postcard_core_crypto_sources = [
+  'postcard/core/crypto/__init__.py',
+  'postcard/core/crypto/types.py',
+  'postcard/core/crypto/backend.py',
+  'postcard/core/crypto/service.py',
+  'postcard/core/crypto/subprocess_backend.py',
+]
+python_installation.install_sources(postcard_core_crypto_sources, subdir: 'postcard/core/crypto')
 
 conf = configuration_data()
 conf.set('PYTHON', python_installation.full_path())

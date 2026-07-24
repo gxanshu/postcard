@@ -8,11 +8,15 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gtk, Pango, WebKit
 
+from .core.crypto.types import SignatureEnvelope, SignatureResult
 from .core.mime import message_parser
 from .core.models.attachment import Attachment
 from .core.models.email import Email
+from .signature_details_dialog import show_signature_details
+from .signature_indicator import SignatureIndicator
 
 LoadCallback = Callable[[bytes | None, str | None], None]
+VerifyCallback = Callable[[SignatureResult], None]
 
 
 class MessageView(Gtk.Box):
@@ -22,7 +26,8 @@ class MessageView(Gtk.Box):
         self,
         email: Email,
         on_load: Callable[[Email, LoadCallback], None],
-        on_save_attachment: Callable[[Attachment], None],
+        on_verify: Callable[[SignatureEnvelope, VerifyCallback], None] | None = None,
+        on_save_attachment: Callable[[Attachment], None] | None = None,
         on_rendered: Callable[["MessageView"], None] | None = None,
         expanded: bool = False,
         remote_images: bool = False,
@@ -36,6 +41,7 @@ class MessageView(Gtk.Box):
 
         self._email = email
         self._on_load = on_load
+        self._on_verify = on_verify
         self._on_save_attachment = on_save_attachment
         self._on_rendered = on_rendered
         self._remote_images = remote_images
@@ -44,6 +50,8 @@ class MessageView(Gtk.Box):
         self._placeholder: Gtk.Widget | None = None
         self._webview: WebKit.WebView | None = None
         self._html: str | None = None
+        self._signature_result: SignatureResult | None = None
+        self._signature_dialog: Adw.AlertDialog | None = None
 
         self.raw: bytes | None = None
         self.parsed: message_parser.ParsedMessage | None = None
@@ -72,8 +80,18 @@ class MessageView(Gtk.Box):
 
         self._toggle = Gtk.Button(child=header)
         self._toggle.add_css_class("flat")
+        self._toggle.set_hexpand(True)
         self._toggle.connect("clicked", self._on_toggle)
-        self.append(self._toggle)
+
+        top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        top_row.append(self._toggle)
+
+        self._signature_indicator = SignatureIndicator()
+        self._signature_indicator.connect("clicked", self._on_signature_clicked)
+        self._signature_indicator.set_valign(Gtk.Align.CENTER)
+        top_row.append(self._signature_indicator)
+
+        self.append(top_row)
 
         self._body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._body.set_margin_start(12)
@@ -128,11 +146,30 @@ class MessageView(Gtk.Box):
             self._show_text(self.parsed.text_body or "")
         self._populate_attachments(self.parsed.attachments)
 
+        if self.parsed.signature_envelope and self._on_verify is not None:
+            self._start_verify(self.parsed.signature_envelope)
+
         if self._on_rendered is not None:
             self._on_rendered(self)
 
-    # A one-line "to …" summary under the sender, plus a collapsed Details
-    # section with the full From/To/Cc/Bcc/Date so the header stays uncluttered.
+    def _start_verify(self, envelope: SignatureEnvelope) -> None:
+        self._on_verify(envelope, self._on_verify_result)
+
+    def _on_verify_result(self, result: SignatureResult) -> None:
+        self._signature_result = result
+        self._signature_indicator.set_result(result)
+
+    def _on_signature_clicked(self, _button: Gtk.Button) -> None:
+        if self._signature_result is not None:
+            dialog = show_signature_details(self, self._signature_result)
+            self._signature_dialog = dialog
+            dialog.connect("closed", self._on_signature_dialog_closed)
+
+    def _on_signature_dialog_closed(
+        self, _dialog: Adw.AlertDialog, *_args: object
+    ) -> None:
+        self._signature_dialog = None
+
     def _show_details(self, parsed: message_parser.ParsedMessage) -> None:
         recipients = parsed.to + parsed.cc
         if recipients:
@@ -229,7 +266,8 @@ class MessageView(Gtk.Box):
             listbox.append(row)
 
     def _on_save_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
-        self._on_save_attachment(attachment)
+        if self._on_save_attachment is not None:
+            self._on_save_attachment(attachment)
 
 
 def _human_size(num_bytes: int) -> str:

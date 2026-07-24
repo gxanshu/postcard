@@ -44,6 +44,7 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
 
         self._create_tables()
+        self._migrate_schema()
 
     def close(self) -> None:
         self._conn.close()
@@ -69,7 +70,9 @@ class Database:
                 id INTEGER PRIMARY KEY,
                 account_id INTEGER NOT NULL REFERENCES accounts(id),
                 name TEXT NOT NULL,
-                icon_name TEXT NOT NULL
+                icon_name TEXT NOT NULL DEFAULT 'folder-symbolic',
+                parent_id INTEGER REFERENCES folders(id),
+                delimiter TEXT NOT NULL DEFAULT '/'
             );
 
             CREATE TABLE IF NOT EXISTS emails (
@@ -176,11 +179,10 @@ class Database:
 
     def delete_account(self, account_id: int) -> None:
         self._conn.execute(
-            """
-            DELETE FROM emails WHERE folder_id IN (
-                SELECT id FROM folders WHERE account_id = ?
-            )
-            """,
+            "UPDATE folders SET parent_id = NULL WHERE account_id = ?", (account_id,)
+        )
+        self._conn.execute(
+            "DELETE FROM emails WHERE folder_id IN (SELECT id FROM folders WHERE account_id = ?)",
             (account_id,),
         )
         self._conn.execute("DELETE FROM folders WHERE account_id = ?", (account_id,))
@@ -189,38 +191,91 @@ class Database:
 
     # --- folders -----------------------------------------------------------
 
+    def _migrate_schema(self) -> None:
+        try:
+            self._conn.execute(
+                "ALTER TABLE folders ADD COLUMN parent_id INTEGER REFERENCES folders(id)"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self._conn.execute(
+                "ALTER TABLE folders ADD COLUMN delimiter TEXT NOT NULL DEFAULT '/'"
+            )
+        except sqlite3.OperationalError:
+            pass
+        self._conn.commit()
+
+    def _folder_from_row(self, row: sqlite3.Row) -> Folder:
+        return Folder(
+            id=row["id"],
+            account_id=row["account_id"],
+            name=row["name"],
+            icon_name=row["icon_name"],
+            parent_id=row["parent_id"],
+            delimiter=row["delimiter"],
+        )
+
     def folders_for_account(self, account_id: int) -> list[Folder]:
         rows = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? ORDER BY id", (account_id,)
         ).fetchall()
-        return [
-            Folder(
-                id=row["id"],
-                account_id=row["account_id"],
-                name=row["name"],
-                icon_name=row["icon_name"],
-            )
-            for row in rows
-        ]
+        return [self._folder_from_row(row) for row in rows]
+
+    def root_folders(self, account_id: int) -> list[Folder]:
+        rows = self._conn.execute(
+            "SELECT * FROM folders WHERE account_id = ? AND parent_id IS NULL ORDER BY id",
+            (account_id,),
+        ).fetchall()
+        return [self._folder_from_row(row) for row in rows]
+
+    def child_folders(self, parent_id: int) -> list[Folder]:
+        rows = self._conn.execute(
+            "SELECT * FROM folders WHERE parent_id = ? ORDER BY id",
+            (parent_id,),
+        ).fetchall()
+        return [self._folder_from_row(row) for row in rows]
+
+    def get_folder_by_name(self, account_id: int, name: str) -> Folder | None:
+        row = self._conn.execute(
+            "SELECT * FROM folders WHERE account_id = ? AND name = ?",
+            (account_id, name),
+        ).fetchone()
+        return self._folder_from_row(row) if row else None
 
     def get_or_create_folder(
-        self, account_id: int, name: str, icon_name: str
+        self,
+        account_id: int,
+        name: str,
+        icon_name: str = "folder-symbolic",
+        parent_id: int | None = None,
+        delimiter: str = "/",
     ) -> Folder:
         row = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? AND name = ?",
             (account_id, name),
         ).fetchone()
         if row is not None:
+            curr_parent = row["parent_id"]
+            curr_delim = row["delimiter"]
+            if curr_parent != parent_id or curr_delim != delimiter:
+                self._conn.execute(
+                    "UPDATE folders SET parent_id = ?, delimiter = ? WHERE id = ?",
+                    (parent_id, delimiter, row["id"]),
+                )
+                self._conn.commit()
             return Folder(
                 id=row["id"],
                 account_id=row["account_id"],
                 name=row["name"],
                 icon_name=row["icon_name"],
+                parent_id=parent_id,
+                delimiter=delimiter,
             )
 
         cursor = self._conn.execute(
-            "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
-            (account_id, name, icon_name),
+            "INSERT INTO folders (account_id, name, icon_name, parent_id, delimiter) VALUES (?, ?, ?, ?, ?)",
+            (account_id, name, icon_name, parent_id, delimiter),
         )
         self._conn.commit()
         assert cursor.lastrowid is not None
@@ -229,7 +284,18 @@ class Database:
             account_id=account_id,
             name=name,
             icon_name=icon_name,
+            parent_id=parent_id,
+            delimiter=delimiter,
         )
+
+    def _delete_folder_tree(self, folder_id: int) -> None:
+        children = self._conn.execute(
+            "SELECT id FROM folders WHERE parent_id = ?", (folder_id,)
+        ).fetchall()
+        for child in children:
+            self._delete_folder_tree(child["id"])
+        self._conn.execute("DELETE FROM emails WHERE folder_id = ?", (folder_id,))
+        self._conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
 
     def prune_folders(self, account_id: int, keep_names: set[str]) -> None:
         """Delete an account's folders (and their emails) whose names aren't in
@@ -241,8 +307,7 @@ class Database:
         for row in rows:
             if row["name"] in keep_names:
                 continue
-            self._conn.execute("DELETE FROM emails WHERE folder_id = ?", (row["id"],))
-            self._conn.execute("DELETE FROM folders WHERE id = ?", (row["id"],))
+            self._delete_folder_tree(row["id"])
         self._conn.commit()
 
     # --- emails -----------------------------------------------------------

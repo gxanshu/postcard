@@ -8,6 +8,8 @@ src/postcard/application.py
 src/postcard/composer_window.py
 src/postcard/message_view.py
 src/postcard/preferences_dialog.py
+src/postcard/signature_details_dialog.py
+src/postcard/signature_indicator.py
 src/postcard/window.py
 src/ui/account-dialog.blp
 src/ui/accounts-dialog.blp

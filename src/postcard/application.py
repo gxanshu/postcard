@@ -29,6 +29,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gdk, Gio, Gtk
 
+from .core.crypto import CryptoService
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
 from .window import PostcardMainWindow
@@ -46,6 +47,7 @@ class PostcardApplication(Adw.Application):
         self.version = version
         self.db = Database()
         self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
+        self.crypto = CryptoService()
 
         self._create_action("about", self.on_about_action)
         self._create_action(
@@ -66,7 +68,7 @@ class PostcardApplication(Adw.Application):
 
     def do_activate(self) -> None:
         win = self.props.active_window or PostcardMainWindow(
-            self, self.db, self.settings
+            self, self.db, self.settings, self.crypto
         )
         win.present()
 
@@ -115,7 +117,7 @@ class PostcardApplication(Adw.Application):
         dialog.present(self.props.active_window)
 
     def on_new_window_action(self, *args: object) -> None:
-        PostcardMainWindow(self, self.db, self.settings).present()
+        PostcardMainWindow(self, self.db, self.settings, self.crypto).present()
 
     def on_shortcuts_action(self, *args: object) -> None:
         builder = Gtk.Builder.new_from_resource(

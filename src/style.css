@@ -14,3 +14,19 @@
   font-weight: bold;
   color: @accent_color;
 }
+
+/* Signature verification status indicators */
+.sig-valid {
+  color: @success_color;
+}
+
+.sig-invalid,
+.sig-error {
+  color: @error_color;
+}
+
+.sig-untrusted,
+.sig-expired,
+.sig-unknown {
+  color: @warning_color;
+}

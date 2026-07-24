@@ -2,9 +2,11 @@ import email
 import email.utils
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from email.policy import default as default_policy
+from email.policy import SMTP as email_policy
 
+from ..crypto.types import SignatureEnvelope
 from ..models.attachment import Attachment
+from .smime import SMIME_SIGNED_PROTOCOLS, extract_signature_envelope
 
 
 @dataclass
@@ -18,10 +20,11 @@ class ParsedMessage:
     cc: list[str] = field(default_factory=list)
     bcc: list[str] = field(default_factory=list)
     date: str = ""
+    signature_envelope: SignatureEnvelope | None = None
 
 
 def parse_message(raw: bytes) -> ParsedMessage:
-    msg = email.message_from_bytes(raw, policy=default_policy)
+    msg = email.message_from_bytes(raw, policy=email_policy)
     assert isinstance(msg, EmailMessage)
 
     result = ParsedMessage()
@@ -32,25 +35,32 @@ def parse_message(raw: bytes) -> ParsedMessage:
     result.bcc = _addresses(msg, "Bcc")
     result.date = _format_date(msg.get("Date"))
 
+    result.signature_envelope = extract_signature_envelope(msg)
+
     for part in msg.walk():
         if part.is_multipart():
-            continue  # a contianer part -- its children are visited on their own
+            continue
 
         content_type = part.get_content_type()
         disposition = part.get_content_disposition()
 
-        if disposition == "attachment":
+        if _is_signature_part(part):
+            continue
+        elif disposition == "attachment":
             result.attachments.append(_as_attachment(part))
         elif content_type == "text/plain" and result.text_body is None:
             result.text_body = part.get_content()
         elif content_type == "text/html" and result.html_body is None:
             result.html_body = part.get_content()
         else:
-            # anything else (an inline image, unrecognised type) -- treat
-            # if as an attachment rather then silently dropping it
             result.attachments.append(_as_attachment(part))
 
     return result
+
+
+def _is_signature_part(part: EmailMessage) -> bool:
+    ct = part.get_content_type().strip().lower()
+    return ct in SMIME_SIGNED_PROTOCOLS
 
 
 def _addresses(msg: EmailMessage, header: str) -> list[str]:

@@ -33,12 +33,13 @@ from .accounts_dialog import PostcardAccountsDialog
 from .composer_window import PostcardComposerWindow
 from .conversation_row import ConversationRow
 from .core import compose, secrets
+from .core.crypto import CryptoService, SignatureEnvelope, SignatureResult
 from .core.models.account import Account
-from .core.net import errors
 from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
 from .core.models.email import Email
 from .core.models.folder import Folder
+from .core.net import errors
 from .core.store.database import Database
 from .message_view import MessageView
 
@@ -75,12 +76,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     connection_banner: Adw.Banner = Gtk.Template.Child()
 
     def __init__(
-        self, app: Gtk.Application, db: Database, settings: Gio.Settings
+        self,
+        app: Gtk.Application,
+        db: Database,
+        settings: Gio.Settings,
+        crypto: CryptoService,
     ) -> None:
         super().__init__(application=app)
 
         self._db: Database = db
         self._settings: Gio.Settings = settings
+        self._crypto: CryptoService = crypto
 
         self.set_default_size(
             settings.get_int("window-width"), settings.get_int("window-height")
@@ -174,9 +180,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._folder_selection: Gtk.SingleSelection = Gtk.SingleSelection(
             model=self._folder_tree_model
         )
-        self._folder_selection.connect(
-            "selection-changed", self._on_folder_selected
-        )
+        self._folder_selection.connect("selection-changed", self._on_folder_selected)
 
         # One persistent store, mutated in place via splice() on every
         # refresh: swapping in a new Gio.ListStore each time (the previous
@@ -849,10 +853,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         if vadj is not None and scroll_pos > 0:
             GLib.idle_add(
-                lambda: vadj.set_value(
-                    min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                lambda: (
+                    vadj.set_value(
+                        min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                    )
+                    or False
                 )
-                or False
             )
 
     # Debounce keystrokes: query the database ~200ms after typing stops instead
@@ -977,6 +983,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             view = MessageView(
                 mail,
                 on_load=self._load_body,
+                on_verify=self._verify_signature,
                 on_save_attachment=self._save_attachment,
                 on_rendered=self._on_newest_rendered if newest else None,
                 expanded=newest,
@@ -1037,6 +1044,27 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._db.save_raw_message(email_id, raw)
         callback(raw, error)
         return False
+
+    # Verify an S/MIME signature envelope on a worker thread.
+    def _verify_signature(
+        self,
+        envelope: SignatureEnvelope,
+        callback: Callable[[SignatureResult], None],
+    ) -> None:
+        thread = threading.Thread(
+            target=self._verify_worker,
+            args=(envelope, callback),
+            daemon=True,
+        )
+        thread.start()
+
+    def _verify_worker(
+        self,
+        envelope: SignatureEnvelope,
+        callback: Callable[[SignatureResult], None],
+    ) -> None:
+        result = self._crypto.verify(envelope)
+        GLib.idle_add(callback, result)
 
     def _save_attachment(self, attachment: Attachment) -> None:
         dialog = Gtk.FileDialog(initial_name=attachment.filename)
@@ -1248,7 +1276,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         sorted_info = sorted(result.folder_info, key=lambda x: len(x[0]))
         for name, delimiter, flags_str in sorted_info:
             is_selectable = "\\Noselect" not in flags_str
-            icon = mail_sync.icon_for_folder(name) if is_selectable else "folder-symbolic"
+            icon = (
+                mail_sync.icon_for_folder(name) if is_selectable else "folder-symbolic"
+            )
             parts = name.rsplit(delimiter, 1)
             parent_id: int | None = None
             if len(parts) > 1:

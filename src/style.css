@@ -27,6 +27,7 @@
 
 .sig-untrusted,
 .sig-expired,
+.sig-revoked,
 .sig-unknown {
   color: @warning_color;
 }

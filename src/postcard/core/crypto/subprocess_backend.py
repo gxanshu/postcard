@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .backend import CryptoBackend
 from .types import CertificateInfo, SignatureEnvelope, SignatureResult, SignatureStatus
@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 _X509_FIELD_RE = re.compile(r"^(subject|issuer)\s*=\s*(.*)$", re.IGNORECASE)
 _X509_DATE_RE = re.compile(r"^(notBefore|notAfter)\s*=\s*(.*)$", re.IGNORECASE)
 _X509_FPR_RE = re.compile(r"^(?:sha256\s+)?fingerprint\s*=\s*(.*)$", re.IGNORECASE)
+_VERIFY_ERROR_RE = re.compile(
+    r"verify error:num=\d+:(.+)$", re.IGNORECASE | re.MULTILINE
+)
 
 
 class SubprocessBackend(CryptoBackend):
@@ -187,9 +190,7 @@ class SubprocessBackend(CryptoBackend):
     def _extract_signer_via_openssl(
         self, pkcs7_path: str, content_path: str | None
     ) -> CertificateInfo | None:
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".pem"
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pem") as tmp:
             signer_path = tmp.name
         try:
             cmd = [
@@ -208,9 +209,7 @@ class SubprocessBackend(CryptoBackend):
             ]
             if content_path is not None:
                 cmd.extend(["-content", content_path])
-            proc = subprocess.run(
-                cmd, capture_output=True, timeout=15, env=self._env()
-            )
+            proc = subprocess.run(cmd, capture_output=True, timeout=15, env=self._env())
             if proc.returncode != 0:
                 return None
             with open(signer_path) as f:
@@ -332,31 +331,38 @@ def _extract_email(dn: str) -> str:
     return ""
 
 
-def _parse_x509_date(value: str) -> str:
+def _parse_x509_date(value: str) -> datetime | None:
     # OpenSSL default format: "Jul  6 04:53:37 2026 GMT"
+    # strptime with %Z returns a naive datetime even for "GMT", so we strip
+    # the timezone label and attach UTC explicitly.
+    cleaned = value.strip().removesuffix(" GMT").removesuffix(" UTC")
     try:
-        dt = datetime.strptime(value.strip(), "%b %d %H:%M:%S %Y %Z")
-        return dt.strftime("%Y-%m-%d")
+        dt = datetime.strptime(cleaned, "%b %d %H:%M:%S %Y")
+        return dt.replace(tzinfo=UTC)
     except ValueError:
-        pass
-    # Some locales/lines may have a single-digit day without extra space.
-    try:
-        dt = datetime.strptime(value.strip(), "%b %d %H:%M:%S %Y %Z")
-        return dt.strftime("%Y-%m-%d")
-    except ValueError:
-        return value
+        return None
 
 
 def _map_verify_error(output: str) -> SignatureStatus:
     lower = output.lower()
-    if "certificate has expired" in lower:
+    # A revoked certificate is a distinct security state from an untrusted one.
+    if "certificate revoked" in lower:
+        return SignatureStatus.REVOKED
+    if "certificate has expired" in lower or "certificate is not yet valid" in lower:
         return SignatureStatus.EXPIRED
-    if "certificate is not yet valid" in lower:
-        return SignatureStatus.EXPIRED
+    # Everything else where the signature math is good but the chain could not
+    # be validated (self-signed, missing issuer, incomplete chain, ...) is
+    # conservatively reported as untrusted rather than invalid.
     return SignatureStatus.UNTRUSTED
 
 
 def _clean_message(output: str) -> str:
+    # OpenSSL buries the human-readable reason in "verify error:num=X:..." lines.
+    # Prefer those over raw stderr hex dumps.
+    errors = _VERIFY_ERROR_RE.findall(output)
+    if errors:
+        return "\n".join(err.strip() for err in errors if err.strip())
+
     lines = []
     for line in output.splitlines():
         stripped = line.strip()

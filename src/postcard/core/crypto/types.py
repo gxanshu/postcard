@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 
 
@@ -8,6 +9,7 @@ class SignatureStatus(StrEnum):
     INVALID = "invalid"
     UNTRUSTED = "untrusted"
     EXPIRED = "expired"
+    REVOKED = "revoked"
     ERROR = "error"
     UNKNOWN = "unknown"
 
@@ -18,8 +20,8 @@ class CertificateInfo:
     email: str = ""
     issuer: str = ""
     fingerprint: str = ""
-    not_before: str = ""
-    not_after: str = ""
+    not_before: datetime | None = None
+    not_after: datetime | None = None
     certificate_pem: str = ""
 
 

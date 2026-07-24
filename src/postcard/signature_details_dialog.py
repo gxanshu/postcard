@@ -1,3 +1,4 @@
+from datetime import datetime
 from gettext import gettext as _
 
 from gi.repository import Adw, Gtk
@@ -38,9 +39,9 @@ def show_signature_details(
         if info.fingerprint:
             details.append((_("Fingerprint"), info.fingerprint))
         if info.not_before:
-            details.append((_("Valid from"), info.not_before))
+            details.append((_("Valid from"), _format_cert_date(info.not_before)))
         if info.not_after:
-            details.append((_("Valid until"), info.not_after))
+            details.append((_("Valid until"), _format_cert_date(info.not_after)))
 
         if details:
             grid = Gtk.Grid(row_spacing=6, column_spacing=12)
@@ -126,6 +127,7 @@ def _status_label(status: SignatureStatus) -> str:
         SignatureStatus.INVALID: _("Invalid"),
         SignatureStatus.UNTRUSTED: _("Untrusted"),
         SignatureStatus.EXPIRED: _("Expired"),
+        SignatureStatus.REVOKED: _("Revoked"),
         SignatureStatus.ERROR: _("Error"),
         SignatureStatus.UNSIGNED: _("Not signed"),
         SignatureStatus.UNKNOWN: _("Unknown"),
@@ -159,9 +161,20 @@ def _status_reason(result: SignatureResult) -> str:
         case SignatureStatus.EXPIRED:
             return _(
                 "The signature itself is mathematically correct, but the "
-                "sender's certificate has expired."
+                "sender's certificate has expired. Without a trusted "
+                "timestamp (RFC 3161), the client cannot prove that the "
+                "message was signed while the certificate was still valid."
+            )
+        case SignatureStatus.REVOKED:
+            return _(
+                "The signature itself is mathematically correct, but the "
+                "sender's certificate has been revoked."
             )
         case SignatureStatus.ERROR:
             return _("An error occurred while trying to verify the signature.")
         case _:
             return ""
+
+
+def _format_cert_date(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M UTC")

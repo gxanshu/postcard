@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from datetime import UTC, datetime
@@ -34,7 +35,16 @@ class SubprocessBackend(CryptoBackend):
         self._cafile = self._find_ca_bundle()
 
     def _find_openssl(self) -> str:
-        for candidate in ("openssl", "/usr/bin/openssl", "/app/bin/openssl"):
+        # Prefer an absolute path from PATH (shutil.which is the portable
+        # equivalent of `which openssl`), then fall back to common locations.
+        candidates: list[str | None] = [
+            shutil.which("openssl"),
+            "/usr/bin/openssl",
+            "/app/bin/openssl",
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
             try:
                 subprocess.run(
                     [candidate, "version"],

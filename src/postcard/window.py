@@ -112,9 +112,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
-        # Connected once here (not per account load) so switching accounts
-        # doesn't stack duplicate handlers or CSS providers.
-
         self.connection_banner.connect("button-clicked", self._on_banner_retry)
         self._network = Gio.NetworkMonitor.get_default()
         self._online = self._network.get_network_available()
@@ -756,6 +753,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if isinstance(expander, Gtk.TreeExpander):
             expander.set_list_row(None)
 
+    # Select the inbox row, or the first folder if we can't spot one.
     def _select_inbox_row(self) -> None:
         n = self._folder_tree_model.get_n_items()
         if n == 0:
@@ -789,6 +787,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self._suppress_folder_refresh:
             return
         self._refresh_conversations()
+        # Only sync on a real folder change — rebuilding the sidebar re-emits
+        # selection-changed for the same folder, which would loop.
         changed = previous is None or previous.id != folder.id
         if changed and self._online:
             self._start_sync(background=True, folder_name=folder.name)
@@ -1256,6 +1256,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 parent_id = parent.id if parent else None
             self._db.set_folder_parent(folder.id, parent_id, delimiter)
         if result.folders:
+            # Mirror the server's folder list, keeping only the local Outbox.
+            # This clears stale rows like a duplicate "INBOX" from earlier
+            # versions.
             names = set(result.folder_names) | {"Outbox"}
             self._db.prune_folders(self._account_id, names)
 
@@ -1425,6 +1428,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 row.bind(folder, self._db.unread_count_in_folder(folder.id))
 
     def _rebuild_folder_tree(self) -> None:
+        # Preserve the selection by folder id, not row index — pruning stale
+        # folders shifts the indices. Re-selecting is suppressed so it doesn't
+        # rebuild the conversation list; callers refresh that explicitly.
         keep_id = self._current_folder.id if self._current_folder else None
 
         self._suppress_folder_refresh = True

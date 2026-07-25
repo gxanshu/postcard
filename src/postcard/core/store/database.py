@@ -192,6 +192,8 @@ class Database:
         return self._account_from_row(row)
 
     def delete_account(self, account_id: int) -> None:
+        # Flatten the tree first: the parent_id FK rejects deleting a parent
+        # while a child still points at it.
         self._conn.execute(
             "UPDATE folders SET parent_id = NULL WHERE account_id = ?", (account_id,)
         )
@@ -267,6 +269,7 @@ class Database:
         self._conn.commit()
 
     def _delete_folder_tree(self, folder_id: int) -> None:
+        # Deepest first, for the same FK reason as delete_account.
         children = self._conn.execute(
             "SELECT id FROM folders WHERE parent_id = ?", (folder_id,)
         ).fetchall()

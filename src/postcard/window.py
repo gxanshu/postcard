@@ -767,7 +767,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 if mail_sync.role_for_folder(folder.name) == "inbox":
                     target = i
                     break
+
+        # Row 0 is autoselected when the tree is built, so set_selected() may
+        # emit nothing. Load the folder directly instead.
+        self._suppress_folder_refresh = True
         self._folder_selection.set_selected(target)
+        self._suppress_folder_refresh = False
+        self._current_folder = None
+        self._on_folder_selected(self._folder_selection, target, 1)
 
     def _on_folder_selected(
         self,

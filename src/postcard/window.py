@@ -40,6 +40,7 @@ from .core.models.conversation import Conversation
 from .core.models.email import Email
 from .core.models.folder import Folder
 from .core.store.database import Database
+from .folder_row import FolderRow
 from .message_view import MessageView
 
 
@@ -50,7 +51,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # These fields are filled in automatically from the widgets we named in
     # main-window.blp. The attribute name must match the id in the Blueprint
     # file exactly.
-    folder_list: Gtk.ListBox = Gtk.Template.Child()
+    folder_list: Gtk.ListView = Gtk.Template.Child()
     conversation_list: Gtk.ListView = Gtk.Template.Child()
     conversation_scroller: Gtk.ScrolledWindow = Gtk.Template.Child()
     conversation_stack: Gtk.Stack = Gtk.Template.Child()
@@ -111,10 +112,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
-        # Connected once here (not per account load) so switching accounts
-        # doesn't stack duplicate handlers.
-        self.folder_list.connect("row-selected", self._on_folder_selected)
-
         self.connection_banner.connect("button-clicked", self._on_banner_retry)
         self._network = Gio.NetworkMonitor.get_default()
         self._online = self._network.get_network_available()
@@ -160,9 +157,27 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.main_stack.set_visible_child_name("mail")
         self._refresh_account_switcher()
 
-        self._folders: Gio.ListStore = Gio.ListStore(item_type=Folder)
-        for folder in self._db.folders_for_account(self._account_id):
-            self._folders.append(folder)
+        # Boxes of the rows currently on screen, keyed by folder id, so
+        # _reload_folders can refresh them without rebuilding the tree.
+        self._folder_rows: dict[int, FolderRow] = {}
+        # The (id, parent_id) pairs the tree was last built from.
+        self._folder_shape: list[tuple[int, int | None]] = []
+        # Folders grouped by parent id; None holds the roots.
+        self._folder_children: dict[int | None, list[Folder]] = {}
+
+        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Folder)
+        self._folder_tree_model: Gtk.TreeListModel = Gtk.TreeListModel.new(
+            self._folder_root_store,
+            False,
+            True,
+            self._folder_children_func,
+            None,
+            None,
+        )
+        self._folder_selection: Gtk.SingleSelection = Gtk.SingleSelection(
+            model=self._folder_tree_model
+        )
+        self._folder_selection.connect("selection-changed", self._on_folder_selected)
 
         # One persistent store, mutated in place via splice() on every
         # refresh: swapping in a new Gio.ListStore each time (the previous
@@ -175,6 +190,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._setup_folder_sidebar()
         self._setup_conversation_list()
+
+        self._reload_folders()
 
         # Selecting the inbox kicks off a network fetch for it via
         # _on_folder_selected; the sync below only bootstraps a fresh account
@@ -617,7 +634,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         for folder in self._db.folders_for_account(self._account_id):
             if folder.id == current_id:
                 continue
-            label = mail_sync.display_name_for_folder(folder.name)
+            label = mail_sync.display_name_for_folder(
+                folder.name, folder.display_delimiter
+            )
             item = Gio.MenuItem.new(label, None)
             item.set_action_and_target_value(
                 "win.move", GLib.Variant.new_string(folder.name)
@@ -671,58 +690,96 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         return menu
 
-    # The folder list is small and fixed, so a Gtk.ListBox is the simplest
-    # tool. bind_model() builds one row per folder and keeps them in sync with
-    # the store for free.
-    def _setup_folder_sidebar(self) -> None:
-        self.folder_list.bind_model(self._folders, self._build_folder_row)
+    def _folder_children_func(
+        self, item: GObject.Object, *_args: object
+    ) -> Gio.ListStore | None:
+        assert isinstance(item, Folder)
+        children = self._folder_children.get(item.id)
+        if not children:
+            return None
+        store = Gio.ListStore(item_type=Folder)
+        for child in children:
+            store.append(child)
+        return store
 
-    def _build_folder_row(self, item: GObject.Object) -> Gtk.Widget:
-        folder = item
+    def _setup_folder_sidebar(self) -> None:
+        self.folder_list.set_model(self._folder_selection)
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_folder_row_setup)
+        factory.connect("bind", self._on_folder_row_bind)
+        factory.connect("unbind", self._on_folder_row_unbind)
+        self.folder_list.set_factory(factory)
+
+    # setup: build one empty widget, reused for many folders as the list
+    # scrolls. The expander draws the indent and the expand/collapse arrow.
+    def _on_folder_row_setup(
+        self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
+    ) -> None:
+        expander = Gtk.TreeExpander()
+        expander.set_child(FolderRow())
+        item.set_child(expander)
+
+    # bind: fill an existing widget from its item. Runs on every scroll, so it
+    # only copies fields across.
+    def _on_folder_row_bind(
+        self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
+    ) -> None:
+        expander = item.get_child()
+        assert isinstance(expander, Gtk.TreeExpander)
+
+        tree_list_row = item.get_item()
+        assert isinstance(tree_list_row, Gtk.TreeListRow)
+        expander.set_list_row(tree_list_row)
+
+        folder = tree_list_row.get_item()
         assert isinstance(folder, Folder)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(6)
-        box.set_margin_end(6)
-        box.append(Gtk.Image.new_from_icon_name(folder.icon_name))
+        row = expander.get_child()
+        assert isinstance(row, FolderRow)
 
-        name = Gtk.Label(
-            label=mail_sync.display_name_for_folder(folder.name),
-            xalign=0,
-            hexpand=True,
-        )
-        box.append(name)
+        self._folder_rows[folder.id] = row
+        row.bind(folder, self._db.unread_count_in_folder(folder.id))
 
-        count = self._db.unread_count_in_folder(folder.id)
-        if count > 0:
-            badge = Gtk.Label(label=str(count))
-            badge.add_css_class("dim-label")
-            box.append(badge)
+    def _on_folder_row_unbind(
+        self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
+    ) -> None:
+        tree_list_row = item.get_item()
+        if isinstance(tree_list_row, Gtk.TreeListRow):
+            folder = tree_list_row.get_item()
+            if isinstance(folder, Folder):
+                self._folder_rows.pop(folder.id, None)
 
-        return box
+        expander = item.get_child()
+        if isinstance(expander, Gtk.TreeExpander):
+            expander.set_list_row(None)
 
-    # Select the inbox row (or the first folder if we can't spot one).
+    # Select the inbox row, or the first folder if we can't spot one.
     def _select_inbox_row(self) -> None:
+        n = self._folder_tree_model.get_n_items()
+        if n == 0:
+            return
         target = 0
-        for i in range(self._folders.get_n_items()):
-            folder = self._folders.get_item(i)
-            assert isinstance(folder, Folder)
-            if mail_sync.role_for_folder(folder.name) == "inbox":
-                target = i
-                break
-        row = self.folder_list.get_row_at_index(target)
-        if row is not None:
-            self.folder_list.select_row(row)
+        for i in range(n):
+            tree_row = self._folder_tree_model.get_item(i)
+            if isinstance(tree_row, Gtk.TreeListRow):
+                folder = tree_row.get_item()
+                assert isinstance(folder, Folder)
+                if mail_sync.role_for_folder(folder.name) == "inbox":
+                    target = i
+                    break
+        self._folder_selection.set_selected(target)
 
     def _on_folder_selected(
-        self, _list_box: Gtk.ListBox, row: Gtk.ListBoxRow | None
+        self,
+        selection: Gtk.SingleSelection,
+        _position: int,
+        _n_items: int,
     ) -> None:
-        if row is None:
+        tree_list_row = selection.get_selected_item()
+        if not isinstance(tree_list_row, Gtk.TreeListRow):
             return
 
-        folder = self._folders.get_item(row.get_index())
+        folder = tree_list_row.get_item()
         assert isinstance(folder, Folder)
         previous = self._current_folder
         self._current_folder = folder
@@ -730,10 +787,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self._suppress_folder_refresh:
             return
         self._refresh_conversations()
-        # Show cached mail instantly, then pull this folder from the server.
-        # Guard on a real folder change: rebuilding the sidebar re-emits
-        # row-selected for the same folder (sometimes after the suppress flag is
-        # cleared), which would otherwise sync in a tight loop.
+        # Only sync on a real folder change — rebuilding the sidebar re-emits
+        # selection-changed for the same folder, which would loop.
         changed = previous is None or previous.id != folder.id
         if changed and self._online:
             self._start_sync(background=True, folder_name=folder.name)
@@ -745,6 +800,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _refresh_conversations(self, keep_id: int | None = None) -> None:
         if self._current_folder is None:
             return
+
+        vadj = self.conversation_scroller.get_vadjustment()
+        scroll_pos = vadj.get_value() if vadj else 0.0
 
         query = self.search_entry.get_text().strip()
         if query:
@@ -782,6 +840,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self._selection.unselect_all()
             self._update_reader()
+
+        if vadj is not None and scroll_pos > 0:
+            GLib.idle_add(
+                lambda: (
+                    vadj.set_value(
+                        min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                    )
+                    or False
+                )
+            )
 
     # Debounce keystrokes: query the database ~200ms after typing stops instead
     # of on every letter.
@@ -1173,14 +1241,30 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         selected = self._selection.get_selected_item()
         keep_id = selected.id if isinstance(selected, Conversation) else None
 
-        for name in result.folders:
-            self._db.get_or_create_folder(
-                self._account_id, name, mail_sync.icon_for_folder(name)
+        mailboxes = [
+            m for m in result.folders if m.name not in mail_sync.NAMESPACE_ROOTS
+        ]
+
+        # Shortest name first: a parent's name is a prefix of its children's, so
+        # every parent is stored before a child looks it up.
+        for mailbox in sorted(mailboxes, key=lambda m: len(m.name)):
+            name, delimiter = mailbox.name, mailbox.delimiter
+            selectable = "\\Noselect" not in mailbox.flags
+            icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
+            folder = self._db.get_or_create_folder(self._account_id, name, icon)
+
+            parent_name = mail_sync.parent_mailbox_name(name, delimiter)
+            parent = self._db.get_folder_by_name(self._account_id, parent_name)
+            self._db.set_folder_parent(
+                folder.id, parent.id if parent else None, delimiter
             )
-        # Mirror the server's folder list, keeping only the local Outbox. This
-        # clears stale rows like a duplicate "INBOX" from earlier versions.
-        if result.folders:
-            self._db.prune_folders(self._account_id, set(result.folders) | {"Outbox"})
+
+        if mailboxes:
+            # Mirror the server's folder list, keeping only the local Outbox.
+            # This clears stale rows like a duplicate "INBOX" from earlier
+            # versions.
+            names = {m.name for m in mailboxes} | {"Outbox"}
+            self._db.prune_folders(self._account_id, names)
 
         target = self._db.get_or_create_folder(
             self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
@@ -1327,26 +1411,55 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self.sync_spinner.stop()
 
-    # Rebuild the folder sidebar (refreshes the unread badges). Re-selecting the
-    # row is suppressed so it doesn't rebuild the conversation list — callers
-    # that want that refresh it explicitly.
+    # Rebuilding the tree destroys every row, which resets the user's
+    # expand/collapse state, so only rebuild when the folders or their nesting
+    # actually changed. A plain badge/icon update refreshes the rows in place.
     def _reload_folders(self) -> None:
+        folders = self._db.folders_for_account(self._account_id)
+
+        self._folder_children = {}
+        for folder in folders:
+            self._folder_children.setdefault(folder.parent_id, []).append(folder)
+
+        shape = [(f.id, f.parent_id) for f in folders]
+        if shape != self._folder_shape:
+            self._folder_shape = shape
+            self._rebuild_folder_tree()
+
+        for folder in folders:
+            row = self._folder_rows.get(folder.id)
+            if row is not None:
+                row.bind(folder, self._db.unread_count_in_folder(folder.id))
+
+    def _rebuild_folder_tree(self) -> None:
         # Preserve the selection by folder id, not row index — pruning stale
-        # folders can shift the indices.
+        # folders shifts the indices. Re-selecting is suppressed so it doesn't
+        # rebuild the conversation list; callers refresh that explicitly.
         keep_id = self._current_folder.id if self._current_folder else None
 
         self._suppress_folder_refresh = True
-        self._folders.remove_all()
-        target = 0
-        for i, folder in enumerate(self._db.folders_for_account(self._account_id)):
-            self._folders.append(folder)
-            if folder.id == keep_id:
-                target = i
 
-        row = self.folder_list.get_row_at_index(target)
-        if row is not None:
-            self.folder_list.select_row(row)
+        self._folder_rows.clear()
+        self._folder_root_store.remove_all()
+        for folder in self._folder_children.get(None, []):
+            self._folder_root_store.append(folder)
+
+        if keep_id is not None:
+            self._select_folder_by_id(keep_id)
+
         self._suppress_folder_refresh = False
+
+    def _select_folder_by_id(self, folder_id: int) -> None:
+        n = self._folder_tree_model.get_n_items()
+        if n == 0:
+            return
+        for i in range(n):
+            tree_row = self._folder_tree_model.get_item(i)
+            if isinstance(tree_row, Gtk.TreeListRow):
+                f = tree_row.get_item()
+                if isinstance(f, Folder) and f.id == folder_id:
+                    self._folder_selection.set_selected(i)
+                    return
 
     def _toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text))

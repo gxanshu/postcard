@@ -32,6 +32,15 @@ def _arrival_key(mail: Email) -> int:
         return 2**31 - 1
 
 
+# Schema changes since the first release, applied in order. How many have run
+# is stored in PRAGMA user_version. Only ever append -- editing or reordering
+# these would give databases in the wild a different schema to new ones.
+MIGRATIONS = [
+    "ALTER TABLE folders ADD COLUMN parent_id INTEGER REFERENCES folders(id)",
+    "ALTER TABLE folders ADD COLUMN delimiter TEXT NOT NULL DEFAULT '/'",
+]
+
+
 class Database:
     def __init__(self, path: str | None = None) -> None:
         if path is None:
@@ -44,6 +53,7 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
 
         self._create_tables()
+        self._migrate_schema()
 
     def close(self) -> None:
         self._conn.close()
@@ -69,7 +79,7 @@ class Database:
                 id INTEGER PRIMARY KEY,
                 account_id INTEGER NOT NULL REFERENCES accounts(id),
                 name TEXT NOT NULL,
-                icon_name TEXT NOT NULL
+                icon_name TEXT NOT NULL DEFAULT 'folder-symbolic'
             );
 
             CREATE TABLE IF NOT EXISTS emails (
@@ -115,6 +125,13 @@ class Database:
             """
         )
 
+        self._conn.commit()
+
+    def _migrate_schema(self) -> None:
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        for i, sql in enumerate(MIGRATIONS[version:], start=version + 1):
+            self._conn.executescript(sql)
+            self._conn.execute(f"PRAGMA user_version = {i}")
         self._conn.commit()
 
     # --- accounts -----------------------------------------------------------
@@ -175,6 +192,11 @@ class Database:
         return self._account_from_row(row)
 
     def delete_account(self, account_id: int) -> None:
+        # Flatten the tree first: the parent_id FK rejects deleting a parent
+        # while a child still points at it.
+        self._conn.execute(
+            "UPDATE folders SET parent_id = NULL WHERE account_id = ?", (account_id,)
+        )
         self._conn.execute(
             """
             DELETE FROM emails WHERE folder_id IN (
@@ -189,34 +211,38 @@ class Database:
 
     # --- folders -----------------------------------------------------------
 
+    def _folder_from_row(self, row: sqlite3.Row) -> Folder:
+        return Folder(
+            id=row["id"],
+            account_id=row["account_id"],
+            name=row["name"],
+            icon_name=row["icon_name"],
+            parent_id=row["parent_id"],
+            delimiter=row["delimiter"],
+        )
+
     def folders_for_account(self, account_id: int) -> list[Folder]:
         rows = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? ORDER BY id", (account_id,)
         ).fetchall()
-        return [
-            Folder(
-                id=row["id"],
-                account_id=row["account_id"],
-                name=row["name"],
-                icon_name=row["icon_name"],
-            )
-            for row in rows
-        ]
+        return [self._folder_from_row(row) for row in rows]
+
+    def get_folder_by_name(self, account_id: int, name: str) -> Folder | None:
+        row = self._conn.execute(
+            "SELECT * FROM folders WHERE account_id = ? AND name = ?",
+            (account_id, name),
+        ).fetchone()
+        return self._folder_from_row(row) if row else None
 
     def get_or_create_folder(
-        self, account_id: int, name: str, icon_name: str
+        self, account_id: int, name: str, icon_name: str = "folder-symbolic"
     ) -> Folder:
         row = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? AND name = ?",
             (account_id, name),
         ).fetchone()
         if row is not None:
-            return Folder(
-                id=row["id"],
-                account_id=row["account_id"],
-                name=row["name"],
-                icon_name=row["icon_name"],
-            )
+            return self._folder_from_row(row)
 
         cursor = self._conn.execute(
             "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
@@ -231,6 +257,27 @@ class Database:
             icon_name=icon_name,
         )
 
+    # Only the sync knows a folder's real place in the server's hierarchy, so
+    # it's set explicitly here rather than defaulted by get_or_create_folder.
+    def set_folder_parent(
+        self, folder_id: int, parent_id: int | None, delimiter: str
+    ) -> None:
+        self._conn.execute(
+            "UPDATE folders SET parent_id = ?, delimiter = ? WHERE id = ?",
+            (parent_id, delimiter, folder_id),
+        )
+        self._conn.commit()
+
+    def _delete_folder_tree(self, folder_id: int) -> None:
+        # Deepest first, for the same FK reason as delete_account.
+        children = self._conn.execute(
+            "SELECT id FROM folders WHERE parent_id = ?", (folder_id,)
+        ).fetchall()
+        for child in children:
+            self._delete_folder_tree(child["id"])
+        self._conn.execute("DELETE FROM emails WHERE folder_id = ?", (folder_id,))
+        self._conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+
     def prune_folders(self, account_id: int, keep_names: set[str]) -> None:
         """Delete an account's folders (and their emails) whose names aren't in
         keep_names. Used to mirror the server's folder list and clear stale rows
@@ -241,8 +288,7 @@ class Database:
         for row in rows:
             if row["name"] in keep_names:
                 continue
-            self._conn.execute("DELETE FROM emails WHERE folder_id = ?", (row["id"],))
-            self._conn.execute("DELETE FROM folders WHERE id = ?", (row["id"],))
+            self._delete_folder_tree(row["id"])
         self._conn.commit()
 
     # --- emails -----------------------------------------------------------

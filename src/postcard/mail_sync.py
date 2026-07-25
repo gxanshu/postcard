@@ -2,11 +2,15 @@ from dataclasses import dataclass, field
 from email.utils import parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
-from .core.net.imap_session import ImapSession
+from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
 from .core.net.smtp_session import SmtpSession
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
+
+# Gmail nests its special folders under an unselectable "[Gmail]" container.
+# It isn't a real mailbox, so it's hidden and its children sit at the top level.
+NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
 
 
 @dataclass
@@ -25,7 +29,7 @@ class MessageHeader:
 
 @dataclass
 class SyncResult:
-    folders: list[str] = field(default_factory=list)
+    folders: list[MailboxInfo] = field(default_factory=list)
     messages: list[MessageHeader] = field(default_factory=list)
     folder: str = "INBOX"
     exists: int = 0  # total messages in the selected mailbox
@@ -60,8 +64,8 @@ def fetch_mailbox(
 
     try:
         session.login(account.email, password)
-        folders = session.list_folders()
-        target = folder or inbox_name(folders)
+        mailboxes = session.list_folders()
+        target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
         raw = session.fetch_recent_headers(exists, limit, offset)
     finally:
@@ -82,7 +86,13 @@ def fetch_mailbox(
         for item in raw
     ]
 
-    return SyncResult(folders, messages, target, exists, offset)
+    return SyncResult(
+        folders=mailboxes,
+        messages=messages,
+        folder=target,
+        exists=exists,
+        offset=offset,
+    )
 
 
 def fetch_full_message(
@@ -173,10 +183,20 @@ def role_for_folder(name: str) -> str:
     return "other"
 
 
-def display_name_for_folder(name: str) -> str:
-    for prefix in ("[Gmail]/", "[Google Mail]/"):
-        if name.startswith(prefix):
-            return name[len(prefix) :]
+def parent_mailbox_name(name: str, delimiter: str) -> str:
+    """The mailbox enclosing name, or "" when it sits at the top level."""
+    parent = name.rpartition(delimiter)[0] if delimiter else ""
+    return "" if parent in NAMESPACE_ROOTS else parent
+
+
+def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
+    name = decode_mailbox_name(name)
+    for root in NAMESPACE_ROOTS:
+        if name.startswith(root + "/"):
+            name = name[len(root) + 1 :]
+            break
+    if delimiter:
+        name = name.rsplit(delimiter, 1)[-1]
     return name
 
 

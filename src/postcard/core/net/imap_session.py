@@ -1,7 +1,31 @@
+import base64
 import email
 import imaplib
 import re
 from email import policy
+from typing import NamedTuple
+
+
+class MailboxInfo(NamedTuple):
+    name: str
+    delimiter: str  # "" when the server reports NIL: a flat namespace
+    flags: str
+
+
+def decode_mailbox_name(name: str) -> str:
+    """Decode a mailbox name from modified UTF-7 (RFC 3501 5.1.3), so
+    "Entw&APw-rfe" reads as "Entwürfe"."""
+
+    def chunk(match: re.Match[str]) -> str:
+        if not match.group(1):
+            return "&"  # "&-" encodes a literal ampersand
+        try:
+            padded = match.group(1).replace(",", "/") + "==="
+            return base64.b64decode(padded).decode("utf-16-be")
+        except (ValueError, UnicodeDecodeError):
+            return "�"
+
+    return re.sub(r"&([A-Za-z0-9+,]*)-", chunk, name)
 
 
 def _quote_mailbox(name: str) -> str:
@@ -57,15 +81,15 @@ class ImapSession:
             raise ImapError("not connected")
         return self._imap
 
-    def list_folders(self) -> list[tuple[str, str, str]]:
-        """Return (name, delimiter, flags) for every listed mailbox.
+    def list_folders(self) -> list[MailboxInfo]:
+        """Return every listed mailbox.
 
         \\Noselect containers are included so the caller can rebuild the
         hierarchy. The delimiter is "" when the server reports NIL, meaning a
         flat namespace whose names must not be split into parent and child.
         """
         typ, data = self._require_imap().list()
-        result: list[tuple[str, str, str]] = []
+        result: list[MailboxInfo] = []
         for raw in data:
             if not isinstance(raw, bytes):
                 continue
@@ -77,7 +101,7 @@ class ImapSession:
             delim_raw = match.group(2)
             name = _unquote(match.group(3).strip())
             delimiter = "" if delim_raw == "NIL" else _unquote(delim_raw)
-            result.append((name, delimiter, flags_part))
+            result.append(MailboxInfo(name, delimiter, flags_part))
         return result
 
     def select(self, mailbox: str, readonly: bool = True) -> int:

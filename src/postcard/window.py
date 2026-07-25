@@ -165,6 +165,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._folder_rows: dict[int, FolderRow] = {}
         # The (id, parent_id) pairs the tree was last built from.
         self._folder_shape: list[tuple[int, int | None]] = []
+        # Folders grouped by parent id; None holds the roots.
+        self._folder_children: dict[int | None, list[Folder]] = {}
 
         self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Folder)
         self._folder_tree_model: Gtk.TreeListModel = Gtk.TreeListModel.new(
@@ -694,9 +696,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _folder_children_func(
         self, item: GObject.Object, *_args: object
     ) -> Gio.ListStore | None:
-        folder = item
-        assert isinstance(folder, Folder)
-        children = self._db.child_folders(folder.id)
+        assert isinstance(item, Folder)
+        children = self._folder_children.get(item.id)
         if not children:
             return None
         store = Gio.ListStore(item_type=Folder)
@@ -1242,12 +1243,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # Shortest name first: a parent's name is a prefix of its children's, so
         # every parent is stored before a child looks it up.
-        sorted_info = sorted(result.folder_info, key=lambda f: len(f[0]))
-        for name, delimiter, flags_str in sorted_info:
-            is_selectable = "\\Noselect" not in flags_str
-            icon = (
-                mail_sync.icon_for_folder(name) if is_selectable else "folder-symbolic"
-            )
+        for mailbox in sorted(result.folders, key=lambda m: len(m.name)):
+            name, delimiter = mailbox.name, mailbox.delimiter
+            selectable = "\\Noselect" not in mailbox.flags
+            icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
             folder = self._db.get_or_create_folder(self._account_id, name, icon)
             parent_id: int | None = None
             if delimiter and delimiter in name:
@@ -1257,7 +1256,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 parent_id = parent.id if parent else None
             self._db.set_folder_parent(folder.id, parent_id, delimiter)
         if result.folders:
-            self._db.prune_folders(self._account_id, set(result.folders) | {"Outbox"})
+            names = set(result.folder_names) | {"Outbox"}
+            self._db.prune_folders(self._account_id, names)
 
         target = self._db.get_or_create_folder(
             self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
@@ -1410,6 +1410,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _reload_folders(self) -> None:
         folders = self._db.folders_for_account(self._account_id)
 
+        self._folder_children = {}
+        for folder in folders:
+            self._folder_children.setdefault(folder.parent_id, []).append(folder)
+
         shape = [(f.id, f.parent_id) for f in folders]
         if shape != self._folder_shape:
             self._folder_shape = shape
@@ -1427,7 +1431,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._folder_rows.clear()
         self._folder_root_store.remove_all()
-        for folder in self._db.root_folders(self._account_id):
+        for folder in self._folder_children.get(None, []):
             self._folder_root_store.append(folder)
 
         if keep_id is not None:

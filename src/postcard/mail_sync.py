@@ -1,45 +1,9 @@
-import base64
 from dataclasses import dataclass, field
 from email.utils import parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
-from .core.net.imap_session import ImapSession
+from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
 from .core.net.smtp_session import SmtpSession
-
-
-def _decode_imap_utf7(name: str) -> str:
-    """Decode a mailbox name from IMAP4-UTF-7 (modified UTF-7) per RFC 3501."""
-    parts: list[str] = []
-    buf: list[str] = []
-    in_base64 = False
-    for c in name:
-        if c == "&" and not in_base64:
-            in_base64 = True
-            buf = []
-        elif c == "-" and in_base64:
-            in_base64 = False
-            if not buf:
-                parts.append("&")
-            else:
-                raw = "".join(buf).replace(",", "/")
-                try:
-                    padding = 4 - len(raw) % 4
-                    if padding != 4:
-                        raw += "=" * padding
-                    parts.append(
-                        base64.b64decode(raw).decode("utf-16be", errors="replace")
-                    )
-                except Exception:
-                    parts.append("\ufffd")
-            buf = []
-        elif in_base64:
-            buf.append(c)
-        else:
-            parts.append(c)
-    if in_base64:
-        parts.append("&" + "".join(buf))
-    return "".join(parts)
-
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
@@ -61,12 +25,15 @@ class MessageHeader:
 
 @dataclass
 class SyncResult:
-    folders: list[str] = field(default_factory=list)
-    folder_info: list[tuple[str, str, str]] = field(default_factory=list)
+    folders: list[MailboxInfo] = field(default_factory=list)
     messages: list[MessageHeader] = field(default_factory=list)
     folder: str = "INBOX"
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
+
+    @property
+    def folder_names(self) -> list[str]:
+        return [f.name for f in self.folders]
 
 
 def inbox_name(folders: list[str]) -> str:
@@ -97,9 +64,8 @@ def fetch_mailbox(
 
     try:
         session.login(account.email, password)
-        raw_folders = session.list_folders()
-        folder_names = [f[0] for f in raw_folders]
-        target = folder or inbox_name(folder_names)
+        mailboxes = session.list_folders()
+        target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
         raw = session.fetch_recent_headers(exists, limit, offset)
     finally:
@@ -121,8 +87,7 @@ def fetch_mailbox(
     ]
 
     return SyncResult(
-        folders=folder_names,
-        folder_info=raw_folders,
+        folders=mailboxes,
         messages=messages,
         folder=target,
         exists=exists,
@@ -219,7 +184,7 @@ def role_for_folder(name: str) -> str:
 
 
 def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
-    name = _decode_imap_utf7(name)
+    name = decode_mailbox_name(name)
     for prefix in ("[Gmail]/", "[Google Mail]/"):
         if name.startswith(prefix):
             name = name[len(prefix) :]

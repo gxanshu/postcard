@@ -225,24 +225,6 @@ class Database:
         ).fetchall()
         return [self._folder_from_row(row) for row in rows]
 
-    def root_folders(self, account_id: int) -> list[Folder]:
-        rows = self._conn.execute(
-            """
-            SELECT * FROM folders
-            WHERE account_id = ? AND parent_id IS NULL
-            ORDER BY id
-            """,
-            (account_id,),
-        ).fetchall()
-        return [self._folder_from_row(row) for row in rows]
-
-    def child_folders(self, parent_id: int) -> list[Folder]:
-        rows = self._conn.execute(
-            "SELECT * FROM folders WHERE parent_id = ? ORDER BY id",
-            (parent_id,),
-        ).fetchall()
-        return [self._folder_from_row(row) for row in rows]
-
     def get_folder_by_name(self, account_id: int, name: str) -> Folder | None:
         row = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? AND name = ?",

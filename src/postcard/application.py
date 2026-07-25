@@ -27,7 +27,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Adw, Gdk, Gio, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
@@ -59,6 +59,9 @@ class PostcardApplication(Adw.Application):
         )
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
         self._create_action("focus-mail", lambda *_: self.do_activate())
+        self._create_action(
+            "open-mail", self.on_open_mail, param_type=GLib.VariantType.new("(is)")
+        )
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -86,8 +89,9 @@ class PostcardApplication(Adw.Application):
         name: str,
         callback: Callable[..., None],
         shortcuts: list[str] | None = None,
+        param_type: GLib.VariantType | None = None,
     ) -> None:
-        action = Gio.SimpleAction.new(name, None)
+        action = Gio.SimpleAction.new(name, param_type)
         action.connect("activate", callback)
         self.add_action(action)
         if shortcuts:
@@ -113,6 +117,13 @@ class PostcardApplication(Adw.Application):
     def on_preferences_action(self, *args: object) -> None:
         dialog = PostcardPreferencesDialog(self.settings)
         dialog.present(self.props.active_window)
+
+    def on_open_mail(self, _action: Gio.SimpleAction, param: GLib.Variant) -> None:
+        self.do_activate()
+        win = self.props.active_window
+        if isinstance(win, PostcardMainWindow):
+            folder_id, uid = param.unpack()
+            win.open_email(folder_id, uid)
 
     def on_new_window_action(self, *args: object) -> None:
         PostcardMainWindow(self, self.db, self.settings).present()

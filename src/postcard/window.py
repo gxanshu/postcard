@@ -1310,10 +1310,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # Only nag about new mail when the user isn't already looking.
         if new_messages and not self.is_active():
-            self._notify_new_mail(new_messages)
+            self._notify_new_mail(new_messages, target.id)
         return False
 
-    def _notify_new_mail(self, messages: list[mail_sync.MessageHeader]) -> None:
+    def _notify_new_mail(
+        self, messages: list[mail_sync.MessageHeader], folder_id: int
+    ) -> None:
         if not self._settings.get_boolean("notifications"):
             return
         app = self.get_application()
@@ -1323,14 +1325,18 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if len(messages) == 1:
             notification = Gio.Notification.new(messages[0].sender)
             notification.set_body(messages[0].subject)
+            # Clicking it opens that thread, which is what marks it read.
+            notification.set_default_action_and_target(
+                "app.open-mail", GLib.Variant("(is)", (folder_id, messages[0].uid))
+            )
         else:
             senders = ", ".join(dict.fromkeys(m.sender for m in messages))
             notification = Gio.Notification.new(
                 _("{n} new messages").format(n=len(messages))
             )
             notification.set_body(senders)
+            notification.set_default_action("app.focus-mail")
 
-        notification.set_default_action("app.focus-mail")
         app.send_notification("new-mail", notification)
 
     def _on_sync_error(self, category: str, message: str) -> bool:
@@ -1467,6 +1473,25 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 if isinstance(f, Folder) and f.id == folder_id:
                     self._folder_selection.set_selected(i)
                     return
+
+    # Open one message by IMAP UID (from a notification). Clearing _rendered_id
+    # makes the reader rebuild even if the thread is already shown, so the usual
+    # open path marks it read.
+    def open_email(self, folder_id: int, uid: str) -> None:
+        if getattr(self, "_account_id", None) is None:
+            return
+        self._select_folder_by_id(folder_id)
+
+        store = self._conversation_store
+        for index in range(store.get_n_items()):
+            conversation = store.get_item(index)
+            if not isinstance(conversation, Conversation):
+                continue
+            if any(mail.server_id == uid for mail in conversation.emails):
+                self._rendered_id = None
+                self._selection.set_selected(index)
+                self._update_reader()
+                return
 
     def _toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text))

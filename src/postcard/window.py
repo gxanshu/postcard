@@ -40,6 +40,7 @@ from .core.models.conversation import Conversation
 from .core.models.email import Email
 from .core.models.folder import Folder
 from .core.store.database import Database
+from .folder_row import FolderRow
 from .message_view import MessageView
 
 
@@ -161,7 +162,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # Boxes of the rows currently on screen, keyed by folder id, so
         # _reload_folders can refresh them without rebuilding the tree.
-        self._folder_rows: dict[int, Gtk.Box] = {}
+        self._folder_rows: dict[int, FolderRow] = {}
         # The (id, parent_id) pairs the tree was last built from.
         self._folder_shape: list[tuple[int, int | None]] = []
 
@@ -709,18 +710,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         factory.connect("unbind", self._on_folder_row_unbind)
         self.folder_list.set_factory(factory)
 
+    # setup: build one empty widget, reused for many folders as the list
+    # scrolls. The expander draws the indent and the expand/collapse arrow.
     def _on_folder_row_setup(
         self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
     ) -> None:
         expander = Gtk.TreeExpander()
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(6)
-        box.set_margin_end(6)
-        expander.set_child(box)
+        expander.set_child(FolderRow())
         item.set_child(expander)
 
+    # bind: fill an existing widget from its item. Runs on every scroll, so it
+    # only copies fields across.
     def _on_folder_row_bind(
         self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
     ) -> None:
@@ -734,33 +734,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         folder = tree_list_row.get_item()
         assert isinstance(folder, Folder)
 
-        box = expander.get_child()
-        assert isinstance(box, Gtk.Box)
+        row = expander.get_child()
+        assert isinstance(row, FolderRow)
 
-        self._folder_rows[folder.id] = box
-        self._fill_folder_row(box, folder)
-
-    def _fill_folder_row(self, box: Gtk.Box, folder: Folder) -> None:
-        child = box.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            box.remove(child)
-            child = nxt
-
-        box.append(Gtk.Image.new_from_icon_name(folder.icon_name))
-
-        name = Gtk.Label(
-            label=mail_sync.display_name_for_folder(folder.name, folder.delimiter),
-            xalign=0,
-            hexpand=True,
-        )
-        box.append(name)
-
-        count = self._db.unread_count_in_folder(folder.id)
-        if count > 0:
-            badge = Gtk.Label(label=str(count))
-            badge.add_css_class("dim-label")
-            box.append(badge)
+        self._folder_rows[folder.id] = row
+        row.bind(folder, self._db.unread_count_in_folder(folder.id))
 
     def _on_folder_row_unbind(
         self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
@@ -1436,9 +1414,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._rebuild_folder_tree()
 
         for folder in folders:
-            box = self._folder_rows.get(folder.id)
-            if box is not None:
-                self._fill_folder_row(box, folder)
+            row = self._folder_rows.get(folder.id)
+            if row is not None:
+                row.bind(folder, self._db.unread_count_in_folder(folder.id))
 
     def _rebuild_folder_tree(self) -> None:
         keep_id = self._current_folder.id if self._current_folder else None

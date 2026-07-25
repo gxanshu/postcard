@@ -42,6 +42,7 @@ postcard_sources = [
   'postcard/composer_window.py',
   'postcard/preferences_dialog.py',
   'postcard/mail_sync.py',
+  'postcard/folder_row.py',
 ]
 python_installation.install_sources(postcard_sources, subdir: 'postcard')
 

@@ -159,10 +159,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.main_stack.set_visible_child_name("mail")
         self._refresh_account_switcher()
 
-        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Folder)
-        for folder in self._db.root_folders(self._account_id):
-            self._folder_root_store.append(folder)
+        # Boxes of the rows currently on screen, keyed by folder id, so
+        # _reload_folders can refresh them without rebuilding the tree.
+        self._folder_rows: dict[int, Gtk.Box] = {}
+        # The (id, parent_id) pairs the tree was last built from.
+        self._folder_shape: list[tuple[int, int | None]] = []
 
+        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Folder)
         self._folder_tree_model: Gtk.TreeListModel = Gtk.TreeListModel.new(
             self._folder_root_store,
             False,
@@ -174,9 +177,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._folder_selection: Gtk.SingleSelection = Gtk.SingleSelection(
             model=self._folder_tree_model
         )
-        self._folder_selection.connect(
-            "selection-changed", self._on_folder_selected
-        )
+        self._folder_selection.connect("selection-changed", self._on_folder_selected)
 
         # One persistent store, mutated in place via splice() on every
         # refresh: swapping in a new Gio.ListStore each time (the previous
@@ -189,6 +190,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._setup_folder_sidebar()
         self._setup_conversation_list()
+
+        self._reload_folders()
 
         # Selecting the inbox kicks off a network fetch for it via
         # _on_folder_selected; the sync below only bootstraps a fresh account
@@ -734,6 +737,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         box = expander.get_child()
         assert isinstance(box, Gtk.Box)
 
+        self._folder_rows[folder.id] = box
+        self._fill_folder_row(box, folder)
+
+    def _fill_folder_row(self, box: Gtk.Box, folder: Folder) -> None:
         child = box.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
@@ -758,6 +765,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_folder_row_unbind(
         self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
     ) -> None:
+        tree_list_row = item.get_item()
+        if isinstance(tree_list_row, Gtk.TreeListRow):
+            folder = tree_list_row.get_item()
+            if isinstance(folder, Folder):
+                self._folder_rows.pop(folder.id, None)
+
         expander = item.get_child()
         if isinstance(expander, Gtk.TreeExpander):
             expander.set_list_row(None)
@@ -1414,11 +1427,28 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self.sync_spinner.stop()
 
+    # Rebuilding the tree destroys every row, which resets the user's
+    # expand/collapse state, so only rebuild when the folders or their nesting
+    # actually changed. A plain badge/icon update refreshes the rows in place.
     def _reload_folders(self) -> None:
+        folders = self._db.folders_for_account(self._account_id)
+
+        shape = [(f.id, f.parent_id) for f in folders]
+        if shape != self._folder_shape:
+            self._folder_shape = shape
+            self._rebuild_folder_tree()
+
+        for folder in folders:
+            box = self._folder_rows.get(folder.id)
+            if box is not None:
+                self._fill_folder_row(box, folder)
+
+    def _rebuild_folder_tree(self) -> None:
         keep_id = self._current_folder.id if self._current_folder else None
 
         self._suppress_folder_refresh = True
 
+        self._folder_rows.clear()
         self._folder_root_store.remove_all()
         for folder in self._db.root_folders(self._account_id):
             self._folder_root_store.append(folder)

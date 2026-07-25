@@ -12,6 +12,13 @@ def _quote_mailbox(name: str) -> str:
     return f'"{escaped}"'
 
 
+def _unquote(token: str) -> str:
+    """The inverse of _quote_mailbox: drop the quotes and backslash escapes."""
+    if token.startswith('"') and token.endswith('"'):
+        token = token[1:-1]
+    return re.sub(r"\\(.)", r"\1", token)
+
+
 class ImapError(Exception):
     """Raised when talking to the server fails (bad login, dropped link, ..)"""
 
@@ -53,8 +60,9 @@ class ImapSession:
     def list_folders(self) -> list[tuple[str, str, str]]:
         """Return (name, delimiter, flags) for every listed mailbox.
 
-        Unlike the previous version, *all* mailboxes are returned (including
-        \\Noselect containers) so the caller can reconstruct the hierarchy.
+        \\Noselect containers are included so the caller can rebuild the
+        hierarchy. The delimiter is "" when the server reports NIL, meaning a
+        flat namespace whose names must not be split into parent and child.
         """
         typ, data = self._require_imap().list()
         result: list[tuple[str, str, str]] = []
@@ -67,10 +75,8 @@ class ImapSession:
                 continue
             flags_part = match.group(1)
             delim_raw = match.group(2)
-            name = match.group(3).strip()
-            if name.startswith('"') and name.endswith('"'):
-                name = name[1:-1]
-            delimiter = delim_raw.strip('"') if delim_raw != "NIL" else "/"
+            name = _unquote(match.group(3).strip())
+            delimiter = "" if delim_raw == "NIL" else _unquote(delim_raw)
             result.append((name, delimiter, flags_part))
         return result
 

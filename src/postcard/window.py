@@ -1248,7 +1248,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
             folder = self._db.get_or_create_folder(self._account_id, name, icon)
             parent_id: int | None = None
-            if delimiter in name:
+            if delimiter and delimiter in name:
                 parent = self._db.get_folder_by_name(
                     self._account_id, name.rsplit(delimiter, 1)[0]
                 )

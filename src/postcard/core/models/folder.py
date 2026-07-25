@@ -27,3 +27,8 @@ class Folder(GObject.Object):
         self.icon_name: str = icon_name
         self.parent_id: int | None = parent_id
         self.delimiter: str = delimiter
+
+    # Strip to the leaf name only when there is a parent row to indent under.
+    @property
+    def display_delimiter(self) -> str | None:
+        return self.delimiter if self.parent_id is not None else None

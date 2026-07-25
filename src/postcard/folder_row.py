@@ -28,7 +28,7 @@ class FolderRow(Gtk.Box):
     def bind(self, folder: Folder, unread: int) -> None:
         self._icon.set_from_icon_name(folder.icon_name)
         self._name_label.set_label(
-            mail_sync.display_name_for_folder(folder.name, folder.delimiter)
+            mail_sync.display_name_for_folder(folder.name, folder.display_delimiter)
         )
         self._badge.set_label(str(unread))
         self._badge.set_visible(unread > 0)

@@ -635,7 +635,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         for folder in self._db.folders_for_account(self._account_id):
             if folder.id == current_id:
                 continue
-            label = mail_sync.display_name_for_folder(folder.name, folder.delimiter)
+            label = mail_sync.display_name_for_folder(
+                folder.name, folder.display_delimiter
+            )
             item = Gio.MenuItem.new(label, None)
             item.set_action_and_target_value(
                 "win.move", GLib.Variant.new_string(folder.name)

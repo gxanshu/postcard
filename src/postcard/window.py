@@ -1241,25 +1241,29 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         selected = self._selection.get_selected_item()
         keep_id = selected.id if isinstance(selected, Conversation) else None
 
+        mailboxes = [
+            m for m in result.folders if m.name not in mail_sync.NAMESPACE_ROOTS
+        ]
+
         # Shortest name first: a parent's name is a prefix of its children's, so
         # every parent is stored before a child looks it up.
-        for mailbox in sorted(result.folders, key=lambda m: len(m.name)):
+        for mailbox in sorted(mailboxes, key=lambda m: len(m.name)):
             name, delimiter = mailbox.name, mailbox.delimiter
             selectable = "\\Noselect" not in mailbox.flags
             icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
             folder = self._db.get_or_create_folder(self._account_id, name, icon)
-            parent_id: int | None = None
-            if delimiter and delimiter in name:
-                parent = self._db.get_folder_by_name(
-                    self._account_id, name.rsplit(delimiter, 1)[0]
-                )
-                parent_id = parent.id if parent else None
-            self._db.set_folder_parent(folder.id, parent_id, delimiter)
-        if result.folders:
+
+            parent_name = mail_sync.parent_mailbox_name(name, delimiter)
+            parent = self._db.get_folder_by_name(self._account_id, parent_name)
+            self._db.set_folder_parent(
+                folder.id, parent.id if parent else None, delimiter
+            )
+
+        if mailboxes:
             # Mirror the server's folder list, keeping only the local Outbox.
             # This clears stale rows like a duplicate "INBOX" from earlier
             # versions.
-            names = set(result.folder_names) | {"Outbox"}
+            names = {m.name for m in mailboxes} | {"Outbox"}
             self._db.prune_folders(self._account_id, names)
 
         target = self._db.get_or_create_folder(

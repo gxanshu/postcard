@@ -8,6 +8,10 @@ from .core.net.smtp_session import SmtpSession
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
 
+# Gmail nests its special folders under an unselectable "[Gmail]" container.
+# It isn't a real mailbox, so it's hidden and its children sit at the top level.
+NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
+
 
 @dataclass
 class MessageHeader:
@@ -30,10 +34,6 @@ class SyncResult:
     folder: str = "INBOX"
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
-
-    @property
-    def folder_names(self) -> list[str]:
-        return [f.name for f in self.folders]
 
 
 def inbox_name(folders: list[str]) -> str:
@@ -183,11 +183,17 @@ def role_for_folder(name: str) -> str:
     return "other"
 
 
+def parent_mailbox_name(name: str, delimiter: str) -> str:
+    """The mailbox enclosing name, or "" when it sits at the top level."""
+    parent = name.rpartition(delimiter)[0] if delimiter else ""
+    return "" if parent in NAMESPACE_ROOTS else parent
+
+
 def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
     name = decode_mailbox_name(name)
-    for prefix in ("[Gmail]/", "[Google Mail]/"):
-        if name.startswith(prefix):
-            name = name[len(prefix) :]
+    for root in NAMESPACE_ROOTS:
+        if name.startswith(root + "/"):
+            name = name[len(root) + 1 :]
             break
     if delimiter:
         name = name.rsplit(delimiter, 1)[-1]

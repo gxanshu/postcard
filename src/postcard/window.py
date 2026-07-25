@@ -862,10 +862,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         if vadj is not None and scroll_pos > 0:
             GLib.idle_add(
-                lambda: vadj.set_value(
-                    min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                lambda: (
+                    vadj.set_value(
+                        min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                    )
+                    or False
                 )
-                or False
             )
 
     # Debounce keystrokes: query the database ~200ms after typing stops instead
@@ -1261,7 +1263,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         sorted_info = sorted(result.folder_info, key=lambda x: len(x[0]))
         for name, delimiter, flags_str in sorted_info:
             is_selectable = "\\Noselect" not in flags_str
-            icon = mail_sync.icon_for_folder(name) if is_selectable else "folder-symbolic"
+            icon = (
+                mail_sync.icon_for_folder(name) if is_selectable else "folder-symbolic"
+            )
             parts = name.rsplit(delimiter, 1)
             parent_id: int | None = None
             if len(parts) > 1:

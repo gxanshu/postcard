@@ -196,7 +196,11 @@ class Database:
             "UPDATE folders SET parent_id = NULL WHERE account_id = ?", (account_id,)
         )
         self._conn.execute(
-            "DELETE FROM emails WHERE folder_id IN (SELECT id FROM folders WHERE account_id = ?)",
+            """
+            DELETE FROM emails WHERE folder_id IN (
+                SELECT id FROM folders WHERE account_id = ?
+            )
+            """,
             (account_id,),
         )
         self._conn.execute("DELETE FROM folders WHERE account_id = ?", (account_id,))
@@ -223,7 +227,11 @@ class Database:
 
     def root_folders(self, account_id: int) -> list[Folder]:
         rows = self._conn.execute(
-            "SELECT * FROM folders WHERE account_id = ? AND parent_id IS NULL ORDER BY id",
+            """
+            SELECT * FROM folders
+            WHERE account_id = ? AND parent_id IS NULL
+            ORDER BY id
+            """,
             (account_id,),
         ).fetchall()
         return [self._folder_from_row(row) for row in rows]
@@ -273,7 +281,10 @@ class Database:
             )
 
         cursor = self._conn.execute(
-            "INSERT INTO folders (account_id, name, icon_name, parent_id, delimiter) VALUES (?, ?, ?, ?, ?)",
+            """
+            INSERT INTO folders (account_id, name, icon_name, parent_id, delimiter)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             (account_id, name, icon_name, parent_id, delimiter),
         )
         self._conn.commit()

@@ -187,12 +187,37 @@ class MessageView(Gtk.Box):
 
         webview = WebKit.WebView()
         webview.set_size_request(-1, 800)
+        webview.connect("decide-policy", self._on_decide_policy)
         settings = webview.get_settings()
         settings.set_enable_javascript(False)
         settings.set_auto_load_images(self._remote_images)
         webview.load_html(html, None)
         self._webview = webview
         self._body.append(webview)
+
+    # The webview only ever renders the message body; anything the user clicks
+    # belongs in their browser, not in here.
+    def _on_decide_policy(
+        self,
+        _webview: WebKit.WebView,
+        decision: WebKit.PolicyDecision,
+        decision_type: WebKit.PolicyDecisionType,
+    ) -> bool:
+        if decision_type not in (
+            WebKit.PolicyDecisionType.NAVIGATION_ACTION,
+            WebKit.PolicyDecisionType.NEW_WINDOW_ACTION,
+        ):
+            return False
+
+        action = decision.get_navigation_action()
+        if action.get_navigation_type() != WebKit.NavigationType.LINK_CLICKED:
+            return False
+
+        decision.ignore()
+        uri = action.get_request().get_uri()
+        if uri:
+            Gtk.UriLauncher(uri=uri).launch(self.get_root(), None, None)
+        return True
 
     def _on_show_images_clicked(self, _banner: Adw.Banner) -> None:
         if self._webview is None or self._html is None:

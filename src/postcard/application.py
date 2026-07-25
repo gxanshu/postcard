@@ -100,9 +100,6 @@ class PostcardApplication(Adw.Application):
     MAINTAINERS = [
         "Anshu Meena https://github.com/gxanshu",
     ]
-    CONTRIBUTORS = [
-        "Chris Pouliot https://github.com/chrispouliot",
-    ]
 
     def on_about_action(self, *args: object) -> None:
         about = Adw.AboutDialog.new_from_appdata(
@@ -110,7 +107,6 @@ class PostcardApplication(Adw.Application):
         )
         about.set_translator_credits(_("translator-credits"))
         about.set_developers(self.MAINTAINERS)
-        about.add_credit_section(_("Contributors"), self.CONTRIBUTORS)
         about.set_copyright("© 2026 Anshu")
         about.present(self.props.active_window)
 

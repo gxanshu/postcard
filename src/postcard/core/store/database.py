@@ -32,6 +32,15 @@ def _arrival_key(mail: Email) -> int:
         return 2**31 - 1
 
 
+# Schema changes since the first release, applied in order. How many have run
+# is stored in PRAGMA user_version. Only ever append -- editing or reordering
+# these would give databases in the wild a different schema to new ones.
+MIGRATIONS = [
+    "ALTER TABLE folders ADD COLUMN parent_id INTEGER REFERENCES folders(id)",
+    "ALTER TABLE folders ADD COLUMN delimiter TEXT NOT NULL DEFAULT '/'",
+]
+
+
 class Database:
     def __init__(self, path: str | None = None) -> None:
         if path is None:
@@ -70,9 +79,7 @@ class Database:
                 id INTEGER PRIMARY KEY,
                 account_id INTEGER NOT NULL REFERENCES accounts(id),
                 name TEXT NOT NULL,
-                icon_name TEXT NOT NULL DEFAULT 'folder-symbolic',
-                parent_id INTEGER REFERENCES folders(id),
-                delimiter TEXT NOT NULL DEFAULT '/'
+                icon_name TEXT NOT NULL DEFAULT 'folder-symbolic'
             );
 
             CREATE TABLE IF NOT EXISTS emails (
@@ -118,6 +125,13 @@ class Database:
             """
         )
 
+        self._conn.commit()
+
+    def _migrate_schema(self) -> None:
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        for i, sql in enumerate(MIGRATIONS[version:], start=version + 1):
+            self._conn.executescript(sql)
+            self._conn.execute(f"PRAGMA user_version = {i}")
         self._conn.commit()
 
     # --- accounts -----------------------------------------------------------
@@ -190,21 +204,6 @@ class Database:
         self._conn.commit()
 
     # --- folders -----------------------------------------------------------
-
-    def _migrate_schema(self) -> None:
-        try:
-            self._conn.execute(
-                "ALTER TABLE folders ADD COLUMN parent_id INTEGER REFERENCES folders(id)"
-            )
-        except sqlite3.OperationalError:
-            pass
-        try:
-            self._conn.execute(
-                "ALTER TABLE folders ADD COLUMN delimiter TEXT NOT NULL DEFAULT '/'"
-            )
-        except sqlite3.OperationalError:
-            pass
-        self._conn.commit()
 
     def _folder_from_row(self, row: sqlite3.Row) -> Folder:
         return Folder(

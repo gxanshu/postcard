@@ -251,41 +251,18 @@ class Database:
         return self._folder_from_row(row) if row else None
 
     def get_or_create_folder(
-        self,
-        account_id: int,
-        name: str,
-        icon_name: str = "folder-symbolic",
-        parent_id: int | None = None,
-        delimiter: str = "/",
+        self, account_id: int, name: str, icon_name: str = "folder-symbolic"
     ) -> Folder:
         row = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? AND name = ?",
             (account_id, name),
         ).fetchone()
         if row is not None:
-            curr_parent = row["parent_id"]
-            curr_delim = row["delimiter"]
-            if curr_parent != parent_id or curr_delim != delimiter:
-                self._conn.execute(
-                    "UPDATE folders SET parent_id = ?, delimiter = ? WHERE id = ?",
-                    (parent_id, delimiter, row["id"]),
-                )
-                self._conn.commit()
-            return Folder(
-                id=row["id"],
-                account_id=row["account_id"],
-                name=row["name"],
-                icon_name=row["icon_name"],
-                parent_id=parent_id,
-                delimiter=delimiter,
-            )
+            return self._folder_from_row(row)
 
         cursor = self._conn.execute(
-            """
-            INSERT INTO folders (account_id, name, icon_name, parent_id, delimiter)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (account_id, name, icon_name, parent_id, delimiter),
+            "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
+            (account_id, name, icon_name),
         )
         self._conn.commit()
         assert cursor.lastrowid is not None
@@ -294,9 +271,18 @@ class Database:
             account_id=account_id,
             name=name,
             icon_name=icon_name,
-            parent_id=parent_id,
-            delimiter=delimiter,
         )
+
+    # Only the sync knows a folder's real place in the server's hierarchy, so
+    # it's set explicitly here rather than defaulted by get_or_create_folder.
+    def set_folder_parent(
+        self, folder_id: int, parent_id: int | None, delimiter: str
+    ) -> None:
+        self._conn.execute(
+            "UPDATE folders SET parent_id = ?, delimiter = ? WHERE id = ?",
+            (parent_id, delimiter, folder_id),
+        )
+        self._conn.commit()
 
     def _delete_folder_tree(self, folder_id: int) -> None:
         children = self._conn.execute(

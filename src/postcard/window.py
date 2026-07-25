@@ -1260,35 +1260,28 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         selected = self._selection.get_selected_item()
         keep_id = selected.id if isinstance(selected, Conversation) else None
 
-        sorted_info = sorted(result.folder_info, key=lambda x: len(x[0]))
+        # Shortest name first: a parent's name is a prefix of its children's, so
+        # every parent is stored before a child looks it up.
+        sorted_info = sorted(result.folder_info, key=lambda f: len(f[0]))
         for name, delimiter, flags_str in sorted_info:
             is_selectable = "\\Noselect" not in flags_str
             icon = (
                 mail_sync.icon_for_folder(name) if is_selectable else "folder-symbolic"
             )
-            parts = name.rsplit(delimiter, 1)
+            folder = self._db.get_or_create_folder(self._account_id, name, icon)
             parent_id: int | None = None
-            if len(parts) > 1:
-                parent = self._db.get_folder_by_name(self._account_id, parts[0])
-                if parent is not None:
-                    parent_id = parent.id
-            self._db.get_or_create_folder(
-                self._account_id, name, icon, parent_id=parent_id, delimiter=delimiter
-            )
+            if delimiter in name:
+                parent = self._db.get_folder_by_name(
+                    self._account_id, name.rsplit(delimiter, 1)[0]
+                )
+                parent_id = parent.id if parent else None
+            self._db.set_folder_parent(folder.id, parent_id, delimiter)
         if result.folders:
             self._db.prune_folders(self._account_id, set(result.folders) | {"Outbox"})
 
-        # The loop above already created/updated this folder with the right
-        # parent/delimiter. Look it up instead of re-calling get_or_create_folder
-        # with defaults, which would reset a nested folder's parent_id to NULL
-        # and make it jump to the end of the root list.
-        target = self._db.get_folder_by_name(self._account_id, result.folder)
-        if target is None:
-            target = self._db.get_or_create_folder(
-                self._account_id,
-                result.folder,
-                mail_sync.icon_for_folder(result.folder),
-            )
+        target = self._db.get_or_create_folder(
+            self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
+        )
         new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
             added = self._db.save_incoming_email(

@@ -33,12 +33,13 @@ from .accounts_dialog import PostcardAccountsDialog
 from .composer_window import PostcardComposerWindow
 from .conversation_row import ConversationRow
 from .core import compose, secrets
+from .core.mime.message_parser import ParsedMessage
 from .core.models.account import Account
-from .core.net import errors
 from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
 from .core.models.email import Email
 from .core.models.folder import Folder
+from .core.net import errors
 from .core.store.database import Database
 from .folder_row import FolderRow
 from .message_view import MessageView
@@ -293,11 +294,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         to_addr = parseaddr(str(headers["From"] or ""))[1]
         subject = compose.reply_subject(str(headers["Subject"] or ""))
         parsed = self._active_view.parsed
-        original_text = parsed.text_body if parsed else ""
         body = compose.quote_reply_body(
             str(headers["From"] or ""),
             str(headers["Date"] or ""),
-            original_text or "",
+            _original_text(parsed),
             signature=self._signature_text(),
         )
         self._open_composer(to=to_addr, subject=subject, body=body)
@@ -308,12 +308,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
         subject = compose.forward_subject(str(headers["Subject"] or ""))
         parsed = self._active_view.parsed
-        original_text = parsed.text_body if parsed else ""
         body = compose.forward_body(
             str(headers["From"] or ""),
             str(headers["Date"] or ""),
             str(headers["Subject"] or ""),
-            original_text or "",
+            _original_text(parsed),
             signature=self._signature_text(),
         )
         self._open_composer(subject=subject, body=body)
@@ -1495,3 +1494,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text))
+
+
+# ponytail: quotes are flattened to text; inlining the original's real HTML
+# would need a sanitizer, since the composer runs with JavaScript enabled.
+def _original_text(parsed: ParsedMessage | None) -> str:
+    if parsed is None:
+        return ""
+    return parsed.text_body or compose.html_to_text(parsed.html_body or "")

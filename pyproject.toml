@@ -14,6 +14,7 @@ select = ["E", "W", "F", "I", "UP", "B", "SLF"]
 # gi.require_version() must run before the gi.repository import it configures,
 # which pushes that import (and everything after it) below E402's threshold.
 "src/postcard/application.py" = ["E402"]
+"src/postcard/composer_window.py" = ["E402"]
 "src/postcard/core/secrets.py" = ["E402"]
 "src/postcard/window.py" = ["E402"]
 

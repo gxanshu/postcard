@@ -3,8 +3,8 @@ using Adw 1;
 
 template $PostcardComposerWindow: Adw.Window {
   title: _("New Message");
-  default-width: 640;
-  default-height: 560;
+  default-width: 540;
+  default-height: 740;
 
   content: Adw.ToastOverlay toast_overlay {
     child: Adw.ToolbarView {
@@ -40,7 +40,11 @@ template $PostcardComposerWindow: Adw.Window {
         margin-start: 12;
         margin-end: 12;
 
-        Adw.PreferencesGroup {
+        Gtk.ListBox {
+          selection-mode: none;
+
+          styles ["boxed-list"]
+
           Adw.EntryRow to_row {
             title: _("To");
           }
@@ -58,32 +62,18 @@ template $PostcardComposerWindow: Adw.Window {
           }
         }
 
-        Gtk.ScrolledWindow {
+        Gtk.Box body_container {
           vexpand: true;
+          overflow: hidden;
 
-          child: Gtk.TextView body_view {
-            top-margin: 8;
-            bottom-margin: 8;
-            left-margin: 8;
-            right-margin: 8;
-            wrap-mode: word_char;
-          };
+          styles ["card"]
         }
 
-        Gtk.Box {
-          spacing: 6;
+        Gtk.Label {
+          label: _("Attachments");
+          xalign: 0;
 
-          Gtk.Button attach_button {
-            icon-name: "mail-attachment-symbolic";
-            tooltip-text: _("Add Attachment");
-
-            styles ["flat"]
-          }
-
-          Gtk.Label {
-            label: _("Attachments");
-            styles ["heading"]
-          }
+          styles ["heading"]
         }
 
         Gtk.ListBox attachments_list {
@@ -92,6 +82,73 @@ template $PostcardComposerWindow: Adw.Window {
           styles ["boxed-list"]
         }
       };
+
+      [bottom]
+      Gtk.Box {
+        spacing: 6;
+
+        styles ["toolbar"]
+
+        Gtk.ToggleButton bold_button {
+          icon-name: "format-text-bold-symbolic";
+          tooltip-text: _("Bold");
+
+          styles ["flat"]
+        }
+
+        Gtk.ToggleButton italic_button {
+          icon-name: "format-text-italic-symbolic";
+          tooltip-text: _("Italic");
+
+          styles ["flat"]
+        }
+
+        Gtk.ToggleButton underline_button {
+          icon-name: "format-text-underline-symbolic";
+          tooltip-text: _("Underline");
+
+          styles ["flat"]
+        }
+
+        Gtk.ToggleButton strike_button {
+          icon-name: "format-text-strikethrough-symbolic";
+          tooltip-text: _("Strikethrough");
+
+          styles ["flat"]
+        }
+
+        Gtk.Separator {}
+
+        Gtk.ToggleButton bullets_button {
+          icon-name: "view-list-bullet-symbolic";
+          tooltip-text: _("Bulleted List");
+
+          styles ["flat"]
+        }
+
+        Gtk.ToggleButton numbers_button {
+          icon-name: "view-list-ordered-symbolic";
+          tooltip-text: _("Numbered List");
+
+          styles ["flat"]
+        }
+
+        Gtk.Separator {}
+
+        Gtk.Button link_button {
+          icon-name: "insert-link-symbolic";
+          tooltip-text: _("Insert Link");
+
+          styles ["flat"]
+        }
+
+        Gtk.Button attach_button {
+          icon-name: "mail-attachment-symbolic";
+          tooltip-text: _("Add Attachment");
+
+          styles ["flat"]
+        }
+      }
     };
   };
 }

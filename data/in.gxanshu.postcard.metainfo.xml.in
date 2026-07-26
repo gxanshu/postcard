@@ -15,11 +15,13 @@
     </p>
     <p>Features include:</p>
     <ul>
-      <li>Multiple IMAP/SMTP accounts</li>
-      <li>Conversations grouped into threads</li>
+      <li>Multiple IMAP/SMTP accounts, with TLS or STARTTLS</li>
+      <li>Conversations grouped into threads, nested folders shown as a tree</li>
       <li>Instant full-text search across your mail</li>
-      <li>Offline reading from a local cache</li>
+      <li>Offline reading from a local cache, and syncing that carries on in the
+      background</li>
       <li>HTML and plain-text mail, with remote images blocked until you allow them</li>
+      <li>Rich-text composer with formatting, lists, links, and recipient autocomplete</li>
       <li>Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that
       never loses a message</li>
       <li>Archive, trash, move, and undo, with desktop notifications for new mail</li>
@@ -51,6 +53,17 @@
   </screenshots>
 
   <releases>
+    <release version="1.4.0" date="2026-07-26">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Rich-text composer with bold, italic, underline, strikethrough, bulleted and
+          numbered lists, and links</li>
+          <li>Mail is now sent as HTML with a plain-text alternative</li>
+          <li>Recipient autocomplete from addresses seen in your existing mail</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-07-26">
       <description translate="no">
         <p>New in this release:</p>

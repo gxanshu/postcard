@@ -5,7 +5,7 @@
 
   A modern email client for GNOME.
 
-  [![Version](https://img.shields.io/badge/version-1.3.0-3584e4)](https://github.com/gxanshu/postcard/releases)
+  [![Version](https://img.shields.io/badge/version-1.4.0-3584e4)](https://github.com/gxanshu/postcard/releases)
   [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4)](COPYING)
 </div>
 
@@ -24,11 +24,17 @@ accumulated complexity. It's built and shipped as a Flatpak.
 
 ## Features
 
-- Multiple IMAP/SMTP accounts, with passwords stored in the system keyring
-- Conversations grouped into threads
+- Multiple IMAP/SMTP accounts, with passwords stored in the system keyring and a TLS/STARTTLS
+  choice per server (so Proton Mail Bridge works)
+- Conversations grouped into threads, with nested folders shown as a tree
 - Instant full-text search across your mail
-- Offline reading from a local cache
-- HTML and plain-text mail, with remote images blocked until you allow them
+- Offline reading from a local cache, and syncing that carries on in the background after you
+  close the window
+- HTML and plain-text mail, with remote images blocked until you allow them, and links opening
+  in your default browser
+- Rich-text composer: bold, italic, underline, strikethrough, bulleted and numbered lists, and
+  links — sent as HTML with a plain-text alternative
+- Recipient autocomplete drawn from the addresses already in your mail
 - Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that never loses
   a message
 - Archive, trash, move, and undo, with desktop notifications for new mail

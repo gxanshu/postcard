@@ -2,6 +2,7 @@ import json
 import mimetypes
 import threading
 from datetime import datetime
+from email.utils import getaddresses
 from gettext import gettext as _
 
 import gi
@@ -9,7 +10,17 @@ import gi
 gi.require_version("JavaScriptCore", "6.0")
 gi.require_version("WebKit", "6.0")
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, JavaScriptCore, WebKit
+from gi.repository import (
+    Adw,
+    Gdk,
+    Gio,
+    GLib,
+    GObject,
+    Gtk,
+    JavaScriptCore,
+    Pango,
+    WebKit,
+)
 
 from . import mail_sync
 from .core import compose, secrets
@@ -86,6 +97,97 @@ _EDITOR_PAGE = """<!DOCTYPE html>
 </html>
 """
 
+
+class _AddressSuggestions:
+    """A drop-down of known addresses under one recipient row.
+
+    Gtk.EntryCompletion only attaches to a Gtk.Entry, and an Adw.EntryRow is a
+    list box row, so the popover is driven by hand.
+    """
+
+    def __init__(self, row: Adw.EntryRow, addresses: list[str]) -> None:
+        self._row = row
+        self._addresses = addresses
+        self._list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE)
+        # autohide would steal focus from the entry the moment it pops up.
+        self._popover = Gtk.Popover(
+            child=self._list,
+            autohide=False,
+            has_arrow=False,
+            position=Gtk.PositionType.BOTTOM,
+        )
+        self._popover.set_parent(row)
+
+        row.connect("changed", self._on_changed)
+        row.connect("destroy", lambda *_: self._popover.unparent())
+        self._list.connect("row-activated", self._on_row_activated)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self._on_key_pressed)
+        row.add_controller(keys)
+
+    def _on_changed(self, _row: Adw.EntryRow) -> None:
+        matches = compose.suggest_addresses(self._row.get_text(), self._addresses)
+        self._list.remove_all()
+        for address in matches:
+            self._list.append(
+                Gtk.Label(
+                    label=address,
+                    xalign=0,
+                    ellipsize=Pango.EllipsizeMode.END,
+                    max_width_chars=40,
+                    margin_top=8,
+                    margin_bottom=8,
+                    margin_start=12,
+                    margin_end=12,
+                )
+            )
+
+        if matches:
+            self._list.select_row(self._list.get_row_at_index(0))
+            # Line the drop-down up with the row it belongs to.
+            self._popover.set_size_request(self._row.get_width(), -1)
+            self._popover.popup()
+        else:
+            self._popover.popdown()
+
+    def _on_row_activated(self, _list: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        label = row.get_child()
+        assert isinstance(label, Gtk.Label)
+        # The trailing ", " leaves nothing being typed, so the popover closes
+        # itself on the resulting "changed" -- and shows how to add another.
+        self._row.set_text(
+            compose.replace_last_address(self._row.get_text(), label.get_label())
+        )
+        self._row.set_position(-1)
+
+    def _on_key_pressed(
+        self, _controller: Gtk.EventControllerKey, keyval: int, _code: int, _state: int
+    ) -> bool:
+        if not self._popover.get_visible():
+            return False
+
+        if keyval == Gdk.KEY_Escape:
+            self._popover.popdown()
+        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_Tab):
+            selected = self._list.get_selected_row()
+            if selected is None:
+                return False
+            self._on_row_activated(self._list, selected)
+        elif keyval in (Gdk.KEY_Down, Gdk.KEY_Up):
+            self._move_selection(1 if keyval == Gdk.KEY_Down else -1)
+        else:
+            return False
+        return True
+
+    def _move_selection(self, step: int) -> None:
+        selected = self._list.get_selected_row()
+        index = (selected.get_index() if selected else 0) + step
+        row = self._list.get_row_at_index(index)
+        if row is not None:
+            self._list.select_row(row)
+
+
 _FORMAT_COMMANDS = {
     "bold_button": "bold",
     "italic_button": "italic",
@@ -158,6 +260,12 @@ class PostcardComposerWindow(Adw.Window):
         for row in (self.to_row, self.cc_row, self.bcc_row, self.subject_row):
             row.connect("changed", self._update_send_sensitivity)
         self._update_send_sensitivity()
+
+        known = db.contact_addresses()
+        self._suggestions = [
+            _AddressSuggestions(row, known)
+            for row in (self.to_row, self.cc_row, self.bcc_row)
+        ]
 
     # --- editor ------------------------------------------------------------
 
@@ -351,6 +459,10 @@ class PostcardComposerWindow(Adw.Window):
         cc_addrs = self._cc_addrs()
         bcc_addrs = self._bcc_addrs()
         subject = self.subject_row.get_text().strip()
+
+        # Bcc is never written to a received message, so this is the only
+        # place a Bcc'd address can be learned.
+        self._db.save_contacts(getaddresses(to_addrs + cc_addrs + bcc_addrs))
 
         msg = compose.build_mime_message(
             self._account.email,

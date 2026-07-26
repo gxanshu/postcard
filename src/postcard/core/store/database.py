@@ -102,6 +102,12 @@ class Database:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid
                 ON emails (folder_id, server_id);
 
+            -- Every address we've seen, for composer autocomplete.
+            CREATE TABLE IF NOT EXISTS contacts (
+                address TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT ''
+            );
+
             -- Full-text search index over the searchable columns. It mirrors
             -- the emails table (content='emails'), so triggers keep it in sync.
             CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5(
@@ -470,3 +476,28 @@ class Database:
             references=row["reference_ids"] or "",
             conversation_id=row["conversation_id"],
         )
+
+    # --- contacts -----------------------------------------------------------
+
+    def save_contacts(self, addresses: list[tuple[str, str]]) -> None:
+        """Remember (name, address) pairs -- the order email.utils.getaddresses
+        returns them in. A later sighting fills in a missing display name, but
+        an anonymous one never wipes a name we already have."""
+        self._conn.executemany(
+            """
+            INSERT INTO contacts (address, name) VALUES (?, ?)
+            ON CONFLICT(address) DO UPDATE SET name = excluded.name
+                WHERE excluded.name != ''
+            """,
+            [(addr.lower(), name) for name, addr in addresses if addr],
+        )
+        self._conn.commit()
+
+    def contact_addresses(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT name, address FROM contacts ORDER BY name, address"
+        ).fetchall()
+        return [
+            f"{row['name']} <{row['address']}>" if row["name"] else row["address"]
+            for row in rows
+        ]

@@ -1294,6 +1294,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 new_messages.append(message)
         self._db.reassign_conversations(target.id)
 
+        # From every fetched header, not just the newly added ones, so an
+        # existing install fills its contacts on the next sync.
+        self._db.save_contacts([a for m in result.messages for a in m.addresses])
+
         # Update paging state: track the deepest page loaded (max() so a
         # newest-page poll never forgets how far the user has scrolled back),
         # and offer "more" only while messages remain beyond it.

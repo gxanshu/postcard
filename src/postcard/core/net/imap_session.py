@@ -147,7 +147,7 @@ class ImapSession:
             f"{start}:{end}",
             # BODY.PEEK[...] = look at the header WITHOUT marking it \Seen.
             "(UID FLAGS BODY.PEEK[HEADER.FIELDS "
-            "(DATE FROM SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
+            "(DATE FROM TO CC SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
         )
         if typ != "OK":
             raise ImapError(f"fetch failed: {data}")
@@ -192,6 +192,8 @@ class ImapSession:
         return {
             "uid": uid.group(1) if uid else "",
             "from": str(headers["From"]) if headers["From"] else "",
+            "to": str(headers["To"]) if headers["To"] else "",
+            "cc": str(headers["Cc"]) if headers["Cc"] else "",
             "subject": str(headers["Subject"]) if headers["Subject"] else "",
             "date": str(headers["Date"]) if headers["Date"] else "",
             "message_id": str(headers["Message-ID"]) if headers["Message-ID"] else "",

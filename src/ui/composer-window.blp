@@ -62,6 +62,13 @@ template $PostcardComposerWindow: Adw.Window {
           }
         }
 
+        Gtk.Label {
+          label: _("Separate multiple addresses with commas");
+          xalign: 0;
+
+          styles ["caption", "dim-label"]
+        }
+
         Gtk.Box body_container {
           vexpand: true;
           overflow: hidden;

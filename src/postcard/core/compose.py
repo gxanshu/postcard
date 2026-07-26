@@ -138,3 +138,17 @@ def extract_recipients(raw: bytes) -> list[str]:
         [str(headers["To"] or ""), str(headers["Cc"] or "")]
     )
     return [addr for _, addr in addrs if addr]
+
+
+def suggest_addresses(text: str, addresses: list[str], limit: int = 5) -> list[str]:
+    """Known addresses matching the one being typed after the last comma."""
+    typed = text.rpartition(",")[2].strip().lower()
+    if not typed:
+        return []
+    return [a for a in addresses if typed in a.lower()][:limit]
+
+
+def replace_last_address(text: str, address: str) -> str:
+    """Swap the address being typed for a picked one, ready for the next."""
+    head = text.rpartition(",")[0]
+    return f"{head}, {address}, " if head else f"{address}, "

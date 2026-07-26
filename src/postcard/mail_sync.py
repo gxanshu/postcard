@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from email.utils import parseaddr, parsedate_to_datetime
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
 from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
@@ -25,6 +25,8 @@ class MessageHeader:
     message_id: str = ""
     in_reply_to: str = ""
     references: str = ""
+    # every (name, address) pair on the message, for the contacts list
+    addresses: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -82,6 +84,7 @@ def fetch_mailbox(
             message_id=item["message_id"],
             in_reply_to=item["in_reply_to"],
             references=item["references"],
+            addresses=getaddresses([item["from"], item["to"], item["cc"]]),
         )
         for item in raw
     ]

@@ -57,6 +57,30 @@ flatpak run in.gxanshu.postcard
 After the first install, Postcard shows up in your app launcher like any other application, and
 `flatpak update` keeps it current.
 
+## Starting hidden at login
+
+Turn on **Keep running in the background** in Preferences, then add this command to your desktop
+environment's autostart (GNOME Tweaks → Startup Applications, or your DE's equivalent):
+
+```bash
+flatpak run in.gxanshu.postcard --hidden
+```
+
+GNOME Tweaks can only pick existing applications, so if it won't take the flag, drop the command
+into `~/.config/autostart/in.gxanshu.postcard.desktop` instead:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Postcard
+Exec=flatpak run in.gxanshu.postcard --hidden
+Icon=in.gxanshu.postcard
+```
+
+Postcard then starts with no window at login and just checks for new mail on your sync interval,
+notifying you when something arrives. Click a notification or launch it from your app launcher to
+open the window.
+
 ## Building from source
 
 If you'd rather build it yourself, Postcard is built and run entirely as a Flatpak, the same way

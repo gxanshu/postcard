@@ -46,6 +46,18 @@ class PostcardApplication(Adw.Application):
         self.version = version
         self.db = Database()
         self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
+        self._start_hidden = False
+
+        # For autostart: build the window (so the sync timer runs) but skip
+        # presenting it. See the autostart .desktop file in the README.
+        self.add_main_option(
+            "hidden",
+            0,
+            GLib.OptionFlags.NONE,
+            GLib.OptionArg.NONE,
+            _("Start in the background without showing a window"),
+            None,
+        )
 
         self._create_action("about", self.on_about_action)
         self._create_action(
@@ -67,10 +79,18 @@ class PostcardApplication(Adw.Application):
         Adw.Application.do_startup(self)
         self._load_css()
 
+    def do_handle_local_options(self, options: GLib.VariantDict) -> int:
+        self._start_hidden = options.contains("hidden")
+        return Adw.Application.do_handle_local_options(self, options)
+
     def do_activate(self) -> None:
         win = self.props.active_window or PostcardMainWindow(
             self, self.db, self.settings
         )
+        if self._start_hidden:
+            # Only the launch activation stays hidden; later ones raise it.
+            self._start_hidden = False
+            return
         win.present()
 
     def _load_css(self) -> None:

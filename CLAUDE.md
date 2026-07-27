@@ -23,7 +23,7 @@ Requires `flatpak` + `flatpak-builder` on the host; Python/GTK/meson come from t
 ## Lint, format, tests
 
 - **Format:** `just fmt` (ruff, line length 88, py312 target). Editor config in `pyproject.toml`; Zed formats on save.
-- **Tests:** the GTK-free `core/` modules are unit-tested with `pytest`; tests live under `tests/` mirroring the `core/` package layout (e.g. `tests/core/test_threader.py`). Note: the checked-in `.venv` is dev-tooling only (per `pyproject.toml`) and its interpreter path breaks after the project rename — recreate it or use a system pytest. Only the pure-Python `core/` code (threader, compose, mime parser, models, database) is meaningfully testable without a display.
+- **Tests:** `just test` (host pytest, no Flatpak). `build`, `run` and `bundle` all depend on it, so a failing test blocks the Flatpak build; CI runs the same suite via `.github/workflows/tests.yml`, which `release.yml` calls before publishing. The GTK-free `core/` modules are unit-tested; tests live under `tests/` mirroring the `core/` package layout (e.g. `tests/core/test_threader.py`). `[tool.pytest.ini_options]` sets `pythonpath = ["src"]`, so the package resolves without being installed — no `conftest.py` needed. Note: the checked-in `.venv` is dev-tooling only (per `pyproject.toml`) and `.venv/bin/pytest` has a stale shebang after the project rename, which is why the recipe invokes `.venv/bin/python -m pytest`. Only the pure-Python `core/` code (threader, compose, mime parser, models, database) plus `mail_sync`'s folder-classification helpers are meaningfully testable without a display; `core/secrets.py` and the network sessions are not.
 - `pyright` runs in `basic` mode over `src/postcard`.
 
 ## Architecture

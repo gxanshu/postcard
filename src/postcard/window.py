@@ -401,7 +401,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._after_flag_change(conversation)
 
         self._after_flag_change(conversation)
-        uids = [mail.server_id for mail in conversation.emails]
+        uids = mail_sync.server_uids(conversation)
         self._run_flag_worker(uids, "\\Seen", add=not unread, revert=revert)
 
     def _on_toggle_star(self, _action: Gio.SimpleAction, _param: object) -> None:
@@ -421,7 +421,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._after_flag_change(conversation)
 
         self._after_flag_change(conversation)
-        uids = [mail.server_id for mail in conversation.emails]
+        uids = mail_sync.server_uids(conversation)
         self._run_flag_worker(uids, "\\Flagged", add=starred, revert=revert)
 
     # Clear the unread flag for a whole conversation: locally, in the badges
@@ -442,7 +442,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._after_flag_change(conversation)
 
         self._after_flag_change(conversation)
-        uids = [mail.server_id for mail in conversation.emails]
+        uids = mail_sync.server_uids(conversation)
         self._run_flag_worker(uids, "\\Seen", add=True, revert=revert)
 
     # Update badges and the list after a flag change, keeping this
@@ -541,7 +541,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._commit_pending_move()
 
         email_ids = [mail.id for mail in conversation.emails]
-        uids = [mail.server_id for mail in conversation.emails]
+        uids = mail_sync.server_uids(conversation)
         for email_id in email_ids:
             self._db.move_email(email_id, dest.id)
 
@@ -1002,30 +1002,38 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             callback(cached, None)
             return
 
+        if not mail.server_id:
+            # No UID and no cached copy: nothing to fetch until the next sync.
+            callback(None, _("This message hasn't finished syncing yet."))
+            return
+
         assert self._current_folder is not None
         thread = threading.Thread(
             target=self._body_worker,
-            args=(mail, self._current_folder.name, callback),
+            args=(mail.id, mail.server_id, self._current_folder.name, callback),
             daemon=True,
         )
         thread.start()
 
-    # Runs on the worker thread: network only, no Gtk/database access.
-    def _body_worker(self, mail: Email, folder_name: str, callback: Callable) -> None:
+    # Runs on the worker thread: network only, no Gtk/database access. Takes
+    # plain values rather than the Email, which the main thread may mutate.
+    def _body_worker(
+        self, email_id: int, uid: str, folder_name: str, callback: Callable
+    ) -> None:
         password = secrets.lookup_password(self._account_id)
         if not password:
             GLib.idle_add(
-                self._deliver_body, callback, mail.id, None, "no saved password"
+                self._deliver_body, callback, email_id, None, "no saved password"
             )
             return
         try:
             raw = mail_sync.fetch_full_message(
-                self._account, password, folder_name, mail.server_id
+                self._account, password, folder_name, uid
             )
         except Exception as error:
-            GLib.idle_add(self._deliver_body, callback, mail.id, None, str(error))
+            GLib.idle_add(self._deliver_body, callback, email_id, None, str(error))
             return
-        GLib.idle_add(self._deliver_body, callback, mail.id, raw, None)
+        GLib.idle_add(self._deliver_body, callback, email_id, raw, None)
 
     # Back on the main thread: cache the body, then hand it to the MessageView.
     def _deliver_body(

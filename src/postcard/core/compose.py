@@ -58,7 +58,7 @@ def reply_subject(subject: str) -> str:
 
 
 def forward_subject(subject: str) -> str:
-    if subject.lower().startswith("fwd:"):
+    if subject.lower().startswith(("fwd:", "fw:")):
         return subject
     return f"Fwd: {subject}"
 
@@ -118,10 +118,14 @@ def build_mime_message(
 
     for attachment in attachments:
         maintype, _, subtype = attachment.mime_type.partition("/")
+        if not subtype:
+            # No slash at all ("pdf"): the whole string is unusable as a MIME
+            # type, so fall back rather than emitting "pdf/octet-stream".
+            maintype, subtype = "application", "octet-stream"
         msg.add_attachment(
             attachment.content,
             maintype=maintype or "application",
-            subtype=subtype or "octet-stream",
+            subtype=subtype,
             filename=attachment.filename,
         )
 

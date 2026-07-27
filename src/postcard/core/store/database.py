@@ -27,8 +27,8 @@ def _arrival_key(mail: Email) -> int:
     the next sync confirms it) sorts as the newest.
     """
     try:
-        return int(mail.server_id)
-    except (TypeError, ValueError):
+        return int(mail.server_id or "")
+    except ValueError:
         return 2**31 - 1
 
 

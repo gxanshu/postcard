@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
+from .core.models.conversation import Conversation
 from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
 from .core.net.smtp_session import SmtpSession
 
@@ -111,6 +112,17 @@ def fetch_full_message(
         return session.fetch_message(uid)
     finally:
         session.logout()
+
+
+def server_uids(conversation: Conversation) -> list[str]:
+    """The IMAP UIDs of a conversation's messages, skipping any without one.
+
+    A locally saved copy (a Sent message, before the next sync confirms it)
+    has no UID, and imaplib silently drops a None argument -- which would send
+    a UID-less "UID STORE +FLAGS (...)" and get a BAD back. There is nothing
+    on the server to act on yet, so leave those out.
+    """
+    return [mail.server_id for mail in conversation.emails if mail.server_id]
 
 
 def set_flag(

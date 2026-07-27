@@ -15,7 +15,9 @@ class Email(GObject.Object):
         self,
         id: int,
         folder_id: int,
-        server_id: str,
+        # None until a sync assigns a UID -- a Sent copy saved locally right
+        # after sending has no server-side counterpart yet.
+        server_id: str | None,
         sender: str,
         subject: str,
         preview: str,
@@ -30,7 +32,7 @@ class Email(GObject.Object):
         super().__init__()
         self.id: int = id
         self.folder_id: int = folder_id
-        self.server_id: str = server_id
+        self.server_id: str | None = server_id
         self.sender: str = sender
         self.subject: str = subject
         self.preview: str = preview

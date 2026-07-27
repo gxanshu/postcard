@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PyGObject and pytest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0 python3-pytest
+
+      # pythonpath = ["src"] in pyproject.toml puts the package on sys.path,
+      # so there is nothing to install or build first.
+      - name: Run the tests
+        run: python3 -m pytest

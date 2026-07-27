@@ -18,6 +18,12 @@ select = ["E", "W", "F", "I", "UP", "B", "SLF"]
 "src/postcard/core/secrets.py" = ["E402"]
 "src/postcard/window.py" = ["E402"]
 
+[tool.pytest.ini_options]
+# The package isn't installed (meson does that at Flatpak build time), so point
+# pytest at the src layout directly — no conftest.py or editable install needed.
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.pyright]
 # "basic" catches real mistakes without fighting GTK's incomplete type stubs.
 # Bump to "strict" later if you want more rigour.

@@ -33,8 +33,12 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # Never publish a build whose tests don't pass.
+  test:
+    uses: ./.github/workflows/tests.yml
+
   release:
-    needs: check
+    needs: [check, test]
     if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     container:

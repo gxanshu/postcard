@@ -27,6 +27,8 @@ bundle      := "postcard-" + version + ".flatpak"
 # The app is never *built* or *run* from here — see `build`/`run`.
 builddir := "build"
 
+python := if path_exists(".venv/bin/python") == "true" { ".venv/bin/python" } else { "python3" }
+
 # Show the recipe list (default when you just run `just`).
 default:
     @just --list
@@ -49,7 +51,7 @@ init:
 # Build Postcard as a Flatpak from your working tree and install it for your user.
 # --disable-updates: trust already-cloned sources (e.g. blueprint-compiler) instead
 # of re-fetching from upstream on every build. Drop it if you bump a source's tag/commit.
-build:
+build: test
     flatpak-builder --force-clean --user --install --disable-updates \
         "{{fp-builddir}}" "{{manifest}}"
 
@@ -70,7 +72,7 @@ inspect: build
 # ----------------------------------------------------------------------------
 
 # Build, export to a local repo, and produce a single-file .flatpak bundle.
-bundle:
+bundle: test
     flatpak-builder --force-clean --disable-updates --repo="{{fp-repo}}" \
         "{{fp-builddir}}" "{{manifest}}"
     flatpak build-bundle "{{fp-repo}}" "{{bundle}}" "{{app-id}}"
@@ -87,7 +89,10 @@ lint:
 
 # Format the codebase with ruff.
 fmt:
-    ruff format src
+    ruff format src tests
+
+test *ARGS:
+    {{python}} -m pytest {{ARGS}}
 
 # Regenerate the .pot translation template. Opt-in dev tool: needs `meson`,
 # `ninja`, and `gettext` on the host (not required for `build`/`run`).

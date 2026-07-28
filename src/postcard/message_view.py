@@ -206,12 +206,11 @@ class MessageView(Gtk.Box):
         self,
         _webview: WebKit.WebView,
         decision: WebKit.PolicyDecision,
-        decision_type: WebKit.PolicyDecisionType,
+        _decision_type: WebKit.PolicyDecisionType,
     ) -> bool:
-        if decision_type not in (
-            WebKit.PolicyDecisionType.NAVIGATION_ACTION,
-            WebKit.PolicyDecisionType.NEW_WINDOW_ACTION,
-        ):
+        # NAVIGATION_ACTION and NEW_WINDOW_ACTION are exactly the decisions
+        # carrying a navigation action; RESPONSE ones aren't ours to handle.
+        if not isinstance(decision, WebKit.NavigationPolicyDecision):
             return False
 
         action = decision.get_navigation_action()
@@ -221,7 +220,10 @@ class MessageView(Gtk.Box):
         decision.ignore()
         uri = action.get_request().get_uri()
         if uri:
-            Gtk.UriLauncher(uri=uri).launch(self.get_root(), None, None)
+            root = self.get_root()
+            Gtk.UriLauncher(uri=uri).launch(
+                root if isinstance(root, Gtk.Window) else None, None, None
+            )
         return True
 
     def _on_show_images_clicked(self, _banner: Adw.Banner) -> None:

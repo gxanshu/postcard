@@ -227,7 +227,7 @@ class PostcardComposerWindow(Adw.Window):
 
     def __init__(
         self,
-        app: Gtk.Application,
+        app: Gtk.Application | None,
         db: Database,
         account: Account,
         to: str = "",

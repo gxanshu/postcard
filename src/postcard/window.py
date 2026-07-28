@@ -364,23 +364,24 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # Flag actions are Ctrl-modified so they don't fire while typing in search.
         app = self.get_application()
-        for name, accels in (
-            ("win.toggle-read", ["<ctrl>i"]),
-            ("win.toggle-star", ["<ctrl>s"]),
-            ("win.archive", ["<ctrl>e"]),
-            ("win.trash", ["<ctrl>Delete"]),
-            ("win.compose", ["<ctrl>n"]),
-            ("win.reply", ["<ctrl>r"]),
-            ("win.forward", ["<ctrl><shift>f"]),
-            ("win.refresh", ["F5"]),
-            ("win.search", ["<ctrl>f"]),
-        ):
-            app.set_accels_for_action(name, accels)
+        if app is not None:
+            for name, accels in (
+                ("win.toggle-read", ["<ctrl>i"]),
+                ("win.toggle-star", ["<ctrl>s"]),
+                ("win.archive", ["<ctrl>e"]),
+                ("win.trash", ["<ctrl>Delete"]),
+                ("win.compose", ["<ctrl>n"]),
+                ("win.reply", ["<ctrl>r"]),
+                ("win.forward", ["<ctrl><shift>f"]),
+                ("win.refresh", ["F5"]),
+                ("win.search", ["<ctrl>f"]),
+            ):
+                app.set_accels_for_action(name, accels)
 
     def _set_mail_actions_enabled(self, enabled: bool) -> None:
         for name in ("toggle-read", "toggle-star", "archive", "trash", "move"):
             action = self.lookup_action(name)
-            if action is not None:
+            if isinstance(action, Gio.SimpleAction):
                 action.set_enabled(enabled)
         self.move_button.set_sensitive(enabled)
 
@@ -667,8 +668,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not isinstance(conversation, Conversation):
             return
 
+        row = gesture.get_widget()
+        assert row is not None
         popover = Gtk.PopoverMenu.new_from_model(self._context_menu(conversation))
-        popover.set_parent(gesture.get_widget())
+        popover.set_parent(row)
         popover.set_has_arrow(False)
         popover.connect("closed", lambda p: p.unparent())
 
@@ -843,7 +846,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         target = -1
         if keep_id is not None:
             for index in range(store.get_n_items()):
-                if store.get_item(index).id == keep_id:
+                item = store.get_item(index)
+                if isinstance(item, Conversation) and item.id == keep_id:
                     target = index
                     break
 

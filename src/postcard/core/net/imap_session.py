@@ -76,7 +76,7 @@ class ImapSession:
         except Exception:
             pass
 
-    def _require_imap(self) -> imaplib.IMAP4_SSL:
+    def _require_imap(self) -> imaplib.IMAP4:
         if self._imap is None:
             raise ImapError("not connected")
         return self._imap

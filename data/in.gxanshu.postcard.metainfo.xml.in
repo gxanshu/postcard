@@ -22,6 +22,7 @@
       background</li>
       <li>HTML and plain-text mail, with remote images blocked until you allow them</li>
       <li>Rich-text composer with formatting, lists, links, and recipient autocomplete</li>
+      <li>Optional sender avatars from Gravatar, falling back to the sender's site icon</li>
       <li>Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that
       never loses a message</li>
       <li>Archive, trash, move, and undo, with desktop notifications for new mail</li>
@@ -53,6 +54,17 @@
   </screenshots>
 
   <releases>
+    <release version="1.5.0" date="2026-07-28">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Optional sender avatars, fetched from Gravatar with the sender's site icon as a
+          fallback — off by default</li>
+          <li>Start hidden at login with --hidden and keep checking for mail in the
+          background</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-07-26">
       <description translate="no">
         <p>New in this release:</p>

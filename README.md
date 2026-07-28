@@ -5,7 +5,7 @@
 
   A modern email client for GNOME.
 
-  [![Version](https://img.shields.io/badge/version-1.4.0-3584e4)](https://github.com/gxanshu/postcard/releases)
+  [![Version](https://img.shields.io/badge/version-1.5.0-3584e4)](https://github.com/gxanshu/postcard/releases)
   [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4)](COPYING)
 </div>
 
@@ -35,6 +35,7 @@ accumulated complexity. It's built and shipped as a Flatpak.
 - Rich-text composer: bold, italic, underline, strikethrough, bulleted and numbered lists, and
   links — sent as HTML with a plain-text alternative
 - Recipient autocomplete drawn from the addresses already in your mail
+- Optional sender avatars from Gravatar, with the sender's site icon as a fallback
 - Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that never loses
   a message
 - Archive, trash, move, and undo, with desktop notifications for new mail

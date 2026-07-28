@@ -13,7 +13,8 @@ jobs:
       - name: Install PyGObject and pytest
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi gir1.2-glib-2.0 python3-pytest
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0 \
+            gir1.2-gdkpixbuf-2.0 python3-pytest
 
       # pythonpath = ["src"] in pyproject.toml puts the package on sys.path,
       # so there is nothing to install or build first.

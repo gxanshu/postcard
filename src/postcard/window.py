@@ -30,6 +30,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 from . import mail_sync
 from .account_dialog import PostcardAccountDialog
 from .accounts_dialog import PostcardAccountsDialog
+from .avatar_loader import AvatarLoader
 from .composer_window import PostcardComposerWindow
 from .conversation_row import ConversationRow
 from .core import compose, secrets
@@ -118,6 +119,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._online = self._network.get_network_available()
         self._network_handler = self._network.connect(
             "network-changed", self._on_network_changed
+        )
+
+        self._avatars = AvatarLoader(self._settings)
+        self._avatar_handler = self._settings.connect(
+            "changed::load-sender-avatars", lambda *_: self._refresh_conversations()
         )
 
         self._syncing = False
@@ -983,6 +989,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 on_rendered=self._on_newest_rendered if newest else None,
                 expanded=newest,
                 remote_images=remote_images,
+                avatars=self._avatars,
             )
             self.thread_box.append(view)
 
@@ -1075,7 +1082,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # reusable row), so it's fine to allocate here. A right-click gesture
         # opens the actions menu for that row.
         def on_setup(_factory: Gtk.SignalListItemFactory, item: Gtk.ListItem) -> None:
-            row = ConversationRow()
+            row = ConversationRow(self._avatars)
             gesture = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
             gesture.connect("pressed", self._on_row_right_click, item)
             row.add_controller(gesture)
@@ -1169,6 +1176,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             row = self._db.save_email(
                 sent_folder.id,
                 sender=self._account.email,
+                sender_address=self._account.email,
                 subject=subject,
                 preview=subject,
                 date=datetime.now().strftime("%b %d"),
@@ -1289,6 +1297,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 folder_id=target.id,
                 server_id=message.uid,
                 sender=message.sender,
+                sender_address=message.sender_address,
                 subject=message.subject,
                 preview=message.preview,
                 date=message.date,
@@ -1406,6 +1415,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._network.disconnect(self._network_handler)
         self._settings.disconnect(self._interval_handler)
+        self._settings.disconnect(self._avatar_handler)
+        self._avatars.shutdown()
         if self._sync_timer_id:
             GLib.source_remove(self._sync_timer_id)
 

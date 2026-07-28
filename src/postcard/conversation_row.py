@@ -2,22 +2,25 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from gi.repository import Adw, Gtk, Pango
+from gi.repository import Adw, Gdk, Gtk, Pango
 
+from .avatar_loader import AvatarLoader
 from .core.models.conversation import Conversation
 
 
 class ConversationRow(Gtk.Box):
     __gtype_name__ = "PostcardConversationRow"
 
-    def __init__(self) -> None:
+    def __init__(self, avatars: AvatarLoader | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.set_margin_top(8)
         self.set_margin_bottom(8)
         self.set_margin_start(12)
         self.set_margin_end(12)
 
-        # Left: initials avatar (no network fetching in Phase 2).
+        self._avatars = avatars
+        self._address = ""
+
         self._avatar = Adw.Avatar(size=40, show_initials=True)
         self.append(self._avatar)
 
@@ -68,6 +71,7 @@ class ConversationRow(Gtk.Box):
             subject = f"{subject}  ({conversation.count})"
 
         self._avatar.set_text(conversation.latest.sender)
+        self._load_avatar(conversation.latest.sender_address)
         self._sender_label.set_label(conversation.participants)
         self._star.set_visible(conversation.starred)
         self._date_label.set_label(conversation.date)
@@ -79,3 +83,17 @@ class ConversationRow(Gtk.Box):
             self.add_css_class("unread")
         else:
             self.remove_css_class("unread")
+
+    def _load_avatar(self, address: str) -> None:
+        # Rows are recycled, so clear the old face and ignore a fetch that
+        # lands after this row was rebound to someone else.
+        self._address = address
+        self._avatar.set_custom_image(None)
+        if self._avatars is None:
+            return
+
+        def apply(texture: Gdk.Texture) -> None:
+            if self._address == address:
+                self._avatar.set_custom_image(texture)
+
+        self._avatars.load(address, apply)

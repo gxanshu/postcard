@@ -28,12 +28,14 @@ class Email(GObject.Object):
         in_reply_to: str = "",
         references: str = "",
         conversation_id: int | None = None,
+        sender_address: str = "",
     ) -> None:
         super().__init__()
         self.id: int = id
         self.folder_id: int = folder_id
         self.server_id: str | None = server_id
         self.sender: str = sender
+        self.sender_address: str = sender_address
         self.subject: str = subject
         self.preview: str = preview
         self.date: str = date

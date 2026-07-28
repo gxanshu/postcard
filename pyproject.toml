@@ -15,8 +15,11 @@ select = ["E", "W", "F", "I", "UP", "B", "SLF"]
 # which pushes that import (and everything after it) below E402's threshold.
 "src/postcard/application.py" = ["E402"]
 "src/postcard/composer_window.py" = ["E402"]
+"src/postcard/core/avatars.py" = ["E402"]
 "src/postcard/core/secrets.py" = ["E402"]
+"src/postcard/message_view.py" = ["E402"]
 "src/postcard/window.py" = ["E402"]
+"tests/core/test_avatars.py" = ["E402"]
 
 [tool.pytest.ini_options]
 # The package isn't installed (meson does that at Flatpak build time), so point

@@ -18,6 +18,7 @@ NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
 class MessageHeader:
     uid: str
     sender: str
+    sender_address: str
     subject: str
     date: str
     unread: bool
@@ -78,6 +79,7 @@ def fetch_mailbox(
         MessageHeader(
             uid=item["uid"],
             sender=_clean_sender(item["from"]),
+            sender_address=_sender_address(item["from"]),
             subject=item["subject"] or "(no subject)",
             date=_format_date(item["date"]),
             unread=not item["seen"],
@@ -235,6 +237,11 @@ def _clean_sender(value: str) -> str:
     # "Ada Lovelace <ada@example.com>" -> "Ada Lovelace"; a bare address stays.
     name, addr = parseaddr(value)
     return name or addr or value
+
+
+def _sender_address(value: str) -> str:
+    # "Ada Lovelace <ada@example.com>" -> "ada@example.com", "" if unparseable.
+    return parseaddr(value)[1].strip().lower()
 
 
 def _format_date(value: str) -> str:

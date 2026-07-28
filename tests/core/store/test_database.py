@@ -121,6 +121,19 @@ def test_save_incoming_email_reports_whether_it_was_new(db, folder):
     assert len(db.emails_in_folder(folder.id)) == 1
 
 
+def test_the_sender_address_round_trips_separately_from_the_display_name(db, folder):
+    incoming(db, folder.id, "1", sender="Ada", sender_address="ada@example.com")
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.sender, mail.sender_address) == ("Ada", "ada@example.com")
+
+
+def test_mail_saved_without_a_sender_address_reads_back_as_empty(db, folder):
+    # Rows predating the column, and locally-saved copies, have no address.
+    incoming(db, folder.id, "1")
+    (mail,) = db.emails_in_folder(folder.id)
+    assert mail.sender_address == ""
+
+
 def test_the_same_uid_in_another_folder_is_a_different_message(db, folder):
     other = db.get_or_create_folder(folder.account_id, "Archive")
     assert incoming(db, folder.id, "1") is True

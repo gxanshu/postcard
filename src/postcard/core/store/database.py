@@ -38,6 +38,12 @@ def _arrival_key(mail: Email) -> int:
 MIGRATIONS = [
     "ALTER TABLE folders ADD COLUMN parent_id INTEGER REFERENCES folders(id)",
     "ALTER TABLE folders ADD COLUMN delimiter TEXT NOT NULL DEFAULT '/'",
+    # Backfill by display name is best effort -- two people can share one.
+    """
+    ALTER TABLE emails ADD COLUMN sender_address TEXT NOT NULL DEFAULT '';
+    UPDATE emails SET sender_address = COALESCE(
+        (SELECT address FROM contacts WHERE contacts.name = emails.sender), '');
+    """,
 ]
 
 
@@ -402,14 +408,25 @@ class Database:
         date: str,
         unread: bool,
         server_id: str | None = None,
+        sender_address: str = "",
     ) -> Email:
         cursor = self._conn.execute(
             """
             INSERT INTO emails
-                (folder_id, server_id, sender, subject, preview, date, unread)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (folder_id, server_id, sender, subject, preview, date, unread,
+                 sender_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (folder_id, server_id, sender, subject, preview, date, int(unread)),
+            (
+                folder_id,
+                server_id,
+                sender,
+                subject,
+                preview,
+                date,
+                int(unread),
+                sender_address,
+            ),
         )
         self._conn.commit()
         row = self._conn.execute(
@@ -430,14 +447,15 @@ class Database:
         message_id: str = "",
         in_reply_to: str = "",
         references: str = "",
+        sender_address: str = "",
     ) -> bool:
         """Insert one fetched email; skip it if we already have it."""
         cursor = self._conn.execute(
             """
             INSERT OR IGNORE INTO emails
                 (folder_id, server_id, sender, subject, preview, date, unread,
-                 starred, message_id, in_reply_to, reference_ids)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 starred, message_id, in_reply_to, reference_ids, sender_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 folder_id,
@@ -451,6 +469,7 @@ class Database:
                 message_id,
                 in_reply_to,
                 references,
+                sender_address,
             ),
         )
         self._conn.commit()
@@ -466,6 +485,7 @@ class Database:
             folder_id=row["folder_id"],
             server_id=row["server_id"],
             sender=row["sender"],
+            sender_address=row["sender_address"] or "",
             subject=row["subject"],
             preview=row["preview"],
             date=row["date"],

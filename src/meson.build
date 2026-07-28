@@ -36,6 +36,7 @@ postcard_sources = [
   'postcard/application.py',
   'postcard/window.py',
   'postcard/conversation_row.py',
+  'postcard/avatar_loader.py',
   'postcard/message_view.py',
   'postcard/account_dialog.py',
   'postcard/accounts_dialog.py',
@@ -49,6 +50,7 @@ python_installation.install_sources(postcard_sources, subdir: 'postcard')
 postcard_core_sources = [
   'postcard/core/__init__.py',
   'postcard/core/secrets.py',
+  'postcard/core/avatars.py',
   'postcard/core/compose.py',
   'postcard/core/threader.py',
 ]

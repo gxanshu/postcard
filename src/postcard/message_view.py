@@ -8,6 +8,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gtk, Pango, WebKit
 
+from .avatar_loader import AvatarLoader
 from .core.mime import message_parser
 from .core.models.attachment import Attachment
 from .core.models.email import Email
@@ -26,6 +27,7 @@ class MessageView(Gtk.Box):
         on_rendered: Callable[["MessageView"], None] | None = None,
         expanded: bool = False,
         remote_images: bool = False,
+        avatars: AvatarLoader | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("card")
@@ -49,7 +51,10 @@ class MessageView(Gtk.Box):
         self.parsed: message_parser.ParsedMessage | None = None
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        header.append(Adw.Avatar(size=32, show_initials=True, text=email.sender))
+        avatar = Adw.Avatar(size=32, show_initials=True, text=email.sender)
+        header.append(avatar)
+        if avatars is not None and email.sender_address:
+            avatars.load(email.sender_address, avatar.set_custom_image)
 
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         sender = Gtk.Label(

@@ -1512,6 +1512,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
             if added and message.unread:
                 new_messages.append(message)
+        if result.all_uids is not None:
+            self._db.prune_stale_emails(target.id, result.all_uids)
         self._db.reassign_conversations(target.id)
 
         # From every fetched header, not just the newly added ones, so an

@@ -124,6 +124,32 @@ class ImapSession:
         if typ != "OK":
             raise ImapError(f"could not update flags on {uid}: {data}")
 
+    def search_all_uids(self) -> set[str]:
+        """Return every UID in the currently selected mailbox."""
+        try:
+            typ, data = self._require_imap().uid("SEARCH", "ALL")
+        except imaplib.IMAP4.error as error:
+            raise ImapError(f"search failed: {error}") from error
+
+        if typ != "OK":
+            raise ImapError(f"search failed: {data}")
+        if not isinstance(data, (list, tuple)):
+            raise ImapError(f"search returned malformed data: {data}")
+
+        tokens: list[bytes] = []
+        for item in data:
+            if not isinstance(item, bytes):
+                raise ImapError(f"search returned malformed data: {data}")
+            tokens.extend(item.split())
+
+        try:
+            uids = {token.decode("ascii") for token in tokens}
+        except UnicodeDecodeError as error:
+            raise ImapError(f"search returned malformed data: {data}") from error
+        if any(not uid.isdigit() for uid in uids):
+            raise ImapError(f"search returned malformed data: {data}")
+        return uids
+
     def move(self, uid: str, destination: str) -> str | None:
         """Move one message and return its destination UID when reported.
 

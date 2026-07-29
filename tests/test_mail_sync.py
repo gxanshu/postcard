@@ -1,9 +1,13 @@
 import pytest
 
+import postcard.mail_sync as mail_sync
+from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
 from postcard.mail_sync import (
+    SyncResult,
     display_name_for_folder,
+    fetch_mailbox,
     icon_for_folder,
     inbox_name,
     parent_mailbox_name,
@@ -125,3 +129,52 @@ def test_server_uids_skips_messages_the_server_has_never_seen():
     # "UID STORE +FLAGS (...)" and come back BAD.
     assert server_uids(conversation("4", None, "9")) == ["4", "9"]
     assert server_uids(conversation(None)) == []
+
+
+@pytest.mark.parametrize(
+    ("offset", "snapshot", "search_calls"),
+    [
+        (0, {"4", "9"}, 1),
+        (0, set(), 1),
+        (50, None, 0),
+    ],
+)
+def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_page(
+    monkeypatch, offset, snapshot, search_calls
+):
+    class FakeImapSession:
+        searches = 0
+
+        def __init__(self, host, port, security):
+            pass
+
+        def connect(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def list_folders(self):
+            return []
+
+        def select(self, mailbox):
+            return 0
+
+        def search_all_uids(self):
+            type(self).searches += 1
+            return snapshot
+
+        def fetch_recent_headers(self, exists, limit, offset):
+            return []
+
+        def logout(self):
+            pass
+
+    monkeypatch.setattr(mail_sync, "ImapSession", FakeImapSession)
+    account = Account(1, "ada@example.com", "Ada", "imap.example.com", 993, "", 0)
+
+    result = fetch_mailbox(account, "password", offset=offset)
+
+    assert FakeImapSession.searches == search_calls
+    assert result.all_uids == snapshot
+    assert SyncResult().all_uids is None

@@ -38,6 +38,7 @@ class SyncResult:
     folder: str = "INBOX"
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
+    all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
 
 
 @dataclass
@@ -80,6 +81,7 @@ def fetch_mailbox(
         mailboxes = session.list_folders()
         target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
+        all_uids = session.search_all_uids() if offset == 0 else None
         raw = session.fetch_recent_headers(exists, limit, offset)
     finally:
         session.logout()
@@ -107,6 +109,7 @@ def fetch_mailbox(
         folder=target,
         exists=exists,
         offset=offset,
+        all_uids=all_uids,
     )
 
 

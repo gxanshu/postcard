@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_ID: in.gxanshu.postcard
+  DOMAIN: postcard.gxanshu.in
+
+jobs:
+  # Release only when the version in meson.build has no matching git tag yet.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      new: ${{ steps.v.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          version=$(grep -m1 "version:" meson.build | sed -E "s/.*'([^']+)'.*/\1/")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Never publish a build whose tests don't pass.
+  test:
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    needs: [check, test]
+    if: needs.check.outputs.new == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the build environment
+        run: |
+          # A container has no machine-id (dbus won't start) and no /dev/fuse.
+          cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id
+          echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | base64 -d | gpg --import
+
+      - name: Build and sign the repo
+        run: |
+          flatpak-builder --force-clean --user --disable-rofiles-fuse \
+            --repo=repo --gpg-sign="$GPG_KEY" build "$APP_ID.json"
+          flatpak build-update-repo --gpg-sign="$GPG_KEY" repo
+
+      - name: Assemble the site
+        run: |
+          mkdir site
+          mv repo site/repo
+          cp "data/icons/hicolor/256x256/apps/$APP_ID.png" site/icon.png
+          cat > site/postcard.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=Postcard
+          Url=https://$DOMAIN/repo/
+          Homepage=https://github.com/gxanshu/postcard
+          Icon=https://$DOMAIN/icon.png
+          GPGKey=$(gpg --export "$GPG_KEY" | base64 -w0)
+          EOF
+
+      - name: Publish to the pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: site
+          publish_branch: pages
+          cname: ${{ env.DOMAIN }}
+          force_orphan: true
+
+      - name: Tag the release
+        run: |
+          git config --global --add safe.directory '*'
+          git tag "v$VERSION"
+          git push origin "v$VERSION"

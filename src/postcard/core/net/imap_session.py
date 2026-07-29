@@ -1,7 +1,46 @@
+import base64
 import email
 import imaplib
 import re
 from email import policy
+from typing import NamedTuple
+
+
+class MailboxInfo(NamedTuple):
+    name: str
+    delimiter: str  # "" when the server reports NIL: a flat namespace
+    flags: str
+
+
+def decode_mailbox_name(name: str) -> str:
+    """Decode a mailbox name from modified UTF-7 (RFC 3501 5.1.3), so
+    "Entw&APw-rfe" reads as "Entwürfe"."""
+
+    def chunk(match: re.Match[str]) -> str:
+        if not match.group(1):
+            return "&"  # "&-" encodes a literal ampersand
+        try:
+            padded = match.group(1).replace(",", "/") + "==="
+            return base64.b64decode(padded).decode("utf-16-be")
+        except (ValueError, UnicodeDecodeError):
+            return "�"
+
+    return re.sub(r"&([A-Za-z0-9+,]*)-", chunk, name)
+
+
+def _quote_mailbox(name: str) -> str:
+    # imaplib sends mailbox names verbatim, so "[Gmail]/Sent Mail" arrives as
+    # two tokens and the server answers BAD. Quote it (escaping \ and ") so the
+    # space stays inside one astring, per RFC 3501.
+    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _unquote(token: str) -> str:
+    """The inverse of _quote_mailbox: drop the quotes and backslash escapes."""
+    if token.startswith('"') and token.endswith('"'):
+        token = token[1:-1]
+    return re.sub(r"\\(.)", r"\1", token)
 
 
 class ImapError(Exception):
@@ -37,30 +76,33 @@ class ImapSession:
         except Exception:
             pass
 
-    def _require_imap(self) -> imaplib.IMAP4_SSL:
+    def _require_imap(self) -> imaplib.IMAP4:
         if self._imap is None:
             raise ImapError("not connected")
         return self._imap
 
-    def list_folders(self) -> list[str]:
-        """Return the names of the account's selectable mailboxes."""
+    def list_folders(self) -> list[MailboxInfo]:
+        """Return every listed mailbox.
+
+        \\Noselect containers are included so the caller can rebuild the
+        hierarchy. The delimiter is "" when the server reports NIL, meaning a
+        flat namespace whose names must not be split into parent and child.
+        """
         typ, data = self._require_imap().list()
-        names: list[str] = []
+        result: list[MailboxInfo] = []
         for raw in data:
-            # raw is bytes like:  (\HasNoChildren) "/" "INBOX"
             if not isinstance(raw, bytes):
                 continue
             line = raw.decode("utf-8", "replace")
-            match = re.match(r'\(([^)]*)\) (?:"[^"]*"|NIL) (.+)$', line)
+            match = re.match(r'\(([^)]*)\) ("[^"]*"|NIL) (.+)$', line)
             if match is None:
                 continue
-            flags, name = match.group(1), match.group(2).strip()
-            if "\\Noselect" in flags:
-                continue  # a container like "[Gmail]" you can't actually open
-            if name.startswith('"') and name.endswith('"'):
-                name = name[1:-1]  # strip the surrounding quotes
-            names.append(name)
-        return names
+            flags_part = match.group(1)
+            delim_raw = match.group(2)
+            name = _unquote(match.group(3).strip())
+            delimiter = "" if delim_raw == "NIL" else _unquote(delim_raw)
+            result.append(MailboxInfo(name, delimiter, flags_part))
+        return result
 
     def select(self, mailbox: str, readonly: bool = True) -> int:
         """Open a mailbox; return how many messages it holds.
@@ -68,7 +110,9 @@ class ImapSession:
         readonly=True (the default) keeps us non-destructive and never marks
         mail as read. Flag/move actions open it writable.
         """
-        typ, data = self._require_imap().select(mailbox, readonly=readonly)
+        typ, data = self._require_imap().select(
+            _quote_mailbox(mailbox), readonly=readonly
+        )
         if typ != "OK":
             raise ImapError(f"could not open {mailbox}: {data}")
         return int(data[0]) if data and data[0] else 0
@@ -87,7 +131,7 @@ class ImapSession:
         some servers implementing RFC 6851.  ``response`` is imaplib's public
         response-code API and must be queried immediately after the command.
         """
-        typ, data = self._require_imap().uid("MOVE", uid, destination)
+        typ, data = self._require_imap().uid("MOVE", uid, _quote_mailbox(destination))
         if typ != "OK":
             raise ImapError(f"could not move {uid} to {destination}: {data}")
         imap = self._require_imap()
@@ -130,7 +174,7 @@ class ImapSession:
             f"{start}:{end}",
             # BODY.PEEK[...] = look at the header WITHOUT marking it \Seen.
             "(UID FLAGS BODY.PEEK[HEADER.FIELDS "
-            "(DATE FROM SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
+            "(DATE FROM TO CC SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
         )
         if typ != "OK":
             raise ImapError(f"fetch failed: {data}")
@@ -175,6 +219,8 @@ class ImapSession:
         return {
             "uid": uid.group(1) if uid else "",
             "from": str(headers["From"]) if headers["From"] else "",
+            "to": str(headers["To"]) if headers["To"] else "",
+            "cc": str(headers["Cc"]) if headers["Cc"] else "",
             "subject": str(headers["Subject"]) if headers["Subject"] else "",
             "date": str(headers["Date"]) if headers["Date"] else "",
             "message_id": str(headers["Message-ID"]) if headers["Message-ID"] else "",

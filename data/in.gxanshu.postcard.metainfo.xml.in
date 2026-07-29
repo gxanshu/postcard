@@ -15,11 +15,14 @@
     </p>
     <p>Features include:</p>
     <ul>
-      <li>Multiple IMAP/SMTP accounts</li>
-      <li>Conversations grouped into threads</li>
+      <li>Multiple IMAP/SMTP accounts, with TLS or STARTTLS</li>
+      <li>Conversations grouped into threads, nested folders shown as a tree</li>
       <li>Instant full-text search across your mail</li>
-      <li>Offline reading from a local cache</li>
+      <li>Offline reading from a local cache, and syncing that carries on in the
+      background</li>
       <li>HTML and plain-text mail, with remote images blocked until you allow them</li>
+      <li>Rich-text composer with formatting, lists, links, and recipient autocomplete</li>
+      <li>Optional sender avatars from Gravatar, falling back to the sender's site icon</li>
       <li>Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that
       never loses a message</li>
       <li>Archive, trash, move, and undo, with desktop notifications for new mail</li>
@@ -51,6 +54,72 @@
   </screenshots>
 
   <releases>
+    <release version="1.5.0" date="2026-07-28">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Optional sender avatars, fetched from Gravatar with the sender's site icon as a
+          fallback — off by default</li>
+          <li>Start hidden at login with --hidden and keep checking for mail in the
+          background</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.4.0" date="2026-07-26">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Rich-text composer with bold, italic, underline, strikethrough, bulleted and
+          numbered lists, and links</li>
+          <li>Mail is now sent as HTML with a plain-text alternative</li>
+          <li>Recipient autocomplete from addresses seen in your existing mail</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.3.0" date="2026-07-26">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Nested folders now show as a tree, with non-ASCII folder names handled
+          correctly</li>
+          <li>Hide Gmail's empty [Gmail] container from the folder list</li>
+          <li>Open links in your default browser instead of inside the app</li>
+          <li>Show newly fetched mail right after a sync</li>
+          <li>Fix mail opened from a notification being marked unread again</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.2.0" date="2026-07-21">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Keep syncing in the background after the window is closed</li>
+          <li>Refreshed application logo</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.1" date="2026-07-20">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Bold unread subjects instead of relying on the dot</li>
+          <li>Show a star icon for the starred mail folder</li>
+          <li>Richer content in new mail notifications</li>
+          <li>Show the latest mail first in the conversation view</li>
+          <li>Fix folders with spaces in their names failing to open</li>
+          <li>Remove the tooltip that lingered after the first sync</li>
+          <li>Remove the accounts option from the primary menu</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0" date="2026-07-20">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>TLS/STARTTLS option for Proton Mail Bridge accounts</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-07-19">
       <description translate="no">
         <p>First release.</p>

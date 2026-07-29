@@ -28,12 +28,14 @@ from gettext import ngettext
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
-from . import mail_send, mail_sync
+from . import mail_sync
 from .account_dialog import PostcardAccountDialog
 from .accounts_dialog import PostcardAccountsDialog
+from .avatar_loader import AvatarLoader
 from .composer_window import PostcardComposerWindow
 from .conversation_row import ConversationRow
 from .core import compose, secrets
+from .core.mime.message_parser import ParsedMessage
 from .core.models.account import Account
 from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
@@ -41,6 +43,7 @@ from .core.models.email import Email
 from .core.models.folder import Folder
 from .core.net import errors
 from .core.store.database import Database
+from .folder_row import FolderRow
 from .message_view import MessageView
 
 
@@ -51,7 +54,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # These fields are filled in automatically from the widgets we named in
     # main-window.blp. The attribute name must match the id in the Blueprint
     # file exactly.
-    folder_list: Gtk.ListBox = Gtk.Template.Child()
+    folder_list: Gtk.ListView = Gtk.Template.Child()
     conversation_list: Gtk.ListView = Gtk.Template.Child()
     conversation_scroller: Gtk.ScrolledWindow = Gtk.Template.Child()
     conversation_stack: Gtk.Stack = Gtk.Template.Child()
@@ -113,11 +116,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
-        # Connected once here (not per account load) so switching accounts
-        # doesn't stack duplicate handlers or CSS providers.
-        self._load_styles()
-        self.folder_list.connect("row-selected", self._on_folder_selected)
-
         self.connection_banner.connect("button-clicked", self._on_banner_retry)
         self._network = Gio.NetworkMonitor.get_default()
         self._online = self._network.get_network_available()
@@ -125,8 +123,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             "network-changed", self._on_network_changed
         )
 
+        self._avatars = AvatarLoader(self._settings)
+        self._avatar_handler = self._settings.connect(
+            "changed::load-sender-avatars", lambda *_: self._refresh_conversations()
+        )
+
         self._syncing = False
-        self._background_sync = False
         self._sync_timer_id = 0
         self._interval_handler = self._settings.connect(
             "changed::sync-interval-minutes", lambda *_: self._reschedule_sync()
@@ -165,9 +167,27 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.main_stack.set_visible_child_name("mail")
         self._refresh_account_switcher()
 
-        self._folders: Gio.ListStore = Gio.ListStore(item_type=Folder)
-        for folder in self._db.folders_for_account(self._account_id):
-            self._folders.append(folder)
+        # Boxes of the rows currently on screen, keyed by folder id, so
+        # _reload_folders can refresh them without rebuilding the tree.
+        self._folder_rows: dict[int, FolderRow] = {}
+        # The (id, parent_id) pairs the tree was last built from.
+        self._folder_shape: list[tuple[int, int | None]] = []
+        # Folders grouped by parent id; None holds the roots.
+        self._folder_children: dict[int | None, list[Folder]] = {}
+
+        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Folder)
+        self._folder_tree_model: Gtk.TreeListModel = Gtk.TreeListModel.new(
+            self._folder_root_store,
+            False,
+            True,
+            self._folder_children_func,
+            None,
+            None,
+        )
+        self._folder_selection: Gtk.SingleSelection = Gtk.SingleSelection(
+            model=self._folder_tree_model
+        )
+        self._folder_selection.connect("selection-changed", self._on_folder_selected)
 
         # One persistent store, mutated in place via splice() on every
         # refresh: swapping in a new Gio.ListStore each time (the previous
@@ -180,6 +200,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._setup_folder_sidebar()
         self._setup_conversation_list()
+
+        self._reload_folders()
 
         # Selecting the inbox kicks off a network fetch for it via
         # _on_folder_selected; the sync below only bootstraps a fresh account
@@ -285,11 +307,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         to_addr = parseaddr(str(headers["From"] or ""))[1]
         subject = compose.reply_subject(str(headers["Subject"] or ""))
         parsed = self._active_view.parsed
-        original_text = parsed.text_body if parsed else ""
         body = compose.quote_reply_body(
             str(headers["From"] or ""),
             str(headers["Date"] or ""),
-            original_text or "",
+            _original_text(parsed),
             signature=self._signature_text(),
         )
         self._open_composer(to=to_addr, subject=subject, body=body)
@@ -304,12 +325,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
         subject = compose.forward_subject(str(headers["Subject"] or ""))
         parsed = self._active_view.parsed
-        original_text = parsed.text_body if parsed else ""
         body = compose.forward_body(
             str(headers["From"] or ""),
             str(headers["Date"] or ""),
             str(headers["Subject"] or ""),
-            original_text or "",
+            _original_text(parsed),
             signature=self._signature_text(),
         )
         self._open_composer(subject=subject, body=body)
@@ -355,23 +375,24 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # Flag actions are Ctrl-modified so they don't fire while typing in search.
         app = self.get_application()
-        for name, accels in (
-            ("win.toggle-read", ["<ctrl>i"]),
-            ("win.toggle-star", ["<ctrl>s"]),
-            ("win.archive", ["<ctrl>e"]),
-            ("win.trash", ["<ctrl>Delete"]),
-            ("win.compose", ["<ctrl>n"]),
-            ("win.reply", ["<ctrl>r"]),
-            ("win.forward", ["<ctrl><shift>f"]),
-            ("win.refresh", ["F5"]),
-            ("win.search", ["<ctrl>f"]),
-        ):
-            app.set_accels_for_action(name, accels)
+        if app is not None:
+            for name, accels in (
+                ("win.toggle-read", ["<ctrl>i"]),
+                ("win.toggle-star", ["<ctrl>s"]),
+                ("win.archive", ["<ctrl>e"]),
+                ("win.trash", ["<ctrl>Delete"]),
+                ("win.compose", ["<ctrl>n"]),
+                ("win.reply", ["<ctrl>r"]),
+                ("win.forward", ["<ctrl><shift>f"]),
+                ("win.refresh", ["F5"]),
+                ("win.search", ["<ctrl>f"]),
+            ):
+                app.set_accels_for_action(name, accels)
 
     def _set_mail_actions_enabled(self, enabled: bool) -> None:
         for name in ("toggle-read", "toggle-star", "archive", "trash", "move"):
             action = self.lookup_action(name)
-            if action is not None:
+            if isinstance(action, Gio.SimpleAction):
                 action.set_enabled(enabled)
         self.move_button.set_sensitive(enabled)
 
@@ -434,9 +455,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._after_flag_change(conversations)
         uids = [
-            mail.server_id
+            uid
             for conversation in conversations
-            for mail in conversation.emails
+            for uid in mail_sync.server_uids(conversation)
         ]
         self._run_flag_worker(uids, "\\Seen", add=not unread, revert=revert)
 
@@ -473,9 +494,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._after_flag_change(conversations)
         uids = [
-            mail.server_id
+            uid
             for conversation in conversations
-            for mail in conversation.emails
+            for uid in mail_sync.server_uids(conversation)
         ]
         self._run_flag_worker(uids, "\\Flagged", add=starred, revert=revert)
 
@@ -497,7 +518,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._after_flag_change(conversation)
 
         self._after_flag_change(conversation)
-        uids = [mail.server_id for mail in conversation.emails]
+        uids = mail_sync.server_uids(conversation)
         self._run_flag_worker(uids, "\\Seen", add=True, revert=revert)
 
     # Update badges and the list after a flag change, keeping this
@@ -629,19 +650,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._commit_pending_move()
 
-        email_ids = [
-            mail.id for conversation in conversations for mail in conversation.emails
-        ]
-        uids = [
-            mail.server_id
+        mails = [
+            mail
             for conversation in conversations
             for mail in conversation.emails
+            if mail.server_id is not None
         ]
-        originals = [
-            (mail.id, source.id, mail.server_id)
-            for conversation in conversations
-            for mail in conversation.emails
-        ]
+        email_ids = [mail.id for mail in mails]
+        uids = [mail.server_id for mail in mails]
+        originals = [(mail.id, source.id, mail.server_id) for mail in mails]
         self._db.move_emails(email_ids, dest.id)
 
         self._reload_folders()
@@ -759,7 +776,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         for folder in self._db.folders_for_account(self._account_id):
             if folder.id == current_id:
                 continue
-            label = mail_sync.display_name_for_folder(folder.name)
+            label = mail_sync.display_name_for_folder(
+                folder.name, folder.display_delimiter
+            )
             item = Gio.MenuItem.new(label, None)
             item.set_action_and_target_value(
                 f"{action_prefix}.move", GLib.Variant.new_string(folder.name)
@@ -853,83 +872,112 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         return menu
 
-    # A tiny bit of app CSS: the accent-coloured unread dot and a bold sender
-    # name. Loaded from a string so we don't need another resource file yet.
-    def _load_styles(self) -> None:
-        provider = Gtk.CssProvider()
-        provider.load_from_string(
-            ".unread-dot { color: #3584e4; }\n"
-            ".conversation-sender { font-weight: bold; }\n"
-        )
-        display = Gdk.Display.get_default()
-        if display is not None:
-            Gtk.StyleContext.add_provider_for_display(
-                display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
+    def _folder_children_func(
+        self, item: GObject.Object, *_args: object
+    ) -> Gio.ListStore | None:
+        assert isinstance(item, Folder)
+        children = self._folder_children.get(item.id)
+        if not children:
+            return None
+        store = Gio.ListStore(item_type=Folder)
+        for child in children:
+            store.append(child)
+        return store
 
-    # The folder list is small and fixed, so a Gtk.ListBox is the simplest
-    # tool. bind_model() builds one row per folder and keeps them in sync with
-    # the store for free.
     def _setup_folder_sidebar(self) -> None:
-        self.folder_list.bind_model(self._folders, self._build_folder_row)
+        self.folder_list.set_model(self._folder_selection)
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_folder_row_setup)
+        factory.connect("bind", self._on_folder_row_bind)
+        factory.connect("unbind", self._on_folder_row_unbind)
+        self.folder_list.set_factory(factory)
 
-    def _build_folder_row(self, item: GObject.Object) -> Gtk.Widget:
-        folder = item
+    # setup: build one empty widget, reused for many folders as the list
+    # scrolls. The expander draws the indent and the expand/collapse arrow.
+    def _on_folder_row_setup(
+        self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
+    ) -> None:
+        expander = Gtk.TreeExpander()
+        expander.set_child(FolderRow())
+        item.set_child(expander)
+
+    # bind: fill an existing widget from its item. Runs on every scroll, so it
+    # only copies fields across.
+    def _on_folder_row_bind(
+        self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
+    ) -> None:
+        expander = item.get_child()
+        assert isinstance(expander, Gtk.TreeExpander)
+
+        tree_list_row = item.get_item()
+        assert isinstance(tree_list_row, Gtk.TreeListRow)
+        expander.set_list_row(tree_list_row)
+
+        folder = tree_list_row.get_item()
         assert isinstance(folder, Folder)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(6)
-        box.set_margin_end(6)
-        box.append(Gtk.Image.new_from_icon_name(folder.icon_name))
+        row = expander.get_child()
+        assert isinstance(row, FolderRow)
 
-        name = Gtk.Label(
-            label=mail_sync.display_name_for_folder(folder.name),
-            xalign=0,
-            hexpand=True,
-        )
-        box.append(name)
+        self._folder_rows[folder.id] = row
+        row.bind(folder, self._db.unread_count_in_folder(folder.id))
 
-        count = self._db.unread_count_in_folder(folder.id)
-        if count > 0:
-            badge = Gtk.Label(label=str(count))
-            badge.add_css_class("dim-label")
-            box.append(badge)
+    def _on_folder_row_unbind(
+        self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
+    ) -> None:
+        tree_list_row = item.get_item()
+        if isinstance(tree_list_row, Gtk.TreeListRow):
+            folder = tree_list_row.get_item()
+            if isinstance(folder, Folder):
+                self._folder_rows.pop(folder.id, None)
 
-        return box
+        expander = item.get_child()
+        if isinstance(expander, Gtk.TreeExpander):
+            expander.set_list_row(None)
 
-    # Select the inbox row (or the first folder if we can't spot one).
+    # Select the inbox row, or the first folder if we can't spot one.
     def _select_inbox_row(self) -> None:
+        n = self._folder_tree_model.get_n_items()
+        if n == 0:
+            return
         target = 0
-        for i in range(self._folders.get_n_items()):
-            folder = self._folders.get_item(i)
-            assert isinstance(folder, Folder)
-            if mail_sync.role_for_folder(folder.name) == "inbox":
-                target = i
-                break
-        row = self.folder_list.get_row_at_index(target)
-        if row is not None:
-            self.folder_list.select_row(row)
+        for i in range(n):
+            tree_row = self._folder_tree_model.get_item(i)
+            if isinstance(tree_row, Gtk.TreeListRow):
+                folder = tree_row.get_item()
+                assert isinstance(folder, Folder)
+                if mail_sync.role_for_folder(folder.name) == "inbox":
+                    target = i
+                    break
+
+        # Row 0 is autoselected when the tree is built, so set_selected() may
+        # emit nothing. Load the folder directly instead.
+        self._suppress_folder_refresh = True
+        self._folder_selection.set_selected(target)
+        self._suppress_folder_refresh = False
+        self._current_folder = None
+        self._on_folder_selected(self._folder_selection, target, 1)
 
     def _on_folder_selected(
-        self, _list_box: Gtk.ListBox, row: Gtk.ListBoxRow | None
+        self,
+        selection: Gtk.SingleSelection,
+        _position: int,
+        _n_items: int,
     ) -> None:
-        if row is None:
+        tree_list_row = selection.get_selected_item()
+        if not isinstance(tree_list_row, Gtk.TreeListRow):
             return
 
-        folder = self._folders.get_item(row.get_index())
+        folder = tree_list_row.get_item()
         assert isinstance(folder, Folder)
         previous = self._current_folder
         self._current_folder = folder
-        self._rebuild_move_menu()
+        self.move_button.set_menu_model(self._build_move_menu())
         if self._suppress_folder_refresh:
             return
         self._refresh_conversations()
-        # Show cached mail instantly, then pull this folder from the server.
-        # Guard on a real folder change: rebuilding the sidebar re-emits
-        # row-selected for the same folder (sometimes after the suppress flag is
-        # cleared), which would otherwise sync in a tight loop.
+        # Only sync on a real folder change — rebuilding the sidebar re-emits
+        # selection-changed for the same folder, which would loop.
         changed = previous is None or previous.id != folder.id
         if changed and self._online:
             self._start_sync(background=True, folder_name=folder.name)
@@ -941,6 +989,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _refresh_conversations(self, keep_id: int | None = None) -> None:
         if self._current_folder is None:
             return
+
+        vadj = self.conversation_scroller.get_vadjustment()
+        scroll_pos = vadj.get_value() if vadj else 0.0
 
         query = self.search_entry.get_text().strip()
         if query:
@@ -985,6 +1036,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.conversation_stack.set_visible_child_name("empty")
 
         self._update_reader()
+
+        if vadj is not None and scroll_pos > 0:
+            GLib.idle_add(
+                lambda: (
+                    vadj.set_value(
+                        min(scroll_pos, vadj.get_upper() - vadj.get_page_size())
+                    )
+                    or False
+                )
+            )
 
     # Debounce keystrokes: query the database ~200ms after typing stops instead
     # of on every letter.
@@ -1106,7 +1167,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.star_button.set_icon_name("non-starred-symbolic")
             self.star_button.set_tooltip_text(_("Star"))
 
-    # Build one MessageView per email, oldest first. The newest starts expanded
+    # Build one MessageView per email, newest first. The newest starts expanded
     # (which loads its body); older ones load lazily when the user expands them.
     def _render_thread(self, conversation: Conversation) -> None:
         self.reader_subject.set_label(conversation.subject)
@@ -1118,10 +1179,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             child = next_child
 
         remote_images = self._settings.get_boolean("load-remote-images")
-        emails = conversation.emails
-        last = len(emails) - 1
+        emails = list(reversed(conversation.emails))
         for index, mail in enumerate(emails):
-            newest = index == last
+            newest = index == 0
             view = MessageView(
                 mail,
                 on_load=self._load_body,
@@ -1129,6 +1189,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 on_rendered=self._on_newest_rendered if newest else None,
                 expanded=newest,
                 remote_images=remote_images,
+                avatars=self._avatars,
             )
             self.thread_box.append(view)
 
@@ -1151,30 +1212,38 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             callback(cached, None)
             return
 
+        if not mail.server_id:
+            # No UID and no cached copy: nothing to fetch until the next sync.
+            callback(None, _("This message hasn't finished syncing yet."))
+            return
+
         assert self._current_folder is not None
         thread = threading.Thread(
             target=self._body_worker,
-            args=(mail, self._current_folder.name, callback),
+            args=(mail.id, mail.server_id, self._current_folder.name, callback),
             daemon=True,
         )
         thread.start()
 
-    # Runs on the worker thread: network only, no Gtk/database access.
-    def _body_worker(self, mail: Email, folder_name: str, callback: Callable) -> None:
+    # Runs on the worker thread: network only, no Gtk/database access. Takes
+    # plain values rather than the Email, which the main thread may mutate.
+    def _body_worker(
+        self, email_id: int, uid: str, folder_name: str, callback: Callable
+    ) -> None:
         password = secrets.lookup_password(self._account_id)
         if not password:
             GLib.idle_add(
-                self._deliver_body, callback, mail.id, None, "no saved password"
+                self._deliver_body, callback, email_id, None, "no saved password"
             )
             return
         try:
             raw = mail_sync.fetch_full_message(
-                self._account, password, folder_name, mail.server_id
+                self._account, password, folder_name, uid
             )
         except Exception as error:
-            GLib.idle_add(self._deliver_body, callback, mail.id, None, str(error))
+            GLib.idle_add(self._deliver_body, callback, email_id, None, str(error))
             return
-        GLib.idle_add(self._deliver_body, callback, mail.id, raw, None)
+        GLib.idle_add(self._deliver_body, callback, email_id, raw, None)
 
     # Back on the main thread: cache the body, then hand it to the MessageView.
     def _deliver_body(
@@ -1216,7 +1285,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # reusable row), so it's fine to allocate here. A right-click gesture
         # opens the actions menu for that row.
         def on_setup(_factory: Gtk.SignalListItemFactory, item: Gtk.ListItem) -> None:
-            row = ConversationRow()
+            row = ConversationRow(self._avatars)
             gesture = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
             gesture.connect("pressed", self._on_row_right_click, item)
             row.add_controller(gesture)
@@ -1288,7 +1357,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         results = []
         for email_id, subject, recipients, raw in items:
             try:
-                mail_send.send_message(
+                mail_sync.send_message(
                     account, password, account.email, recipients, raw
                 )
                 results.append((email_id, subject, raw, True))
@@ -1310,6 +1379,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             row = self._db.save_email(
                 sent_folder.id,
                 sender=self._account.email,
+                sender_address=self._account.email,
                 subject=subject,
                 preview=subject,
                 date=datetime.now().strftime("%b %d"),
@@ -1341,7 +1411,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 self._toast(_("No saved password for this account."))
             return
 
-        self._background_sync = background
         self._set_syncing(True)
         if self.conversation_stack.get_visible_child_name() == "empty":
             self.conversation_stack.set_visible_child_name("loading")
@@ -1397,24 +1466,41 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         selected = self._selected_conversation()
         keep_id = selected.id if selected is not None else None
 
-        for name in result.folders:
-            self._db.get_or_create_folder(
-                self._account_id, name, mail_sync.icon_for_folder(name)
+        mailboxes = [
+            m for m in result.folders if m.name not in mail_sync.NAMESPACE_ROOTS
+        ]
+
+        # Shortest name first: a parent's name is a prefix of its children's, so
+        # every parent is stored before a child looks it up.
+        for mailbox in sorted(mailboxes, key=lambda m: len(m.name)):
+            name, delimiter = mailbox.name, mailbox.delimiter
+            selectable = "\\Noselect" not in mailbox.flags
+            icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
+            folder = self._db.get_or_create_folder(self._account_id, name, icon)
+
+            parent_name = mail_sync.parent_mailbox_name(name, delimiter)
+            parent = self._db.get_folder_by_name(self._account_id, parent_name)
+            self._db.set_folder_parent(
+                folder.id, parent.id if parent else None, delimiter
             )
-        # Mirror the server's folder list, keeping only the local Outbox. This
-        # clears stale rows like a duplicate "INBOX" from earlier versions.
-        if result.folders:
-            self._db.prune_folders(self._account_id, set(result.folders) | {"Outbox"})
+
+        if mailboxes:
+            # Mirror the server's folder list, keeping only the local Outbox.
+            # This clears stale rows like a duplicate "INBOX" from earlier
+            # versions.
+            names = {m.name for m in mailboxes} | {"Outbox"}
+            self._db.prune_folders(self._account_id, names)
 
         target = self._db.get_or_create_folder(
             self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
         )
-        new_count = 0
+        new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
             added = self._db.save_incoming_email(
                 folder_id=target.id,
                 server_id=message.uid,
                 sender=message.sender,
+                sender_address=message.sender_address,
                 subject=message.subject,
                 preview=message.preview,
                 date=message.date,
@@ -1425,8 +1511,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 references=message.references,
             )
             if added and message.unread:
-                new_count += 1
+                new_messages.append(message)
         self._db.reassign_conversations(target.id)
+
+        # From every fetched header, not just the newly added ones, so an
+        # existing install fills its contacts on the next sync.
+        self._db.save_contacts([a for m in result.messages for a in m.addresses])
 
         # Update paging state: track the deepest page loaded (max() so a
         # newest-page poll never forgets how far the user has scrolled back),
@@ -1440,26 +1530,36 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
         self.connection_banner.set_revealed(False)
-        if not self._background_sync:
-            self._toast(_("Synced {n} messages.").format(n=len(result.messages)))
 
         # Only nag about new mail when the user isn't already looking.
-        if new_count and not self.is_active():
-            self._notify_new_mail(new_count)
+        if new_messages and not self.is_active():
+            self._notify_new_mail(new_messages, target.id)
         return False
 
-    def _notify_new_mail(self, count: int) -> None:
+    def _notify_new_mail(
+        self, messages: list[mail_sync.MessageHeader], folder_id: int
+    ) -> None:
         if not self._settings.get_boolean("notifications"):
             return
         app = self.get_application()
         if app is None:
             return
-        if count == 1:
-            body = _("1 new message")
+
+        if len(messages) == 1:
+            notification = Gio.Notification.new(messages[0].sender)
+            notification.set_body(messages[0].subject)
+            # Clicking it opens that thread, which is what marks it read.
+            notification.set_default_action_and_target(
+                "app.open-mail", GLib.Variant("(is)", (folder_id, messages[0].uid))
+            )
         else:
-            body = _("{n} new messages").format(n=count)
-        notification = Gio.Notification.new(_("New mail"))
-        notification.set_body(body)
+            senders = ", ".join(dict.fromkeys(m.sender for m in messages))
+            notification = Gio.Notification.new(
+                _("{n} new messages").format(n=len(messages))
+            )
+            notification.set_body(senders)
+            notification.set_default_action("app.focus-mail")
+
         app.send_notification("new-mail", notification)
 
     def _on_sync_error(self, category: str, message: str) -> bool:
@@ -1504,15 +1604,41 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._start_sync()
 
     def _on_close_request(self, _window: Gtk.Window) -> bool:
-        self._network.disconnect(self._network_handler)
-        self._settings.disconnect(self._interval_handler)
-        if self._sync_timer_id:
-            GLib.source_remove(self._sync_timer_id)
         width, height = self.get_default_size()
         self._settings.set_int("window-width", width)
         self._settings.set_int("window-height", height)
         self._settings.set_boolean("window-maximized", self.is_maximized())
+
+        if self._settings.get_boolean("run-in-background"):
+            self.set_visible(False)
+            self._notify_background()
+
+            # Keep the app alive so the sync timer keeps running.
+            return True
+
+        self._network.disconnect(self._network_handler)
+        self._settings.disconnect(self._interval_handler)
+        self._settings.disconnect(self._avatar_handler)
+        self._avatars.shutdown()
+        if self._sync_timer_id:
+            GLib.source_remove(self._sync_timer_id)
+
         return False
+
+    def _notify_background(self) -> None:
+        if getattr(self, "_bg_notified", False):
+            return
+
+        self._bg_notified = True
+
+        app = self.get_application()
+        if app is None:
+            return
+
+        n = Gio.Notification.new(_("Postcard is running in the background"))
+        n.set_body(_("It will keep checking for new mail. Quit to stop."))
+        n.set_default_action("app.focus-mail")
+        app.send_notification("running-background", n)
 
     def _set_syncing(self, syncing: bool) -> None:
         self._syncing = syncing
@@ -1523,26 +1649,82 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self.sync_spinner.stop()
 
-    # Rebuild the folder sidebar (refreshes the unread badges). Re-selecting the
-    # row is suppressed so it doesn't rebuild the conversation list — callers
-    # that want that refresh it explicitly.
+    # Rebuilding the tree destroys every row, which resets the user's
+    # expand/collapse state, so only rebuild when the folders or their nesting
+    # actually changed. A plain badge/icon update refreshes the rows in place.
     def _reload_folders(self) -> None:
+        folders = self._db.folders_for_account(self._account_id)
+
+        self._folder_children = {}
+        for folder in folders:
+            self._folder_children.setdefault(folder.parent_id, []).append(folder)
+
+        shape = [(f.id, f.parent_id) for f in folders]
+        if shape != self._folder_shape:
+            self._folder_shape = shape
+            self._rebuild_folder_tree()
+
+        for folder in folders:
+            row = self._folder_rows.get(folder.id)
+            if row is not None:
+                row.bind(folder, self._db.unread_count_in_folder(folder.id))
+
+    def _rebuild_folder_tree(self) -> None:
         # Preserve the selection by folder id, not row index — pruning stale
-        # folders can shift the indices.
+        # folders shifts the indices. Re-selecting is suppressed so it doesn't
+        # rebuild the conversation list; callers refresh that explicitly.
         keep_id = self._current_folder.id if self._current_folder else None
 
         self._suppress_folder_refresh = True
-        self._folders.remove_all()
-        target = 0
-        for i, folder in enumerate(self._db.folders_for_account(self._account_id)):
-            self._folders.append(folder)
-            if folder.id == keep_id:
-                target = i
 
-        row = self.folder_list.get_row_at_index(target)
-        if row is not None:
-            self.folder_list.select_row(row)
+        self._folder_rows.clear()
+        self._folder_root_store.remove_all()
+        for folder in self._folder_children.get(None, []):
+            self._folder_root_store.append(folder)
+
+        if keep_id is not None:
+            self._select_folder_by_id(keep_id)
+
         self._suppress_folder_refresh = False
+
+    def _select_folder_by_id(self, folder_id: int) -> None:
+        n = self._folder_tree_model.get_n_items()
+        if n == 0:
+            return
+        for i in range(n):
+            tree_row = self._folder_tree_model.get_item(i)
+            if isinstance(tree_row, Gtk.TreeListRow):
+                f = tree_row.get_item()
+                if isinstance(f, Folder) and f.id == folder_id:
+                    self._folder_selection.set_selected(i)
+                    return
+
+    # Open one message by IMAP UID (from a notification). Clearing _rendered_id
+    # makes the reader rebuild even if the thread is already shown, so the usual
+    # open path marks it read.
+    def open_email(self, folder_id: int, uid: str) -> None:
+        if getattr(self, "_account_id", None) is None:
+            return
+        self._select_folder_by_id(folder_id)
+
+        store = self._conversation_store
+        for index in range(store.get_n_items()):
+            conversation = store.get_item(index)
+            if not isinstance(conversation, Conversation):
+                continue
+            if any(mail.server_id == uid for mail in conversation.emails):
+                self._rendered_id = None
+                self._selection.set_selected(index)
+                self._update_reader()
+                return
 
     def _toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text))
+
+
+# ponytail: quotes are flattened to text; inlining the original's real HTML
+# would need a sanitizer, since the composer runs with JavaScript enabled.
+def _original_text(parsed: ParsedMessage | None) -> str:
+    if parsed is None:
+        return ""
+    return parsed.text_body or compose.html_to_text(parsed.html_body or "")

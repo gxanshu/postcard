@@ -1,17 +1,24 @@
 from dataclasses import dataclass, field
-from email.utils import parsedate_to_datetime
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 from .core.models.account import Account
-from .core.net.imap_session import ImapSession
+from .core.models.conversation import Conversation
+from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
+from .core.net.smtp_session import SmtpSession
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
+
+# Gmail nests its special folders under an unselectable "[Gmail]" container.
+# It isn't a real mailbox, so it's hidden and its children sit at the top level.
+NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
 
 
 @dataclass
 class MessageHeader:
     uid: str
     sender: str
+    sender_address: str
     subject: str
     date: str
     unread: bool
@@ -20,11 +27,13 @@ class MessageHeader:
     message_id: str = ""
     in_reply_to: str = ""
     references: str = ""
+    # every (name, address) pair on the message, for the contacts list
+    addresses: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
 class SyncResult:
-    folders: list[str] = field(default_factory=list)
+    folders: list[MailboxInfo] = field(default_factory=list)
     messages: list[MessageHeader] = field(default_factory=list)
     folder: str = "INBOX"
     exists: int = 0  # total messages in the selected mailbox
@@ -68,8 +77,8 @@ def fetch_mailbox(
 
     try:
         session.login(account.email, password)
-        folders = session.list_folders()
-        target = folder or inbox_name(folders)
+        mailboxes = session.list_folders()
+        target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
         raw = session.fetch_recent_headers(exists, limit, offset)
     finally:
@@ -79,6 +88,7 @@ def fetch_mailbox(
         MessageHeader(
             uid=item["uid"],
             sender=_clean_sender(item["from"]),
+            sender_address=_sender_address(item["from"]),
             subject=item["subject"] or "(no subject)",
             date=_format_date(item["date"]),
             unread=not item["seen"],
@@ -86,11 +96,18 @@ def fetch_mailbox(
             message_id=item["message_id"],
             in_reply_to=item["in_reply_to"],
             references=item["references"],
+            addresses=getaddresses([item["from"], item["to"], item["cc"]]),
         )
         for item in raw
     ]
 
-    return SyncResult(folders, messages, target, exists, offset)
+    return SyncResult(
+        folders=mailboxes,
+        messages=messages,
+        folder=target,
+        exists=exists,
+        offset=offset,
+    )
 
 
 def fetch_full_message(
@@ -106,6 +123,17 @@ def fetch_full_message(
         return session.fetch_message(uid)
     finally:
         session.logout()
+
+
+def server_uids(conversation: Conversation) -> list[str]:
+    """The IMAP UIDs of a conversation's messages, skipping any without one.
+
+    A locally saved copy (a Sent message, before the next sync confirms it)
+    has no UID, and imaplib silently drops a None argument -- which would send
+    a UID-less "UID STORE +FLAGS (...)" and get a BAD back. There is nothing
+    on the server to act on yet, so leave those out.
+    """
+    return [mail.server_id for mail in conversation.emails if mail.server_id]
 
 
 def set_flag(
@@ -152,6 +180,20 @@ def move_messages(
     return MoveResult(destination_uids)
 
 
+def send_message(
+    account: Account, password: str, from_addr: str, recipients: list[str], raw: bytes
+) -> None:
+    """Connect, log in, and hand a fully-built message to the server."""
+    session = SmtpSession(account.smtp_host, account.smtp_port, account.smtp_security)
+    session.connect()
+
+    try:
+        session.login(account.email, password)
+        session.send_raw(from_addr, recipients, raw)
+    finally:
+        session.quit()
+
+
 def role_for_folder(name: str) -> str:
     """Classify a mailbox by name: inbox/sent/drafts/trash/junk/archive/other."""
     lname = name.lower()
@@ -167,13 +209,25 @@ def role_for_folder(name: str) -> str:
         return "junk"
     if "archive" in lname or "all mail" in lname:
         return "archive"
+    if "star" in lname or "flagged" in lname:
+        return "starred"
     return "other"
 
 
-def display_name_for_folder(name: str) -> str:
-    for prefix in ("[Gmail]/", "[Google Mail]/"):
-        if name.startswith(prefix):
-            return name[len(prefix) :]
+def parent_mailbox_name(name: str, delimiter: str) -> str:
+    """The mailbox enclosing name, or "" when it sits at the top level."""
+    parent = name.rpartition(delimiter)[0] if delimiter else ""
+    return "" if parent in NAMESPACE_ROOTS else parent
+
+
+def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
+    name = decode_mailbox_name(name)
+    for root in NAMESPACE_ROOTS:
+        if name.startswith(root + "/"):
+            name = name[len(root) + 1 :]
+            break
+    if delimiter:
+        name = name.rsplit(delimiter, 1)[-1]
     return name
 
 
@@ -189,17 +243,19 @@ def icon_for_folder(name: str) -> str:
         "drafts": "document-edit-symbolic",
         "trash": "user-trash-symbolic",
         "junk": "mail-mark-junk-symbolic",
+        "starred": "starred-symbolic",
     }.get(role_for_folder(name), "folder-symbolic")
 
 
 def _clean_sender(value: str) -> str:
     # "Ada Lovelace <ada@example.com>" -> "Ada Lovelace"; a bare address stays.
-    value = value.strip()
-    if "<" in value:
-        name = value.split("<", 1)[0].strip().strip('"')
-        if name:
-            return name
-    return value
+    name, addr = parseaddr(value)
+    return name or addr or value
+
+
+def _sender_address(value: str) -> str:
+    # "Ada Lovelace <ada@example.com>" -> "ada@example.com", "" if unparseable.
+    return parseaddr(value)[1].strip().lower()
 
 
 def _format_date(value: str) -> str:

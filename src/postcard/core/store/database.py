@@ -27,9 +27,24 @@ def _arrival_key(mail: Email) -> int:
     the next sync confirms it) sorts as the newest.
     """
     try:
-        return int(mail.server_id)
-    except (TypeError, ValueError):
+        return int(mail.server_id or "")
+    except ValueError:
         return 2**31 - 1
+
+
+# Schema changes since the first release, applied in order. How many have run
+# is stored in PRAGMA user_version. Only ever append -- editing or reordering
+# these would give databases in the wild a different schema to new ones.
+MIGRATIONS = [
+    "ALTER TABLE folders ADD COLUMN parent_id INTEGER REFERENCES folders(id)",
+    "ALTER TABLE folders ADD COLUMN delimiter TEXT NOT NULL DEFAULT '/'",
+    # Backfill by display name is best effort -- two people can share one.
+    """
+    ALTER TABLE emails ADD COLUMN sender_address TEXT NOT NULL DEFAULT '';
+    UPDATE emails SET sender_address = COALESCE(
+        (SELECT address FROM contacts WHERE contacts.name = emails.sender), '');
+    """,
+]
 
 
 class Database:
@@ -44,6 +59,7 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
 
         self._create_tables()
+        self._migrate_schema()
 
     def close(self) -> None:
         self._conn.close()
@@ -69,7 +85,7 @@ class Database:
                 id INTEGER PRIMARY KEY,
                 account_id INTEGER NOT NULL REFERENCES accounts(id),
                 name TEXT NOT NULL,
-                icon_name TEXT NOT NULL
+                icon_name TEXT NOT NULL DEFAULT 'folder-symbolic'
             );
 
             CREATE TABLE IF NOT EXISTS emails (
@@ -91,6 +107,12 @@ class Database:
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid
                 ON emails (folder_id, server_id);
+
+            -- Every address we've seen, for composer autocomplete.
+            CREATE TABLE IF NOT EXISTS contacts (
+                address TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT ''
+            );
 
             -- Full-text search index over the searchable columns. It mirrors
             -- the emails table (content='emails'), so triggers keep it in sync.
@@ -117,15 +139,16 @@ class Database:
 
         self._conn.commit()
 
+    def _migrate_schema(self) -> None:
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        for i, sql in enumerate(MIGRATIONS[version:], start=version + 1):
+            self._conn.executescript(sql)
+            self._conn.execute(f"PRAGMA user_version = {i}")
+        self._conn.commit()
+
     # --- accounts -----------------------------------------------------------
 
     def _account_from_row(self, row: sqlite3.Row) -> Account:
-        imap_sec = row["imap_security"]
-        if imap_sec is None:
-            imap_sec = "tls"  # legacy: always used IMAP4_SSL
-        smtp_sec = row["smtp_security"]
-        if smtp_sec is None:
-            smtp_sec = "tls" if row["smtp_port"] == 465 else "starttls"
         return Account(
             id=row["id"],
             email=row["email"],
@@ -134,8 +157,8 @@ class Database:
             imap_port=row["imap_port"],
             smtp_host=row["smtp_host"],
             smtp_port=row["smtp_port"],
-            imap_security=imap_sec,
-            smtp_security=smtp_sec,
+            imap_security=row["imap_security"],
+            smtp_security=row["smtp_security"],
         )
 
     def accounts(self) -> list[Account]:
@@ -181,6 +204,11 @@ class Database:
         return self._account_from_row(row)
 
     def delete_account(self, account_id: int) -> None:
+        # Flatten the tree first: the parent_id FK rejects deleting a parent
+        # while a child still points at it.
+        self._conn.execute(
+            "UPDATE folders SET parent_id = NULL WHERE account_id = ?", (account_id,)
+        )
         self._conn.execute(
             """
             DELETE FROM emails WHERE folder_id IN (
@@ -195,34 +223,38 @@ class Database:
 
     # --- folders -----------------------------------------------------------
 
+    def _folder_from_row(self, row: sqlite3.Row) -> Folder:
+        return Folder(
+            id=row["id"],
+            account_id=row["account_id"],
+            name=row["name"],
+            icon_name=row["icon_name"],
+            parent_id=row["parent_id"],
+            delimiter=row["delimiter"],
+        )
+
     def folders_for_account(self, account_id: int) -> list[Folder]:
         rows = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? ORDER BY id", (account_id,)
         ).fetchall()
-        return [
-            Folder(
-                id=row["id"],
-                account_id=row["account_id"],
-                name=row["name"],
-                icon_name=row["icon_name"],
-            )
-            for row in rows
-        ]
+        return [self._folder_from_row(row) for row in rows]
+
+    def get_folder_by_name(self, account_id: int, name: str) -> Folder | None:
+        row = self._conn.execute(
+            "SELECT * FROM folders WHERE account_id = ? AND name = ?",
+            (account_id, name),
+        ).fetchone()
+        return self._folder_from_row(row) if row else None
 
     def get_or_create_folder(
-        self, account_id: int, name: str, icon_name: str
+        self, account_id: int, name: str, icon_name: str = "folder-symbolic"
     ) -> Folder:
         row = self._conn.execute(
             "SELECT * FROM folders WHERE account_id = ? AND name = ?",
             (account_id, name),
         ).fetchone()
         if row is not None:
-            return Folder(
-                id=row["id"],
-                account_id=row["account_id"],
-                name=row["name"],
-                icon_name=row["icon_name"],
-            )
+            return self._folder_from_row(row)
 
         cursor = self._conn.execute(
             "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
@@ -237,6 +269,27 @@ class Database:
             icon_name=icon_name,
         )
 
+    # Only the sync knows a folder's real place in the server's hierarchy, so
+    # it's set explicitly here rather than defaulted by get_or_create_folder.
+    def set_folder_parent(
+        self, folder_id: int, parent_id: int | None, delimiter: str
+    ) -> None:
+        self._conn.execute(
+            "UPDATE folders SET parent_id = ?, delimiter = ? WHERE id = ?",
+            (parent_id, delimiter, folder_id),
+        )
+        self._conn.commit()
+
+    def _delete_folder_tree(self, folder_id: int) -> None:
+        # Deepest first, for the same FK reason as delete_account.
+        children = self._conn.execute(
+            "SELECT id FROM folders WHERE parent_id = ?", (folder_id,)
+        ).fetchall()
+        for child in children:
+            self._delete_folder_tree(child["id"])
+        self._conn.execute("DELETE FROM emails WHERE folder_id = ?", (folder_id,))
+        self._conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+
     def prune_folders(self, account_id: int, keep_names: set[str]) -> None:
         """Delete an account's folders (and their emails) whose names aren't in
         keep_names. Used to mirror the server's folder list and clear stale rows
@@ -247,8 +300,7 @@ class Database:
         for row in rows:
             if row["name"] in keep_names:
                 continue
-            self._conn.execute("DELETE FROM emails WHERE folder_id = ?", (row["id"],))
-            self._conn.execute("DELETE FROM folders WHERE id = ?", (row["id"],))
+            self._delete_folder_tree(row["id"])
         self._conn.commit()
 
     # --- emails -----------------------------------------------------------
@@ -427,14 +479,25 @@ class Database:
         date: str,
         unread: bool,
         server_id: str | None = None,
+        sender_address: str = "",
     ) -> Email:
         cursor = self._conn.execute(
             """
             INSERT INTO emails
-                (folder_id, server_id, sender, subject, preview, date, unread)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (folder_id, server_id, sender, subject, preview, date, unread,
+                 sender_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (folder_id, server_id, sender, subject, preview, date, int(unread)),
+            (
+                folder_id,
+                server_id,
+                sender,
+                subject,
+                preview,
+                date,
+                int(unread),
+                sender_address,
+            ),
         )
         self._conn.commit()
         row = self._conn.execute(
@@ -455,14 +518,15 @@ class Database:
         message_id: str = "",
         in_reply_to: str = "",
         references: str = "",
+        sender_address: str = "",
     ) -> bool:
         """Insert one fetched email; skip it if we already have it."""
         cursor = self._conn.execute(
             """
             INSERT OR IGNORE INTO emails
                 (folder_id, server_id, sender, subject, preview, date, unread,
-                 starred, message_id, in_reply_to, reference_ids)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 starred, message_id, in_reply_to, reference_ids, sender_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 folder_id,
@@ -476,6 +540,7 @@ class Database:
                 message_id,
                 in_reply_to,
                 references,
+                sender_address,
             ),
         )
         self._conn.commit()
@@ -491,6 +556,7 @@ class Database:
             folder_id=row["folder_id"],
             server_id=row["server_id"],
             sender=row["sender"],
+            sender_address=row["sender_address"] or "",
             subject=row["subject"],
             preview=row["preview"],
             date=row["date"],
@@ -501,3 +567,28 @@ class Database:
             references=row["reference_ids"] or "",
             conversation_id=row["conversation_id"],
         )
+
+    # --- contacts -----------------------------------------------------------
+
+    def save_contacts(self, addresses: list[tuple[str, str]]) -> None:
+        """Remember (name, address) pairs -- the order email.utils.getaddresses
+        returns them in. A later sighting fills in a missing display name, but
+        an anonymous one never wipes a name we already have."""
+        self._conn.executemany(
+            """
+            INSERT INTO contacts (address, name) VALUES (?, ?)
+            ON CONFLICT(address) DO UPDATE SET name = excluded.name
+                WHERE excluded.name != ''
+            """,
+            [(addr.lower(), name) for name, addr in addresses if addr],
+        )
+        self._conn.commit()
+
+    def contact_addresses(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT name, address FROM contacts ORDER BY name, address"
+        ).fetchall()
+        return [
+            f"{row['name']} <{row['address']}>" if row["name"] else row["address"]
+            for row in rows
+        ]

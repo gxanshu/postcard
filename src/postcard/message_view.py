@@ -8,6 +8,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gtk, Pango, WebKit
 
+from .avatar_loader import AvatarLoader
 from .core.mime import message_parser
 from .core.models.attachment import Attachment
 from .core.models.email import Email
@@ -26,6 +27,7 @@ class MessageView(Gtk.Box):
         on_rendered: Callable[["MessageView"], None] | None = None,
         expanded: bool = False,
         remote_images: bool = False,
+        avatars: AvatarLoader | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("card")
@@ -49,7 +51,10 @@ class MessageView(Gtk.Box):
         self.parsed: message_parser.ParsedMessage | None = None
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        header.append(Adw.Avatar(size=32, show_initials=True, text=email.sender))
+        avatar = Adw.Avatar(size=32, show_initials=True, text=email.sender)
+        header.append(avatar)
+        if avatars is not None and email.sender_address:
+            avatars.load(email.sender_address, avatar.set_custom_image)
 
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         sender = Gtk.Label(
@@ -187,12 +192,39 @@ class MessageView(Gtk.Box):
 
         webview = WebKit.WebView()
         webview.set_size_request(-1, 800)
+        webview.connect("decide-policy", self._on_decide_policy)
         settings = webview.get_settings()
         settings.set_enable_javascript(False)
         settings.set_auto_load_images(self._remote_images)
         webview.load_html(html, None)
         self._webview = webview
         self._body.append(webview)
+
+    # The webview only ever renders the message body; anything the user clicks
+    # belongs in their browser, not in here.
+    def _on_decide_policy(
+        self,
+        _webview: WebKit.WebView,
+        decision: WebKit.PolicyDecision,
+        _decision_type: WebKit.PolicyDecisionType,
+    ) -> bool:
+        # NAVIGATION_ACTION and NEW_WINDOW_ACTION are exactly the decisions
+        # carrying a navigation action; RESPONSE ones aren't ours to handle.
+        if not isinstance(decision, WebKit.NavigationPolicyDecision):
+            return False
+
+        action = decision.get_navigation_action()
+        if action.get_navigation_type() != WebKit.NavigationType.LINK_CLICKED:
+            return False
+
+        decision.ignore()
+        uri = action.get_request().get_uri()
+        if uri:
+            root = self.get_root()
+            Gtk.UriLauncher(uri=uri).launch(
+                root if isinstance(root, Gtk.Window) else None, None, None
+            )
+        return True
 
     def _on_show_images_clicked(self, _banner: Adw.Banner) -> None:
         if self._webview is None or self._html is None:

@@ -329,10 +329,81 @@ class Database:
         self._conn.commit()
 
     def move_email(self, email_id: int, folder_id: int) -> None:
-        self._conn.execute(
-            "UPDATE emails SET folder_id = ? WHERE id = ?", (folder_id, email_id)
-        )
-        self._conn.commit()
+        """Move one email into a temporary destination placeholder.
+
+        UIDs are only unique within an IMAP mailbox.  Clear the UID while the
+        move is pending so changing mailboxes cannot collide with a cached
+        destination row.
+        """
+        self.move_emails([email_id], folder_id)
+
+    def move_emails(self, email_ids: list[int], folder_id: int) -> None:
+        """Atomically move emails as UID-less destination placeholders."""
+        with self._conn:
+            self._conn.executemany(
+                "UPDATE emails SET folder_id = ?, server_id = NULL WHERE id = ?",
+                [(folder_id, email_id) for email_id in email_ids],
+            )
+
+    def restore_emails(self, emails: list[tuple[int, int, str | None]]) -> None:
+        """Atomically restore pending moves and their original mailbox UIDs."""
+        with self._conn:
+            for email_id, folder_id, server_id in emails:
+                existing = self._conn.execute(
+                    """
+                    SELECT id FROM emails
+                    WHERE folder_id = ? AND server_id = ? AND id != ?
+                    """,
+                    (folder_id, server_id, email_id),
+                ).fetchone()
+                if existing is not None:
+                    # A sync may have reinserted this source UID while the
+                    # move was pending. Keep that authoritative row and drop
+                    # only our placeholder.
+                    self._conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+                else:
+                    self._conn.execute(
+                        """
+                        UPDATE emails
+                        SET folder_id = ?, server_id = ?
+                        WHERE id = ?
+                        """,
+                        (folder_id, server_id, email_id),
+                    )
+
+    def reconcile_moved_emails(self, moves: list[tuple[int, int, str | None]]) -> None:
+        """Commit server-assigned destination UIDs for completed moves.
+
+        A missing UID means the server has accepted the move but did not tell
+        us how to identify its new row. Remove that placeholder so a later
+        mailbox sync can insert the authoritative row without a duplicate.
+        """
+        with self._conn:
+            for email_id, folder_id, server_id in moves:
+                if server_id is None:
+                    self._conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+                    continue
+
+                existing = self._conn.execute(
+                    """
+                    SELECT id FROM emails
+                    WHERE folder_id = ? AND server_id = ? AND id != ?
+                    """,
+                    (folder_id, server_id, email_id),
+                ).fetchone()
+                if existing is not None:
+                    # The destination sync already has the authoritative row.
+                    # Never delete or replace it; remove only our placeholder.
+                    self._conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+                else:
+                    self._conn.execute(
+                        """
+                        UPDATE emails
+                        SET folder_id = ?, server_id = ?
+                        WHERE id = ?
+                        """,
+                        (folder_id, server_id, email_id),
+                    )
 
     def get_raw_message(self, email_id: int) -> bytes | None:
         row = self._conn.execute(

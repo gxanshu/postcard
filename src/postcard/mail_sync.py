@@ -31,6 +31,15 @@ class SyncResult:
     offset: int = 0  # how far back from the newest this fetch reached
 
 
+@dataclass
+class MoveResult:
+    """Results from the commands attempted by a mailbox move."""
+
+    destination_uids: list[str | None] = field(default_factory=list)
+    failed_index: int | None = None
+    error: str | None = None
+
+
 def inbox_name(folders: list[str]) -> str:
     """The server's inbox mailbox. IMAP calls it INBOX but servers vary the
     casing (Yahoo lists it as "Inbox"), so match by role and fall back to the
@@ -125,17 +134,22 @@ def move_messages(
     folder_name: str,
     uids: list[str],
     destination: str,
-) -> None:
+) -> MoveResult:
     """Move every message in a conversation to another mailbox."""
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.login(account.email, password)
         session.select(folder_name, readonly=False)
-        for uid in uids:
-            session.move(uid, destination)
+        destination_uids = []
+        for index, uid in enumerate(uids):
+            try:
+                destination_uids.append(session.move(uid, destination))
+            except Exception as error:
+                return MoveResult(destination_uids, index, str(error))
     finally:
         session.logout()
+    return MoveResult(destination_uids)
 
 
 def role_for_folder(name: str) -> str:

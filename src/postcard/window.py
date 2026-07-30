@@ -100,6 +100,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._selection_update_in_progress: bool = False
         self._pending_move: dict | None = None
         self._pending_toast: Adw.Toast | None = None
+        # Source UIDs stay protected while an optimistic move is pending or
+        # its worker is in flight.  Completed moves remain protected until a
+        # newest-page sync confirms that the source UID is gone.  The two
+        # counts keep overlapping moves from clearing one another's tombstones.
+        self._move_tombstones: dict[tuple[int, str], dict[str, int]] = {}
 
         self._setup_actions()
 
@@ -659,7 +664,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         email_ids = [mail.id for mail in mails]
         uids = [mail.server_id for mail in mails]
         originals = [(mail.id, source.id, mail.server_id) for mail in mails]
+        tombstones = [(source.id, uid) for uid in uids]
         self._db.move_emails(email_ids, dest.id)
+        for tombstone in tombstones:
+            state = self._move_tombstones.setdefault(
+                tombstone, {"active": 0, "awaiting": 0}
+            )
+            state["active"] += 1
 
         self._reload_folders()
         self._refresh_conversations()
@@ -673,6 +684,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             "originals": originals,
             "source": source,
             "dest": dest,
+            "tombstones": tombstones,
             "timeout_id": GLib.timeout_add(5000, self._on_move_timeout),
         }
         self.toast_overlay.add_toast(toast)
@@ -710,8 +722,34 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _restore_move(self, pending: dict) -> None:
         self._db.restore_emails(pending["originals"])
+        self._clear_move_tombstones(pending)
         self._reload_folders()
         self._refresh_conversations()
+
+    def _clear_move_tombstones(self, pending: dict, start: int = 0) -> None:
+        for tombstone in pending["tombstones"][start:]:
+            state = self._move_tombstones.get(tombstone)
+            if state is None:
+                continue
+            state["active"] -= 1
+            if state["active"] <= 0 and state["awaiting"] <= 0:
+                self._move_tombstones.pop(tombstone, None)
+
+    def _await_move_tombstones(self, pending: dict, completed: int) -> None:
+        for tombstone in pending["tombstones"][:completed]:
+            state = self._move_tombstones.get(tombstone)
+            if state is None:
+                continue
+            state["active"] -= 1
+            state["awaiting"] += 1
+
+    def _confirm_move_tombstones(self, folder_id: int, all_uids: set[str]) -> None:
+        for (tombstone_folder_id, uid), state in list(self._move_tombstones.items()):
+            if tombstone_folder_id != folder_id or uid in all_uids:
+                continue
+            state["awaiting"] = 0
+            if state["active"] <= 0:
+                self._move_tombstones.pop((tombstone_folder_id, uid), None)
 
     def _run_move_worker(self, pending: dict) -> None:
         password = secrets.lookup_password(self._account_id)
@@ -742,6 +780,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _on_move_result(self, pending: dict, result: mail_sync.MoveResult) -> bool:
         completed = len(result.destination_uids)
+        self._await_move_tombstones(pending, completed)
         completed_moves = list(
             zip(
                 pending["email_ids"][:completed],
@@ -752,8 +791,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         if completed_moves:
             self._db.reconcile_moved_emails(completed_moves)
-        if result.failed_index is not None:
-            self._db.restore_emails(pending["originals"][result.failed_index :])
+        failed_index = result.failed_index
+        if failed_index is None and completed < len(pending["uids"]):
+            failed_index = completed
+        if failed_index is not None:
+            self._db.restore_emails(pending["originals"][failed_index:])
+            self._clear_move_tombstones(pending, failed_index)
         self._reload_folders()
         self._refresh_conversations()
         if result.error is not None:
@@ -1496,6 +1539,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
+            if (target.id, message.uid) in self._move_tombstones:
+                continue
             added = self._db.save_incoming_email(
                 folder_id=target.id,
                 server_id=message.uid,
@@ -1514,6 +1559,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 new_messages.append(message)
         if result.all_uids is not None:
             self._db.prune_stale_emails(target.id, result.all_uids)
+            # Do this after filtering the fetched headers: an older snapshot
+            # can still contain a UID that the authoritative set says has
+            # already left the source folder.
+            self._confirm_move_tombstones(target.id, result.all_uids)
         self._db.reassign_conversations(target.id)
 
         # From every fetched header, not just the newly added ones, so an

@@ -124,11 +124,64 @@ class ImapSession:
         if typ != "OK":
             raise ImapError(f"could not update flags on {uid}: {data}")
 
-    def move(self, uid: str, destination: str) -> None:
-        """Move one message by UID to another mailbox (RFC 6851 MOVE)."""
+    def search_all_uids(self) -> set[str]:
+        """Return every UID in the currently selected mailbox."""
+        try:
+            typ, data = self._require_imap().uid("SEARCH", "ALL")
+        except imaplib.IMAP4.error as error:
+            raise ImapError(f"search failed: {error}") from error
+
+        if typ != "OK":
+            raise ImapError(f"search failed: {data}")
+        if not isinstance(data, (list, tuple)):
+            raise ImapError(f"search returned malformed data: {data}")
+
+        tokens: list[bytes] = []
+        for item in data:
+            if not isinstance(item, bytes):
+                raise ImapError(f"search returned malformed data: {data}")
+            tokens.extend(item.split())
+
+        try:
+            uids = {token.decode("ascii") for token in tokens}
+        except UnicodeDecodeError as error:
+            raise ImapError(f"search returned malformed data: {data}") from error
+        if any(not uid.isdigit() for uid in uids):
+            raise ImapError(f"search returned malformed data: {data}")
+        return uids
+
+    def move(self, uid: str, destination: str) -> str | None:
+        """Move one message and return its destination UID when reported.
+
+        COPYUID is the response code used by most servers; MOVEUID is used by
+        some servers implementing RFC 6851.  ``response`` is imaplib's public
+        response-code API and must be queried immediately after the command.
+        """
         typ, data = self._require_imap().uid("MOVE", uid, _quote_mailbox(destination))
         if typ != "OK":
             raise ImapError(f"could not move {uid} to {destination}: {data}")
+        imap = self._require_imap()
+        for code in ("COPYUID", "MOVEUID"):
+            _typ, response = imap.response(code)
+            destination_uid = self._destination_uid(response)
+            if destination_uid is not None:
+                return destination_uid
+        return None
+
+    @staticmethod
+    def _destination_uid(response: object) -> str | None:
+        """Extract a single destination UID from a COPYUID/MOVEUID response."""
+        if isinstance(response, (list, tuple)):
+            values = response
+        else:
+            values = [response]
+        text = " ".join(
+            value.decode("ascii", "replace") if isinstance(value, bytes) else str(value)
+            for value in values
+            if value is not None
+        )
+        match = re.search(r"\b\d+\s+\d+(?::\d+)?\s+(\d+)(?::\d+)?\b", text)
+        return match.group(1) if match else None
 
     def fetch_recent_headers(
         self, exists: int, limit: int, offset: int = 0

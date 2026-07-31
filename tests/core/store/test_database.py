@@ -147,6 +147,36 @@ def test_locally_saved_emails_without_a_uid_are_never_deduped(db, folder):
     assert len(db.emails_in_folder(folder.id)) == 2
 
 
+@pytest.mark.parametrize(
+    ("active_server_uids", "local_server_id", "deleted"),
+    [({"active"}, None, 1), (set(), "", 2)],
+)
+def test_prune_stale_emails_keeps_active_and_uid_less_rows(
+    db, folder, active_server_uids, local_server_id, deleted
+):
+    incoming(db, folder.id, "active", subject="Active")
+    incoming(db, folder.id, "stale", subject="Stale")
+    db.save_email(folder.id, "me@x", "Draft", "", "Jul 16", False, local_server_id)
+
+    assert db.prune_stale_emails(folder.id, active_server_uids) == deleted
+
+    assert {mail.server_id for mail in db.emails_in_folder(folder.id)} == (
+        active_server_uids | {local_server_id}
+    )
+
+
+def test_prune_stale_emails_accepts_an_authoritative_set_over_sqlite_variable_limit(
+    db, folder
+):
+    incoming(db, folder.id, "active", subject="Active")
+    incoming(db, folder.id, "stale", subject="Stale")
+    active_server_uids = {f"uid-{uid}" for uid in range(250_000)} | {"active"}
+
+    assert db.prune_stale_emails(folder.id, active_server_uids) == 1
+
+    assert [mail.server_id for mail in db.emails_in_folder(folder.id)] == ["active"]
+
+
 def test_read_and_unread(db, folder):
     incoming(db, folder.id, "1", unread=True)
     (email,) = db.emails_in_folder(folder.id)

@@ -38,6 +38,16 @@ class SyncResult:
     folder: str = "INBOX"
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
+    all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
+
+
+@dataclass
+class MoveResult:
+    """Results from the commands attempted by a mailbox move."""
+
+    destination_uids: list[str | None] = field(default_factory=list)
+    failed_index: int | None = None
+    error: str | None = None
 
 
 def inbox_name(folders: list[str]) -> str:
@@ -71,6 +81,7 @@ def fetch_mailbox(
         mailboxes = session.list_folders()
         target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
+        all_uids = session.search_all_uids() if offset == 0 else None
         raw = session.fetch_recent_headers(exists, limit, offset)
     finally:
         session.logout()
@@ -98,6 +109,7 @@ def fetch_mailbox(
         folder=target,
         exists=exists,
         offset=offset,
+        all_uids=all_uids,
     )
 
 
@@ -153,17 +165,22 @@ def move_messages(
     folder_name: str,
     uids: list[str],
     destination: str,
-) -> None:
+) -> MoveResult:
     """Move every message in a conversation to another mailbox."""
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.login(account.email, password)
         session.select(folder_name, readonly=False)
-        for uid in uids:
-            session.move(uid, destination)
+        destination_uids = []
+        for index, uid in enumerate(uids):
+            try:
+                destination_uids.append(session.move(uid, destination))
+            except Exception as error:
+                return MoveResult(destination_uids, index, str(error))
     finally:
         session.logout()
+    return MoveResult(destination_uids)
 
 
 def send_message(

@@ -24,6 +24,7 @@ from datetime import datetime
 from email import policy
 from email.utils import parseaddr
 from gettext import gettext as _
+from gettext import ngettext
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
@@ -96,8 +97,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._search_timeout: int = 0
         self._rendered_id: int | None = None
         self._suppress_folder_refresh: bool = False
+        self._selection_update_in_progress: bool = False
         self._pending_move: dict | None = None
         self._pending_toast: Adw.Toast | None = None
+        # Source UIDs stay protected while an optimistic move is pending or
+        # its worker is in flight.  Completed moves remain protected until a
+        # newest-page sync confirms that the source UID is gone.  The two
+        # counts keep overlapping moves from clearing one another's tombstones.
+        self._move_tombstones: dict[tuple[int, str], dict[str, int]] = {}
 
         self._setup_actions()
 
@@ -160,6 +167,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._set_mail_actions_enabled(False)
         self.reply_button.set_sensitive(False)
         self.forward_button.set_sensitive(False)
+        self._set_reply_forward_enabled(False)
 
         self.main_stack.set_visible_child_name("mail")
         self._refresh_account_switcher()
@@ -191,7 +199,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # approach) makes GtkListView treat it as a brand new list and reset
         # scroll to the top, which fights load-on-scroll.
         self._conversation_store: Gio.ListStore = Gio.ListStore(item_type=Conversation)
-        self._selection: Gtk.SingleSelection = Gtk.SingleSelection(
+        self._selection: Gtk.MultiSelection = Gtk.MultiSelection(
             model=self._conversation_store
         )
 
@@ -294,7 +302,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._open_composer(body=compose.signature_block(sig) if sig else "")
 
     def _on_reply_clicked(self, *_args: object) -> None:
-        if self._active_view is None or self._active_view.raw is None:
+        if (
+            len(self._selected_conversations()) != 1
+            or self._active_view is None
+            or self._active_view.raw is None
+        ):
             return
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
         to_addr = parseaddr(str(headers["From"] or ""))[1]
@@ -309,7 +321,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._open_composer(to=to_addr, subject=subject, body=body)
 
     def _on_forward_clicked(self, *_args: object) -> None:
-        if self._active_view is None or self._active_view.raw is None:
+        if (
+            len(self._selected_conversations()) != 1
+            or self._active_view is None
+            or self._active_view.raw is None
+        ):
             return
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
         subject = compose.forward_subject(str(headers["Subject"] or ""))
@@ -385,50 +401,108 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 action.set_enabled(enabled)
         self.move_button.set_sensitive(enabled)
 
-    def _on_toggle_read(self, _action: Gio.SimpleAction, _param: object) -> None:
-        conversation = self._selection.get_selected_item()
-        if not isinstance(conversation, Conversation):
-            return
+    def _set_reply_forward_enabled(self, enabled: bool) -> None:
+        for name in ("reply", "forward"):
+            action = self.lookup_action(name)
+            if action is not None:
+                action.set_enabled(enabled)
 
-        unread = not conversation.unread
-        for mail in conversation.emails:
-            mail.unread = unread
-            if unread:
-                self._db.mark_email_unread(mail.id)
-            else:
-                self._db.mark_email_read(mail.id)
+    def _selected_conversations(self) -> list[Conversation]:
+        selected = []
+        for position in range(self._conversation_store.get_n_items()):
+            if not self._selection.is_selected(position):
+                continue
+            conversation = self._conversation_store.get_item(position)
+            if isinstance(conversation, Conversation):
+                selected.append(conversation)
+        return selected
+
+    def _selected_conversation(self) -> Conversation | None:
+        selected = self._selected_conversations()
+        return selected[0] if len(selected) == 1 else None
+
+    def _on_toggle_read(self, _action: Gio.SimpleAction, _param: object) -> None:
+        conversations = self._selected_conversations()
+        if not conversations:
+            return
+        self._toggle_read_many(conversations)
+
+    def _toggle_read(self, conversation: Conversation) -> None:
+        self._toggle_read_many([conversation])
+
+    def _toggle_read_many(self, conversations: list[Conversation]) -> None:
+        # A mixed selection follows the aggregate command shown in the menu:
+        # if anything is unread, mark the whole selection read.
+        unread = not any(conversation.unread for conversation in conversations)
+        originals = {
+            mail.id: mail.unread
+            for conversation in conversations
+            for mail in conversation.emails
+        }
+        for conversation in conversations:
+            for mail in conversation.emails:
+                mail.unread = unread
+                if unread:
+                    self._db.mark_email_unread(mail.id)
+                else:
+                    self._db.mark_email_read(mail.id)
 
         def revert() -> None:
-            for mail in conversation.emails:
-                mail.unread = not unread
-                if unread:
-                    self._db.mark_email_read(mail.id)
-                else:
-                    self._db.mark_email_unread(mail.id)
-            self._after_flag_change(conversation)
+            for conversation in conversations:
+                for mail in conversation.emails:
+                    old_unread = originals[mail.id]
+                    mail.unread = old_unread
+                    if old_unread:
+                        self._db.mark_email_unread(mail.id)
+                    else:
+                        self._db.mark_email_read(mail.id)
+            self._after_flag_change(conversations)
 
-        self._after_flag_change(conversation)
-        uids = mail_sync.server_uids(conversation)
+        self._after_flag_change(conversations)
+        uids = [
+            uid
+            for conversation in conversations
+            for uid in mail_sync.server_uids(conversation)
+        ]
         self._run_flag_worker(uids, "\\Seen", add=not unread, revert=revert)
 
     def _on_toggle_star(self, _action: Gio.SimpleAction, _param: object) -> None:
-        conversation = self._selection.get_selected_item()
-        if not isinstance(conversation, Conversation):
+        conversations = self._selected_conversations()
+        if not conversations:
             return
+        self._toggle_star_many(conversations)
 
-        starred = not conversation.starred
-        for mail in conversation.emails:
-            mail.starred = starred
-            self._db.set_email_starred(mail.id, starred)
+    def _toggle_star(self, conversation: Conversation) -> None:
+        self._toggle_star_many([conversation])
+
+    def _toggle_star_many(self, conversations: list[Conversation]) -> None:
+        # As with read state, one aggregate command gives the whole selection a
+        # deterministic state even when the conversations are mixed.
+        starred = not any(conversation.starred for conversation in conversations)
+        originals = {
+            mail.id: mail.starred
+            for conversation in conversations
+            for mail in conversation.emails
+        }
+        for conversation in conversations:
+            for mail in conversation.emails:
+                mail.starred = starred
+                self._db.set_email_starred(mail.id, starred)
 
         def revert() -> None:
-            for mail in conversation.emails:
-                mail.starred = not starred
-                self._db.set_email_starred(mail.id, not starred)
-            self._after_flag_change(conversation)
+            for conversation in conversations:
+                for mail in conversation.emails:
+                    old_starred = originals[mail.id]
+                    mail.starred = old_starred
+                    self._db.set_email_starred(mail.id, old_starred)
+            self._after_flag_change(conversations)
 
-        self._after_flag_change(conversation)
-        uids = mail_sync.server_uids(conversation)
+        self._after_flag_change(conversations)
+        uids = [
+            uid
+            for conversation in conversations
+            for uid in mail_sync.server_uids(conversation)
+        ]
         self._run_flag_worker(uids, "\\Flagged", add=starred, revert=revert)
 
     # Clear the unread flag for a whole conversation: locally, in the badges
@@ -454,9 +528,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # Update badges and the list after a flag change, keeping this
     # conversation selected (so the reader doesn't reload).
-    def _after_flag_change(self, conversation: Conversation) -> None:
+    def _after_flag_change(
+        self, conversations: Conversation | list[Conversation]
+    ) -> None:
+        if isinstance(conversations, Conversation):
+            keep_id = conversations.id
+        else:
+            keep_id = conversations[0].id if len(conversations) == 1 else None
         self._reload_folders()
-        self._refresh_conversations(keep_id=conversation.id)
+        self._refresh_conversations(keep_id=keep_id)
 
     def _run_flag_worker(
         self, uids: list[str], flag: str, add: bool, revert: Callable[[], None]
@@ -496,40 +576,66 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # --- archive / trash / move (with undo) -------------------------------
 
     def _on_archive(self, _action: Gio.SimpleAction, _param: object) -> None:
-        self._start_move_by_role("archive", _("Archived"))
+        self._start_move_by_role("archive")
 
     def _on_trash(self, _action: Gio.SimpleAction, _param: object) -> None:
-        self._start_move_by_role("trash", _("Deleted"))
+        self._start_move_by_role("trash")
 
     def _on_move(self, _action: Gio.SimpleAction, param: GLib.Variant) -> None:
-        conversation = self._selection.get_selected_item()
-        if not isinstance(conversation, Conversation):
+        conversations = self._selected_conversations()
+        if not conversations:
             return
+        self._move_to(conversations[0], param)
+
+    def _move_to(self, conversation: Conversation, param: GLib.Variant) -> None:
         dest = self._find_folder_by_name(param.get_string())
         if dest is not None:
-            self._start_move(
-                conversation, dest, _("Moved to {name}").format(name=dest.name)
-            )
+            conversations = self._selected_conversations() or [conversation]
+            count = len(conversations)
+            title = ngettext(
+                "Moved to {name}",
+                "Moved {n} conversations to {name}",
+                count,
+            ).format(n=count, name=dest.name)
+            self._start_move(conversations, dest, title)
 
-    def _start_move_by_role(self, role: str, verb: str) -> None:
-        conversation = self._selection.get_selected_item()
-        if not isinstance(conversation, Conversation):
+    def _start_move_by_role(
+        self, role: str, conversation: Conversation | None = None
+    ) -> None:
+        conversations = self._selected_conversations()
+        if not conversations and conversation is not None:
+            conversations = [conversation]
+        if not conversations:
             return
         dest = self._folder_with_role(role)
         if dest is None:
             self._toast(_("No {role} folder found.").format(role=role))
             return
-        self._start_move(conversation, dest, verb)
+        count = len(conversations)
+        if role == "archive":
+            title = ngettext("Archived", "Archived {n} conversations", count).format(
+                n=count
+            )
+        else:
+            title = ngettext("Deleted", "Deleted {n} conversations", count).format(
+                n=count
+            )
+        self._start_move(conversations, dest, title)
 
     def _folder_with_role(self, role: str) -> Folder | None:
         current_id = self._current_folder.id if self._current_folder else None
+        matches = []
         for folder in self._db.folders_for_account(self._account_id):
             if (
                 folder.id != current_id
                 and mail_sync.role_for_folder(folder.name) == role
             ):
-                return folder
-        return None
+                matches.append(folder)
+        if role == "archive":
+            for folder in matches:
+                if "archive" in folder.name.lower():
+                    return folder
+        return matches[0] if matches else None
 
     def _find_folder_by_name(self, name: str) -> Folder | None:
         for folder in self._db.folders_for_account(self._account_id):
@@ -540,17 +646,31 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # Move a conversation optimistically: update the DB and drop it from the
     # list now, then run the real IMAP MOVE ~5s later. An Undo toast cancels the
     # server move if clicked before then.
-    def _start_move(self, conversation: Conversation, dest: Folder, verb: str) -> None:
+    def _start_move(
+        self, conversations: list[Conversation], dest: Folder, verb: str
+    ) -> None:
         source = self._current_folder
         if source is None or dest.id == source.id:
             return
 
         self._commit_pending_move()
 
-        email_ids = [mail.id for mail in conversation.emails]
-        uids = mail_sync.server_uids(conversation)
-        for email_id in email_ids:
-            self._db.move_email(email_id, dest.id)
+        mails = [
+            mail
+            for conversation in conversations
+            for mail in conversation.emails
+            if mail.server_id is not None
+        ]
+        email_ids = [mail.id for mail in mails]
+        uids = [mail.server_id for mail in mails]
+        originals = [(mail.id, source.id, mail.server_id) for mail in mails]
+        tombstones = [(source.id, uid) for uid in uids]
+        self._db.move_emails(email_ids, dest.id)
+        for tombstone in tombstones:
+            state = self._move_tombstones.setdefault(
+                tombstone, {"active": 0, "awaiting": 0}
+            )
+            state["active"] += 1
 
         self._reload_folders()
         self._refresh_conversations()
@@ -561,8 +681,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._pending_move = {
             "email_ids": email_ids,
             "uids": uids,
+            "originals": originals,
             "source": source,
             "dest": dest,
+            "tombstones": tombstones,
             "timeout_id": GLib.timeout_add(5000, self._on_move_timeout),
         }
         self.toast_overlay.add_toast(toast)
@@ -599,14 +721,41 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._run_move_worker(pending)
 
     def _restore_move(self, pending: dict) -> None:
-        for email_id in pending["email_ids"]:
-            self._db.move_email(email_id, pending["source"].id)
+        self._db.restore_emails(pending["originals"])
+        self._clear_move_tombstones(pending)
         self._reload_folders()
         self._refresh_conversations()
+
+    def _clear_move_tombstones(self, pending: dict, start: int = 0) -> None:
+        for tombstone in pending["tombstones"][start:]:
+            state = self._move_tombstones.get(tombstone)
+            if state is None:
+                continue
+            state["active"] -= 1
+            if state["active"] <= 0 and state["awaiting"] <= 0:
+                self._move_tombstones.pop(tombstone, None)
+
+    def _await_move_tombstones(self, pending: dict, completed: int) -> None:
+        for tombstone in pending["tombstones"][:completed]:
+            state = self._move_tombstones.get(tombstone)
+            if state is None:
+                continue
+            state["active"] -= 1
+            state["awaiting"] += 1
+
+    def _confirm_move_tombstones(self, folder_id: int, all_uids: set[str]) -> None:
+        for (tombstone_folder_id, uid), state in list(self._move_tombstones.items()):
+            if tombstone_folder_id != folder_id or uid in all_uids:
+                continue
+            state["awaiting"] = 0
+            if state["active"] <= 0:
+                self._move_tombstones.pop((tombstone_folder_id, uid), None)
 
     def _run_move_worker(self, pending: dict) -> None:
         password = secrets.lookup_password(self._account_id)
         if not password:
+            self._restore_move(pending)
+            self._toast(_("No saved password for this account."))
             return
         thread = threading.Thread(
             target=self._move_worker,
@@ -618,23 +767,53 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # Runs on the worker thread: network only, no Gtk/database access.
     def _move_worker(self, account: Account, password: str, pending: dict) -> None:
         try:
-            mail_sync.move_messages(
+            result = mail_sync.move_messages(
                 account,
                 password,
                 pending["source"].name,
                 pending["uids"],
                 pending["dest"].name,
             )
+            GLib.idle_add(self._on_move_result, pending, result)
         except Exception as error:
             GLib.idle_add(self._on_move_failed, pending, str(error))
+
+    def _on_move_result(self, pending: dict, result: mail_sync.MoveResult) -> bool:
+        completed = len(result.destination_uids)
+        self._await_move_tombstones(pending, completed)
+        completed_moves = list(
+            zip(
+                pending["email_ids"][:completed],
+                [pending["dest"].id] * completed,
+                result.destination_uids,
+                strict=True,
+            )
+        )
+        if completed_moves:
+            self._db.reconcile_moved_emails(completed_moves)
+        failed_index = result.failed_index
+        if failed_index is None and completed < len(pending["uids"]):
+            failed_index = completed
+        if failed_index is not None:
+            self._db.restore_emails(pending["originals"][failed_index:])
+            self._clear_move_tombstones(pending, failed_index)
+        self._reload_folders()
+        self._refresh_conversations()
+        if result.error is not None:
+            self._toast(_("Move failed: {msg}").format(msg=result.error))
+        return False
 
     def _on_move_failed(self, pending: dict, message: str) -> bool:
         self._restore_move(pending)
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 
-    # A menu of every folder except the current one, each targeting win.move.
-    def _build_move_menu(self) -> Gio.Menu:
+    def _rebuild_move_menu(self) -> None:
+        self.move_button.set_menu_model(self._build_move_menu())
+
+    # A menu of every folder except the current one, each targeting the given
+    # action prefix (the toolbar uses win.move and context menus use context.move).
+    def _build_move_menu(self, action_prefix: str = "win") -> Gio.Menu:
         menu = Gio.Menu()
         current_id = self._current_folder.id if self._current_folder else None
         for folder in self._db.folders_for_account(self._account_id):
@@ -645,12 +824,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
             item = Gio.MenuItem.new(label, None)
             item.set_action_and_target_value(
-                "win.move", GLib.Variant.new_string(folder.name)
+                f"{action_prefix}.move", GLib.Variant.new_string(folder.name)
             )
             menu.append_item(item)
         return menu
 
-    # Select the right-clicked row, then pop up its actions menu.
+    # Select an unselected right-clicked row, then pop up its actions menu.
     def _on_row_right_click(
         self,
         gesture: Gtk.GestureClick,
@@ -662,38 +841,76 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         position = item.get_position()
         if position == Gtk.INVALID_LIST_POSITION:
             return
-        self._selection.set_selected(position)
 
-        conversation = self._selection.get_selected_item()
+        if not self._selection.is_selected(position):
+            self._selection_update_in_progress = True
+            try:
+                self._selection.unselect_all()
+                self._selection.select_item(position, True)
+            finally:
+                self._selection_update_in_progress = False
+            self._update_reader()
+
+        conversation = self._conversation_store.get_item(position)
         if not isinstance(conversation, Conversation):
             return
 
-        row = gesture.get_widget()
-        assert row is not None
-        popover = Gtk.PopoverMenu.new_from_model(self._context_menu(conversation))
-        popover.set_parent(row)
+        popover = Gtk.PopoverMenu()
+        popover.insert_action_group("context", self._context_actions(conversation))
+        popover.set_parent(gesture.get_widget())
+        popover.set_menu_model(self._context_menu(conversation))
         popover.set_has_arrow(False)
-        popover.connect("closed", lambda p: p.unparent())
+        # GtkModelButton activates its action after closing the popover, so keep
+        # the action hierarchy alive until activation has finished.
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
 
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
         popover.set_pointing_to(rect)
         popover.popup()
 
+    def _context_actions(self, _conversation: Conversation) -> Gio.SimpleActionGroup:
+        """Create actions for the current selection and its context menu row."""
+        actions = Gio.SimpleActionGroup()
+
+        toggle_read = Gio.SimpleAction.new("toggle-read", None)
+        toggle_read.connect("activate", self._on_toggle_read)
+        actions.add_action(toggle_read)
+
+        toggle_star = Gio.SimpleAction.new("toggle-star", None)
+        toggle_star.connect("activate", self._on_toggle_star)
+        actions.add_action(toggle_star)
+
+        archive = Gio.SimpleAction.new("archive", None)
+        archive.connect("activate", self._on_archive)
+        actions.add_action(archive)
+
+        trash = Gio.SimpleAction.new("trash", None)
+        trash.connect("activate", self._on_trash)
+        actions.add_action(trash)
+
+        move = Gio.SimpleAction.new("move", GLib.VariantType.new("s"))
+        move.connect("activate", self._on_move)
+        actions.add_action(move)
+
+        return actions
+
     def _context_menu(self, conversation: Conversation) -> Gio.Menu:
         menu = Gio.Menu()
 
+        selected = self._selected_conversations() or [conversation]
+
         flags = Gio.Menu()
-        read = _("Mark Unread") if not conversation.unread else _("Mark Read")
-        star = _("Unstar") if conversation.starred else _("Star")
-        flags.append(read, "win.toggle-read")
-        flags.append(star, "win.toggle-star")
+        read = _("Mark Read") if any(c.unread for c in selected) else _("Mark Unread")
+        star = _("Unstar") if any(c.starred for c in selected) else _("Star")
+        flags.append(read, "context.toggle-read")
+        flags.append(star, "context.toggle-star")
         menu.append_section(None, flags)
 
         actions = Gio.Menu()
-        actions.append(_("Archive"), "win.archive")
-        actions.append(_("Delete"), "win.trash")
-        actions.append_submenu(_("Move to"), self._build_move_menu())
+        actions.append(_("Archive"), "context.archive")
+        actions.append(_("Delete"), "context.trash")
+        actions.append_submenu(_("Move to"), self._build_move_menu("context"))
         menu.append_section(None, actions)
 
         return menu
@@ -831,10 +1048,28 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             # drops out on the next refresh when you move to another.
             matches = [c for c in matches if c.unread or c.id == keep_id]
 
-        # Update the existing store's contents rather than swapping in a new
-        # one, so the ListView keeps its scroll position.
+        # Clear the selection before updating the existing store. MultiSelection
+        # tracks positions, while keep_id tracks the conversation itself. Hold
+        # the reader update until the store and reselection are both complete.
         store = self._conversation_store
-        store.splice(0, store.get_n_items(), matches)
+        target = -1
+        if keep_id is not None:
+            for index, conversation in enumerate(matches):
+                if conversation.id == keep_id:
+                    target = index
+                    break
+
+        self._selection_update_in_progress = True
+        try:
+            self._selection.unselect_all()
+            store.splice(0, store.get_n_items(), matches)
+
+            if target >= 0:
+                self._selection.select_item(target, True)
+            else:
+                self._selection.unselect_all()
+        finally:
+            self._selection_update_in_progress = False
 
         if store.get_n_items() > 0:
             self.conversation_stack.set_visible_child_name("list")
@@ -843,19 +1078,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self.conversation_stack.set_visible_child_name("empty")
 
-        target = -1
-        if keep_id is not None:
-            for index in range(store.get_n_items()):
-                item = store.get_item(index)
-                if isinstance(item, Conversation) and item.id == keep_id:
-                    target = index
-                    break
-
-        if target >= 0:
-            self._selection.set_selected(target)
-        else:
-            self._selection.unselect_all()
-            self._update_reader()
+        self._update_reader()
 
         if vadj is not None and scroll_pos > 0:
             GLib.idle_add(
@@ -890,11 +1113,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._refresh_conversations()
 
     # Potentially thousands of rows, so this uses the scalable GTK4 pattern: a
-    # GListStore of data, a SingleSelection wrapper, and a factory that recycles
+    # GListStore of data, a MultiSelection wrapper, and a factory that recycles
     # a handful of ConversationRow widgets as you scroll.
     def _setup_conversation_list(self) -> None:
-        self._selection.set_autoselect(False)
-        self._selection.set_can_unselect(True)
         self._selection.connect("selection-changed", self._on_selection_changed)
 
         self.conversation_list.set_model(self._selection)
@@ -924,24 +1145,36 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # (position, n_items) come from the signal; we just re-read the current
     # selection, so the parameters are ignored.
     def _on_selection_changed(
-        self, _selection: Gtk.SingleSelection, _position: int, _n_items: int
+        self, _selection: Gtk.MultiSelection, _position: int, _n_items: int
     ) -> None:
+        if self._selection_update_in_progress:
+            return
         self._update_reader()
 
     def _update_reader(self) -> None:
-        conversation = self._selection.get_selected_item()
-        if not isinstance(conversation, Conversation):
+        selected = self._selected_conversations()
+        if len(selected) != 1:
             self._rendered_id = None
+            self._active_view = None
             self.reply_button.set_sensitive(False)
             self.forward_button.set_sensitive(False)
-            self._set_mail_actions_enabled(False)
+            self._set_reply_forward_enabled(False)
+            self._set_mail_actions_enabled(bool(selected))
+            if selected:
+                self._update_action_buttons(selected)
             self.reader_stack.set_visible_child_name("empty")
             return
 
-        self._update_action_buttons(conversation)
+        conversation = selected[0]
+        self._update_action_buttons(selected)
+        self._set_reply_forward_enabled(False)
 
         # Already showing this thread (e.g. after a flag change) — don't rebuild.
         if conversation.id == self._rendered_id:
+            ready = self._active_view is not None and self._active_view.raw is not None
+            self.reply_button.set_sensitive(ready)
+            self.forward_button.set_sensitive(ready)
+            self._set_reply_forward_enabled(ready)
             self.reader_stack.set_visible_child_name("message")
             return
 
@@ -954,17 +1187,23 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._mark_conversation_read(conversation)
 
     # Reflect the selected conversation's state on the action buttons.
-    def _update_action_buttons(self, conversation: Conversation) -> None:
+    def _update_action_buttons(
+        self, conversations: Conversation | list[Conversation]
+    ) -> None:
+        if isinstance(conversations, Conversation):
+            selected = [conversations]
+        else:
+            selected = conversations
         self._set_mail_actions_enabled(True)
 
-        if conversation.unread:
+        if any(conversation.unread for conversation in selected):
             self.mark_read_button.set_icon_name("mail-read-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Read"))
         else:
             self.mark_read_button.set_icon_name("mail-unread-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Unread"))
 
-        if conversation.starred:
+        if any(conversation.starred for conversation in selected):
             self.star_button.set_icon_name("starred-symbolic")
             self.star_button.set_tooltip_text(_("Unstar"))
         else:
@@ -1000,9 +1239,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.reader_stack.set_visible_child_name("message")
 
     def _on_newest_rendered(self, _view: MessageView) -> None:
+        if len(self._selected_conversations()) != 1:
+            return
         self._active_view = _view
         self.reply_button.set_sensitive(True)
         self.forward_button.set_sensitive(True)
+        self._set_reply_forward_enabled(True)
 
     # Fetch one message's raw bytes for a MessageView: serve the cached copy if
     # we have it, else pull it over IMAP on a worker thread. (Marking read is
@@ -1264,8 +1506,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # Back on the main thread: safe to touch the database and widgets.
     def _on_sync_done(self, result: mail_sync.SyncResult) -> bool:
         # Remember the open conversation so a background poll doesn't yank it.
-        selected = self._selection.get_selected_item()
-        keep_id = selected.id if isinstance(selected, Conversation) else None
+        selected = self._selected_conversation()
+        keep_id = selected.id if selected is not None else None
 
         mailboxes = [
             m for m in result.folders if m.name not in mail_sync.NAMESPACE_ROOTS
@@ -1297,6 +1539,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
+            if (target.id, message.uid) in self._move_tombstones:
+                continue
             added = self._db.save_incoming_email(
                 folder_id=target.id,
                 server_id=message.uid,
@@ -1313,6 +1557,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
             if added and message.unread:
                 new_messages.append(message)
+        if result.all_uids is not None:
+            self._db.prune_stale_emails(target.id, result.all_uids)
+            # Do this after filtering the fetched headers: an older snapshot
+            # can still contain a UID that the authoritative set says has
+            # already left the source folder.
+            self._confirm_move_tombstones(target.id, result.all_uids)
         self._db.reassign_conversations(target.id)
 
         # From every fetched header, not just the newly added ones, so an

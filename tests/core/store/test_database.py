@@ -165,6 +165,18 @@ def test_prune_stale_emails_keeps_active_and_uid_less_rows(
     )
 
 
+def test_prune_stale_emails_accepts_an_authoritative_set_over_sqlite_variable_limit(
+    db, folder
+):
+    incoming(db, folder.id, "active", subject="Active")
+    incoming(db, folder.id, "stale", subject="Stale")
+    active_server_uids = {f"uid-{uid}" for uid in range(250_000)} | {"active"}
+
+    assert db.prune_stale_emails(folder.id, active_server_uids) == 1
+
+    assert [mail.server_id for mail in db.emails_in_folder(folder.id)] == ["active"]
+
+
 def test_read_and_unread(db, folder):
     incoming(db, folder.id, "1", unread=True)
     (email,) = db.emails_in_folder(folder.id)

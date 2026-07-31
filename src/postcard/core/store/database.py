@@ -313,25 +313,31 @@ class Database:
 
     def prune_stale_emails(self, folder_id: int, active_server_uids: set[str]) -> int:
         """Remove server-backed emails no longer present in the authoritative set."""
-        params: list[int | str] = [folder_id]
-        active_clause = ""
-        if active_server_uids:
-            placeholders = ", ".join("?" for _ in active_server_uids)
-            active_clause = f" AND server_id NOT IN ({placeholders})"
-            params.extend(active_server_uids)
-
         with self._conn:
-            cursor = self._conn.execute(
-                """
-                DELETE FROM emails
-                WHERE folder_id = ?
-                  AND server_id IS NOT NULL
-                  AND server_id != ''
-                """
-                + active_clause,
-                params,
+            self._conn.execute(
+                "CREATE TEMP TABLE prune_active_uids (uid TEXT PRIMARY KEY)"
             )
-            return cursor.rowcount
+            try:
+                self._conn.executemany(
+                    "INSERT INTO prune_active_uids (uid) VALUES (?)",
+                    ((uid,) for uid in active_server_uids),
+                )
+                cursor = self._conn.execute(
+                    """
+                    DELETE FROM emails
+                    WHERE folder_id = ?
+                      AND server_id IS NOT NULL
+                      AND server_id != ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM prune_active_uids
+                          WHERE prune_active_uids.uid = emails.server_id
+                      )
+                    """,
+                    (folder_id,),
+                )
+                return cursor.rowcount
+            finally:
+                self._conn.execute("DROP TABLE prune_active_uids")
 
     def reassign_conversations(self, folder_id: int) -> None:
         """Recompute the thread grouping for a folder and store it on each row."""

@@ -13,7 +13,7 @@ import urllib.request
 from gi.repository import GdkPixbuf, GLib
 
 # Shared mail hosts: a favicon here would give every sender the same logo.
-FREEMAIL = frozenset(
+FREEMAIL_DOMAINS = frozenset(
     {
         "aol.com",
         "gmail.com",
@@ -49,7 +49,7 @@ def gravatar(address: str) -> GdkPixbuf.Pixbuf | None:
 
 def favicon_urls(address: str) -> list[str]:
     domain = address.rpartition("@")[2]
-    if "." not in domain or domain in FREEMAIL:
+    if "." not in domain or domain in FREEMAIL_DOMAINS:
         return []
     return [
         f"https://icons.duckduckgo.com/ip3/{domain}.ico",

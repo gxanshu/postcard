@@ -2,8 +2,21 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gio, Gtk
 
-# The sync-interval combo maps its row index to a minute value. 0 = manual.
-INTERVAL_MINUTES = [0, 5, 15, 30, 60]
+from .window_types import SETTING_SYNC_INTERVAL
+
+# The sync-interval combo, in row order: the minute value stored in GSettings
+# and the label shown for it. One list rather than two index-aligned ones, so a
+# label can't drift from the value it describes. 0 = manual only.
+SYNC_INTERVALS: tuple[tuple[int, str], ...] = (
+    (0, _("Manually")),
+    (5, _("Every 5 minutes")),
+    (15, _("Every 15 minutes")),
+    (30, _("Every 30 minutes")),
+    (60, _("Every hour")),
+)
+
+# Used when the stored value isn't one of the offered intervals.
+DEFAULT_SYNC_INTERVAL_MINUTES = 15
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/preferences-dialog.ui")
@@ -36,29 +49,27 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
         )
 
         self.interval_row.set_model(
-            Gtk.StringList.new(
-                [
-                    _("Manually"),
-                    _("Every 5 minutes"),
-                    _("Every 15 minutes"),
-                    _("Every 30 minutes"),
-                    _("Every hour"),
-                ]
-            )
+            Gtk.StringList.new([label for _minutes, label in SYNC_INTERVALS])
         )
-        minutes = settings.get_int("sync-interval-minutes")
-        index = INTERVAL_MINUTES.index(minutes) if minutes in INTERVAL_MINUTES else 2
-        self.interval_row.set_selected(index)
+        self.interval_row.set_selected(
+            self._interval_index(settings.get_int(SETTING_SYNC_INTERVAL))
+        )
         self.interval_row.connect("notify::selected", self._on_interval_changed)
 
         buffer = self.signature_view.get_buffer()
         buffer.set_text(settings.get_string("signature-text"))
         buffer.connect("changed", self._on_signature_changed)
 
+    @staticmethod
+    def _interval_index(minutes: int) -> int:
+        """The combo row for a stored interval, falling back to the default."""
+        offered = [value for value, _label in SYNC_INTERVALS]
+        wanted = minutes if minutes in offered else DEFAULT_SYNC_INTERVAL_MINUTES
+        return offered.index(wanted)
+
     def _on_interval_changed(self, row: Adw.ComboRow, _param: object) -> None:
-        self._settings.set_int(
-            "sync-interval-minutes", INTERVAL_MINUTES[row.get_selected()]
-        )
+        minutes, _label = SYNC_INTERVALS[row.get_selected()]
+        self._settings.set_int(SETTING_SYNC_INTERVAL, minutes)
 
     def _on_signature_changed(self, buffer: Gtk.TextBuffer) -> None:
         start, end = buffer.get_bounds()

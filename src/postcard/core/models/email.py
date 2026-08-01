@@ -13,6 +13,7 @@ class Email(GObject.Object):
 
     def __init__(
         self,
+        *,
         id: int,
         folder_id: int,
         # None until a sync assigns a UID -- a Sent copy saved locally right
@@ -22,8 +23,8 @@ class Email(GObject.Object):
         subject: str,
         preview: str,
         date: str,
-        unread: bool,
-        starred: bool = False,
+        is_unread: bool,
+        is_starred: bool = False,
         message_id: str = "",
         in_reply_to: str = "",
         references: str = "",
@@ -39,8 +40,8 @@ class Email(GObject.Object):
         self.subject: str = subject
         self.preview: str = preview
         self.date: str = date
-        self.unread: bool = unread
-        self.starred: bool = starred
+        self.is_unread: bool = is_unread
+        self.is_starred: bool = is_starred
         self.message_id: str = message_id
         self.in_reply_to: str = in_reply_to
         self.references: str = references

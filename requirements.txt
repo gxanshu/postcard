@@ -2,3 +2,6 @@
 ruff
 pytest
 pyright
+# Type stubs for gi.repository. Without these, pyright reports every `gi`
+# import as unresolved (23 errors) and real findings drown in the noise.
+PyGObject-stubs

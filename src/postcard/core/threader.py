@@ -4,22 +4,30 @@ from .models.email import Email
 
 _REPLY_PREFIX = re.compile(r"^\s*(re|fwd|fw)\s*:\s*", re.IGNORECASE)
 
+# Stored, never translated. _normalize_subject blanks it so that unrelated
+# subject-less messages don't all thread into one conversation -- which means
+# whatever writes it has to use this exact string. Translating it at the point
+# of storage would defeat the check for every non-English locale.
+NO_SUBJECT = "(no subject)"
+
 
 def group(emails: list[Email]) -> dict[int, int]:
     """Map each email id to a stable conversation id (the smallest id in its
     group). Links by Message-ID / In-Reply-To / References, with a same-subject
     fallback."""
-    parent: dict[str, str] = {}
+    # Union-find over message tokens: each token points at another token in its
+    # set, and the set's representative points at itself.
+    parents: dict[str, str] = {}
 
     def find(token: str) -> str:
-        parent.setdefault(token, token)
-        while parent[token] != token:
-            parent[token] = parent[parent[token]]
-            token = parent[token]
+        parents.setdefault(token, token)
+        while parents[token] != token:
+            parents[token] = parents[parents[token]]  # path halving
+            token = parents[token]
         return token
 
-    def union(a: str, b: str) -> None:
-        parent[find(a)] = find(b)
+    def union(left: str, right: str) -> None:
+        parents[find(left)] = find(right)
 
     # Every email gets a token: its Message-ID, or a synthetic one so a message
     # with no Message-ID still stands on its own.
@@ -59,7 +67,7 @@ def group(emails: list[Email]) -> dict[int, int]:
 
 def _normalize_subject(subject: str) -> str:
     text = subject.strip()
-    if text.lower() == "(no subject)":
+    if text.lower() == NO_SUBJECT:
         return ""
     while True:
         stripped = _REPLY_PREFIX.sub("", text)

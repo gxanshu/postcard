@@ -1,6 +1,7 @@
 from gi.repository import Adw, GObject, Gtk
 
 from .core import secrets
+from .core.models.account import SECURITY_OPTIONS, parse_port
 from .core.store.database import Database
 
 
@@ -37,6 +38,8 @@ class PostcardAccountDialog(Adw.Dialog):
             self.password_row,
             self.imap_host_row,
             self.smtp_host_row,
+            self.imap_port_row,
+            self.smtp_port_row,
         ):
             row.connect("changed", self._update_add_sensitivity)
 
@@ -48,20 +51,36 @@ class PostcardAccountDialog(Adw.Dialog):
             self.imap_host_row.get_text(),
             self.smtp_host_row.get_text(),
         )
+        # The ports are validated too, not just non-empty: _on_add_clicked has
+        # to parse them, and a blank or non-numeric entry used to raise
+        # ValueError inside the clicked handler, where PyGObject swallows it to
+        # stderr and Add just appears to do nothing.
+        ports_are_valid = (
+            parse_port(self.imap_port_row.get_text()) is not None
+            and parse_port(self.smtp_port_row.get_text()) is not None
+        )
 
-        self.add_button.set_sensitive(all(field.strip() for field in required))
+        self.add_button.set_sensitive(
+            ports_are_valid and all(field.strip() for field in required)
+        )
 
     def _on_add_clicked(self, _button: Gtk.Button) -> None:
-        _sec_options = ["tls", "starttls"]
+        imap_port = parse_port(self.imap_port_row.get_text())
+        smtp_port = parse_port(self.smtp_port_row.get_text())
+        if imap_port is None or smtp_port is None:
+            # _update_add_sensitivity keeps Add insensitive in this state, so
+            # this is belt-and-braces against a programmatic activation.
+            return
+
         account = self._db.save_account(
             email=self.email_row.get_text().strip(),
             display_name=self.display_name_row.get_text().strip(),
             imap_host=self.imap_host_row.get_text().strip(),
-            imap_port=int(self.imap_port_row.get_text().strip()),
-            imap_security=_sec_options[self.imap_security_row.get_selected()],
+            imap_port=imap_port,
+            imap_security=SECURITY_OPTIONS[self.imap_security_row.get_selected()],
             smtp_host=self.smtp_host_row.get_text().strip(),
-            smtp_port=int(self.smtp_port_row.get_text().strip()),
-            smtp_security=_sec_options[self.smtp_security_row.get_selected()],
+            smtp_port=smtp_port,
+            smtp_security=SECURITY_OPTIONS[self.smtp_security_row.get_selected()],
         )
 
         secrets.store_password(account.id, self.password_row.get_text())

@@ -1,6 +1,7 @@
 import pytest
 
 from postcard.core.models.email import Email
+from postcard.core.models.message_header import MessageHeader
 from postcard.core.store.database import Database, _arrival_key, _fts_query
 
 
@@ -20,12 +21,28 @@ def folder(db):
     return db.get_or_create_folder(account.id, "INBOX")
 
 
+def _email(*, server_id: str | None) -> Email:
+    """A bare Email, for the pure helpers that only read one field off it."""
+    return Email(
+        id=1,
+        folder_id=1,
+        server_id=server_id,
+        sender="a@x",
+        subject="s",
+        preview="",
+        date="",
+        is_unread=False,
+    )
+
+
 def incoming(db, folder_id, uid, subject="Lunch", **kwargs):
     kwargs.setdefault("sender", "Ada <ada@example.com>")
+    kwargs.setdefault("sender_address", "")
     kwargs.setdefault("preview", "see you at one")
     kwargs.setdefault("date", "Jul 16")
-    kwargs.setdefault("unread", True)
-    return db.save_incoming_email(folder_id, uid, subject=subject, **kwargs)
+    kwargs.setdefault("is_unread", True)
+    header = MessageHeader(uid=uid, subject=subject, **kwargs)
+    return db.save_incoming_email(folder_id, header)
 
 
 # --- accounts ---------------------------------------------------------------
@@ -177,8 +194,22 @@ def test_prune_stale_emails_accepts_an_authoritative_set_over_sqlite_variable_li
     assert [mail.server_id for mail in db.emails_in_folder(folder.id)] == ["active"]
 
 
+def test_the_python_flags_map_onto_the_original_column_names(db, folder):
+    # The Email/MessageHeader fields are is_unread/is_starred but the columns
+    # are still `unread`/`starred`, so _email_from_row bridges the two. A rename
+    # leaking into the SQL would only show up at runtime.
+    incoming(db, folder.id, "1", is_unread=True, is_starred=True)
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.is_unread, mail.is_starred) == (True, True)
+
+    columns = {row[1] for row in db._conn.execute("PRAGMA table_info(emails)")}
+    assert {"unread", "starred"} <= columns
+    assert not {"is_unread", "is_starred"} & columns
+
+
 def test_read_and_unread(db, folder):
-    incoming(db, folder.id, "1", unread=True)
+    incoming(db, folder.id, "1", is_unread=True)
     (email,) = db.emails_in_folder(folder.id)
     assert db.unread_count_in_folder(folder.id) == 1
 
@@ -192,10 +223,10 @@ def test_read_and_unread(db, folder):
 def test_starring(db, folder):
     incoming(db, folder.id, "1")
     (email,) = db.emails_in_folder(folder.id)
-    assert email.starred is False
+    assert email.is_starred is False
 
     db.set_email_starred(email.id, True)
-    assert db.emails_in_folder(folder.id)[0].starred is True
+    assert db.emails_in_folder(folder.id)[0].is_starred is True
 
 
 def test_moving_an_email_between_folders(db, folder):
@@ -229,14 +260,14 @@ def test_raw_message_round_trip(db, folder):
 
 
 def test_arrival_key_uses_the_imap_uid():
-    assert _arrival_key(Email(1, 1, "42", "a@x", "s", "", "", False)) == 42
+    assert _arrival_key(_email(server_id="42")) == 42
 
 
 def test_arrival_key_sorts_uid_less_messages_newest():
     # A Sent copy saved locally has no UID until the next sync confirms it.
     newest = 2**31 - 1
-    assert _arrival_key(Email(1, 1, None, "a@x", "s", "", "", False)) == newest
-    assert _arrival_key(Email(1, 1, "", "a@x", "s", "", "", False)) == newest
+    assert _arrival_key(_email(server_id=None)) == newest
+    assert _arrival_key(_email(server_id="")) == newest
 
 
 def test_conversations_are_newest_first_by_uid_not_by_local_id(db, folder):

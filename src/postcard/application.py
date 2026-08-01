@@ -46,7 +46,7 @@ class PostcardApplication(Adw.Application):
         self.version = version
         self.db = Database()
         self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
-        self._start_hidden = False
+        self._should_start_hidden = False
 
         # For autostart: build the window (so the sync timer runs) but skip
         # presenting it. See the autostart .desktop file in the README.
@@ -80,16 +80,16 @@ class PostcardApplication(Adw.Application):
         self._load_css()
 
     def do_handle_local_options(self, options: GLib.VariantDict) -> int:
-        self._start_hidden = options.contains("hidden")
+        self._should_start_hidden = options.contains("hidden")
         return Adw.Application.do_handle_local_options(self, options)
 
     def do_activate(self) -> None:
         win = self.props.active_window or PostcardMainWindow(
             self, self.db, self.settings
         )
-        if self._start_hidden:
+        if self._should_start_hidden:
             # Only the launch activation stays hidden; later ones raise it.
-            self._start_hidden = False
+            self._should_start_hidden = False
             return
         win.present()
 
@@ -121,7 +121,7 @@ class PostcardApplication(Adw.Application):
         "Anshu Meena https://github.com/gxanshu",
     ]
 
-    def on_about_action(self, *args: object) -> None:
+    def on_about_action(self, *_args: object) -> None:
         about = Adw.AboutDialog.new_from_appdata(
             "/in/gxanshu/postcard/metainfo.xml", self.version
         )
@@ -130,7 +130,7 @@ class PostcardApplication(Adw.Application):
         about.set_copyright("© 2026 Anshu")
         about.present(self.props.active_window)
 
-    def on_preferences_action(self, *args: object) -> None:
+    def on_preferences_action(self, *_args: object) -> None:
         dialog = PostcardPreferencesDialog(self.settings)
         dialog.present(self.props.active_window)
 
@@ -141,10 +141,10 @@ class PostcardApplication(Adw.Application):
             folder_id, uid = param.unpack()
             win.open_email(folder_id, uid)
 
-    def on_new_window_action(self, *args: object) -> None:
+    def on_new_window_action(self, *_args: object) -> None:
         PostcardMainWindow(self, self.db, self.settings).present()
 
-    def on_shortcuts_action(self, *args: object) -> None:
+    def on_shortcuts_action(self, *_args: object) -> None:
         builder = Gtk.Builder.new_from_resource(
             "/in/gxanshu/postcard/ui/shortcuts-dialog.ui"
         )

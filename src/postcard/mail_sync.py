@@ -1,10 +1,22 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
+from enum import StrEnum
 
 from .core.models.account import Account
 from .core.models.conversation import Conversation
-from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
+
+# Re-exported: callers reach MessageHeader through mail_sync, which is where it
+# is built. It lives in core.models so core.store can accept one directly.
+from .core.models.message_header import MessageHeader
+from .core.net.imap_session import (
+    FetchedHeader,
+    ImapSession,
+    MailboxInfo,
+    decode_mailbox_name,
+)
 from .core.net.smtp_session import SmtpSession
+from .core.threader import NO_SUBJECT
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
@@ -14,28 +26,40 @@ RECENT_LIMIT = 50
 NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
 
 
-@dataclass
-class MessageHeader:
-    uid: str
-    sender: str
-    sender_address: str
-    subject: str
-    date: str
-    unread: bool
-    starred: bool = False
-    preview: str = ""
-    message_id: str = ""
-    in_reply_to: str = ""
-    references: str = ""
-    # every (name, address) pair on the message, for the contacts list
-    addresses: list[tuple[str, str]] = field(default_factory=list)
+class FolderRole(StrEnum):
+    """What a mailbox is for, inferred from its name by role_for_folder.
+
+    A StrEnum so it compares and persists as the plain lowercase string it
+    always was -- the database column and the icon table are unchanged.
+    """
+
+    INBOX = "inbox"
+    SENT = "sent"
+    DRAFTS = "drafts"
+    TRASH = "trash"
+    JUNK = "junk"
+    ARCHIVE = "archive"
+    STARRED = "starred"
+    OTHER = "other"
+
+
+# The canonical IMAP inbox name. Servers vary the casing, so this is the
+# fallback rather than something to compare against -- see inbox_name.
+INBOX_MAILBOX = "INBOX"
+
+# Folders Postcard maintains itself rather than mirroring from the server.
+# Outbox is local-only (prune_folders keeps it); Sent and Drafts are created on
+# demand when the server has no folder of that role.
+OUTBOX_FOLDER = "Outbox"
+SENT_FOLDER = "Sent"
+DRAFTS_FOLDER = "Drafts"
 
 
 @dataclass
 class SyncResult:
     folders: list[MailboxInfo] = field(default_factory=list)
     messages: list[MessageHeader] = field(default_factory=list)
-    folder: str = "INBOX"
+    folder: str = INBOX_MAILBOX
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
     all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
@@ -55,9 +79,9 @@ def inbox_name(folders: list[str]) -> str:
     casing (Yahoo lists it as "Inbox"), so match by role and fall back to the
     canonical name."""
     for name in folders:
-        if role_for_folder(name) == "inbox":
+        if role_for_folder(name) == FolderRole.INBOX:
             return name
-    return "INBOX"
+    return INBOX_MAILBOX
 
 
 def fetch_mailbox(
@@ -86,22 +110,7 @@ def fetch_mailbox(
     finally:
         session.logout()
 
-    messages = [
-        MessageHeader(
-            uid=item["uid"],
-            sender=_clean_sender(item["from"]),
-            sender_address=_sender_address(item["from"]),
-            subject=item["subject"] or "(no subject)",
-            date=_format_date(item["date"]),
-            unread=not item["seen"],
-            starred=item["flagged"],
-            message_id=item["message_id"],
-            in_reply_to=item["in_reply_to"],
-            references=item["references"],
-            addresses=getaddresses([item["from"], item["to"], item["cc"]]),
-        )
-        for item in raw
-    ]
+    messages = [_to_message_header(fetched) for fetched in raw]
 
     return SyncResult(
         folders=mailboxes,
@@ -110,6 +119,30 @@ def fetch_mailbox(
         exists=exists,
         offset=offset,
         all_uids=all_uids,
+    )
+
+
+def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
+    """Turn raw wire headers into the display-ready form.
+
+    This is where the two shapes differ: the sender becomes a display name,
+    the date is shortened, and the server's \\Seen flag is inverted into
+    `is_unread`, which is how the rest of the app thinks about it.
+    """
+    return MessageHeader(
+        uid=fetched.uid,
+        sender=_clean_sender(fetched.from_header),
+        sender_address=_sender_address(fetched.from_header),
+        subject=fetched.subject or NO_SUBJECT,
+        date=_format_date(fetched.date),
+        is_unread=not fetched.seen,
+        is_starred=fetched.flagged,
+        message_id=fetched.message_id,
+        in_reply_to=fetched.in_reply_to,
+        references=fetched.references,
+        addresses=getaddresses(
+            [fetched.from_header, fetched.to_header, fetched.cc_header]
+        ),
     )
 
 
@@ -143,18 +176,18 @@ def set_flag(
     account: Account,
     password: str,
     folder_name: str,
-    uids: list[str],
+    uids: Sequence[str],
     flag: str,
-    add: bool,
+    should_add: bool,
 ) -> None:
     """Add or remove an IMAP flag on every message in a conversation."""
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.login(account.email, password)
-        session.select(folder_name, readonly=False)
+        session.select(folder_name, is_readonly=False)
         for uid in uids:
-            session.store_flags(uid, flag, add)
+            session.store_flags(uid, flag, should_add)
     finally:
         session.logout()
 
@@ -171,7 +204,7 @@ def move_messages(
     session.connect()
     try:
         session.login(account.email, password)
-        session.select(folder_name, readonly=False)
+        session.select(folder_name, is_readonly=False)
         destination_uids = []
         for index, uid in enumerate(uids):
             try:
@@ -197,24 +230,30 @@ def send_message(
         session.quit()
 
 
-def role_for_folder(name: str) -> str:
-    """Classify a mailbox by name: inbox/sent/drafts/trash/junk/archive/other."""
-    lname = name.lower()
-    if lname == "inbox":
-        return "inbox"
-    if "sent" in lname:
-        return "sent"
-    if "draft" in lname:
-        return "drafts"
-    if "trash" in lname or "deleted" in lname:
-        return "trash"
-    if "junk" in lname or "spam" in lname:
-        return "junk"
-    if "archive" in lname or "all mail" in lname:
-        return "archive"
-    if "star" in lname or "flagged" in lname:
-        return "starred"
-    return "other"
+def role_for_folder(name: str) -> FolderRole:  # noqa: PLR0911
+    """Classify a mailbox by name.
+
+    Matched by substring and tolerant of casing, because servers name these
+    differently ("Deleted Items", "[Gmail]/All Mail", "Bulk Mail").
+
+    noqa PLR0911: a dispatch table — one return per role is the point.
+    """
+    lowered = name.lower()
+    if lowered == FolderRole.INBOX:
+        return FolderRole.INBOX
+    if "sent" in lowered:
+        return FolderRole.SENT
+    if "draft" in lowered:
+        return FolderRole.DRAFTS
+    if "trash" in lowered or "deleted" in lowered:
+        return FolderRole.TRASH
+    if "junk" in lowered or "spam" in lowered:
+        return FolderRole.JUNK
+    if "archive" in lowered or "all mail" in lowered:
+        return FolderRole.ARCHIVE
+    if "star" in lowered or "flagged" in lowered:
+        return FolderRole.STARRED
+    return FolderRole.OTHER
 
 
 def parent_mailbox_name(name: str, delimiter: str) -> str:
@@ -241,12 +280,12 @@ def icon_for_folder(name: str) -> str:
     mail-inbox/sent/drafts-symbolic are *not* in it and render as broken images.
     """
     return {
-        "inbox": "mail-unread-symbolic",
-        "sent": "mail-send-symbolic",
-        "drafts": "document-edit-symbolic",
-        "trash": "user-trash-symbolic",
-        "junk": "mail-mark-junk-symbolic",
-        "starred": "starred-symbolic",
+        FolderRole.INBOX: "mail-unread-symbolic",
+        FolderRole.SENT: "mail-send-symbolic",
+        FolderRole.DRAFTS: "document-edit-symbolic",
+        FolderRole.TRASH: "user-trash-symbolic",
+        FolderRole.JUNK: "mail-mark-junk-symbolic",
+        FolderRole.STARRED: "starred-symbolic",
     }.get(role_for_folder(name), "folder-symbolic")
 
 

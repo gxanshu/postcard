@@ -34,7 +34,7 @@ def parse_message(raw: bytes) -> ParsedMessage:
 
     for part in msg.walk():
         if part.is_multipart():
-            continue  # a contianer part -- its children are visited on their own
+            continue  # a container part -- its children are visited on their own
 
         content_type = part.get_content_type()
         disposition = part.get_content_disposition()
@@ -47,7 +47,7 @@ def parse_message(raw: bytes) -> ParsedMessage:
             result.html_body = part.get_content()
         else:
             # anything else (an inline image, unrecognised type) -- treat
-            # if as an attachment rather then silently dropping it
+            # if as an attachment rather than silently dropping it
             result.attachments.append(_as_attachment(part))
 
     return result

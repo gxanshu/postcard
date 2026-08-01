@@ -73,13 +73,15 @@ class ConversationRow(Gtk.Box):
         self._avatar.set_text(conversation.latest.sender)
         self._load_avatar(conversation.latest.sender_address)
         self._sender_label.set_label(conversation.participants)
-        self._star.set_visible(conversation.starred)
+        self._star.set_visible(conversation.is_starred)
         self._date_label.set_label(conversation.date)
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)
-        self._unread_dot.set_visible(conversation.unread)
+        self._unread_dot.set_visible(conversation.is_unread)
 
-        if conversation.unread:
+        # CSS class names, not Python identifiers: they have to match the
+        # selectors in style.css, which the is_ prefix does not apply to.
+        if conversation.is_unread:
             self.add_css_class("unread")
         else:
             self.remove_css_class("unread")

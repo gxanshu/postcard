@@ -2,12 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib
 
 from .core import avatars
+
+logger = logging.getLogger(__name__)
 
 MAX_WORKERS = 4
 
@@ -28,7 +31,7 @@ class AvatarLoader:
             max_workers=MAX_WORKERS, thread_name_prefix="avatar"
         )
         self._cache: dict[str, Gdk.Texture | None] = {}
-        self._waiting: dict[str, list[Callable[[Gdk.Texture], None]]] = {}
+        self._waiting_callbacks: dict[str, list[Callable[[Gdk.Texture], None]]] = {}
 
     def load(self, address: str, on_ready: Callable[[Gdk.Texture], None]) -> None:
         address = address.strip().lower()
@@ -39,10 +42,10 @@ class AvatarLoader:
             texture = self._cache[address]
             if texture:
                 on_ready(texture)
-        elif address in self._waiting:
-            self._waiting[address].append(on_ready)
+        elif address in self._waiting_callbacks:
+            self._waiting_callbacks[address].append(on_ready)
         else:
-            self._waiting[address] = [on_ready]
+            self._waiting_callbacks[address] = [on_ready]
             self._pool.submit(self._worker, address)
 
     def shutdown(self) -> None:
@@ -52,7 +55,11 @@ class AvatarLoader:
         try:
             image = avatars.fetch(address)
         except Exception:
-            # Never leave the address stuck in _waiting.
+            # avatars.fetch already returns None for every expected failure
+            # (404, timeout, not an image), so reaching here means a bug rather
+            # than a missing avatar -- log it instead of hiding it. Still
+            # swallowed: the address must never be left stuck in _waiting.
+            logger.exception("avatar lookup failed for %s", address)
             image = None
         GLib.idle_add(self._deliver, address, image)
 
@@ -62,7 +69,7 @@ class AvatarLoader:
             self._cache.clear()
         self._cache[address] = texture
 
-        for on_ready in self._waiting.pop(address, []):
+        for on_ready in self._waiting_callbacks.pop(address, []):
             if texture:
                 on_ready(texture)
         return GLib.SOURCE_REMOVE

@@ -1,4 +1,5 @@
 import json
+import logging
 import mimetypes
 import threading
 from datetime import datetime
@@ -26,7 +27,11 @@ from . import mail_sync
 from .core import compose, secrets
 from .core.models.account import Account
 from .core.models.attachment import Attachment
+from .core.net import errors
 from .core.store.database import Database
+from .core.threader import NO_SUBJECT
+
+logger = logging.getLogger(__name__)
 
 _EDITOR_PAGE = """<!DOCTYPE html>
 <html>
@@ -429,7 +434,9 @@ class PostcardComposerWindow(Adw.Window):
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         if self._has_content():
             folder = self._db.get_or_create_folder(
-                self._account.id, "Drafts", mail_sync.icon_for_folder("Drafts")
+                self._account.id,
+                mail_sync.DRAFTS_FOLDER,
+                mail_sync.icon_for_folder(mail_sync.DRAFTS_FOLDER),
             )
             msg = compose.build_mime_message(
                 self._account.email,
@@ -442,10 +449,10 @@ class PostcardComposerWindow(Adw.Window):
             row = self._db.save_email(
                 folder.id,
                 sender=self._recipients_display(),
-                subject=self.subject_row.get_text().strip() or _("(no subject)"),
+                subject=self.subject_row.get_text().strip() or NO_SUBJECT,
                 preview=self._preview_text()[:100],
                 date=_now(),
-                unread=False,
+                is_unread=False,
             )
             self._db.save_raw_message(row.id, msg.as_bytes())
             self.emit("finished")
@@ -482,7 +489,9 @@ class PostcardComposerWindow(Adw.Window):
         # Save to Outbox before attempting to send -- a crash mid-send can
         # then never lose the message.
         outbox = self._db.get_or_create_folder(
-            self._account.id, "Outbox", mail_sync.icon_for_folder("Outbox")
+            self._account.id,
+            mail_sync.OUTBOX_FOLDER,
+            mail_sync.icon_for_folder(mail_sync.OUTBOX_FOLDER),
         )
         row = self._db.save_email(
             outbox.id,
@@ -490,32 +499,48 @@ class PostcardComposerWindow(Adw.Window):
             subject=subject,
             preview=self._preview_text()[:100],
             date=_now(),
-            unread=False,
+            is_unread=False,
         )
         self._db.save_raw_message(row.id, raw)
+
+        # Resolve the password here, on the main thread: the worker does
+        # network only, and this way a missing password is reported before the
+        # UI switches into its sending state.
+        password = secrets.lookup_password(self._account.id)
+        if not password:
+            self._on_send_failed(_("No saved password for this account."))
+            return
 
         self._set_sending(True)
         thread = threading.Thread(
             target=self._send_worker,
-            args=(row.id, subject, recipients, raw),
+            args=(row.id, subject, recipients, raw, password),
             daemon=True,
         )
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access.
     def _send_worker(
-        self, email_id: int, subject: str, recipients: list[str], raw: bytes
+        self,
+        email_id: int,
+        subject: str,
+        recipients: list[str],
+        raw: bytes,
+        password: str,
     ) -> None:
-        password = secrets.lookup_password(self._account.id)
-        if not password:
-            GLib.idle_add(self._on_send_failed, "no saved password")
-            return
+        account = self._account
         try:
-            mail_sync.send_message(
-                self._account, password, self._account.email, recipients, raw
-            )
+            mail_sync.send_message(account, password, account.email, recipients, raw)
         except Exception as error:
-            GLib.idle_add(self._on_send_failed, str(error))
+            logger.exception(
+                "could not send %r to %s via %s (account %s)",
+                subject,
+                ", ".join(recipients),
+                account.smtp_host,
+                account.email,
+            )
+            _category, message = errors.classify(error, account.smtp_host)
+            GLib.idle_add(self._on_send_failed, message)
             return
         GLib.idle_add(self._on_send_done, email_id, subject, raw)
 
@@ -523,7 +548,9 @@ class PostcardComposerWindow(Adw.Window):
     def _on_send_done(self, email_id: int, subject: str, raw: bytes) -> bool:
         self._db.delete_email(email_id)
         sent = self._db.get_or_create_folder(
-            self._account.id, "Sent", mail_sync.icon_for_folder("Sent")
+            self._account.id,
+            mail_sync.SENT_FOLDER,
+            mail_sync.icon_for_folder(mail_sync.SENT_FOLDER),
         )
         row = self._db.save_email(
             sent.id,
@@ -531,7 +558,7 @@ class PostcardComposerWindow(Adw.Window):
             subject=subject,
             preview=subject,
             date=_now(),
-            unread=False,
+            is_unread=False,
         )
         self._db.save_raw_message(row.id, raw)
         self.emit("finished")
@@ -549,11 +576,11 @@ class PostcardComposerWindow(Adw.Window):
         self.close()
         return False
 
-    def _set_sending(self, sending: bool) -> None:
-        self.send_button.set_sensitive(not sending)
-        self.cancel_button.set_sensitive(not sending)
-        self.send_spinner.set_visible(sending)
-        if sending:
+    def _set_sending(self, is_sending: bool) -> None:
+        self.send_button.set_sensitive(not is_sending)
+        self.cancel_button.set_sensitive(not is_sending)
+        self.send_spinner.set_visible(is_sending)
+        if is_sending:
             self.send_spinner.start()
         else:
             self.send_spinner.stop()

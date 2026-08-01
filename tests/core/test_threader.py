@@ -1,5 +1,5 @@
 from postcard.core.models.email import Email
-from postcard.core.threader import _normalize_subject, group
+from postcard.core.threader import NO_SUBJECT, _normalize_subject, group
 
 
 def mail(
@@ -17,7 +17,7 @@ def mail(
         subject=subject,
         preview="",
         date="",
-        unread=False,
+        is_unread=False,
         message_id=message_id,
         in_reply_to=in_reply_to,
         references=references,
@@ -72,6 +72,16 @@ def test_repeated_reply_prefixes_normalize_to_the_same_subject():
 
 def test_placeholder_subjects_never_merge():
     emails = [mail(1, subject="(no subject)"), mail(2, subject="")]
+    assert group(emails) == {1: 1, 2: 2}
+
+
+def test_the_placeholder_is_the_exact_string_writers_must_store():
+    # mail_sync and the composer both store NO_SUBJECT for a subject-less
+    # message. If either stored a *translated* placeholder instead,
+    # _normalize_subject would treat it as a real subject and every
+    # subject-less message in that locale would thread into one conversation.
+    assert _normalize_subject(NO_SUBJECT) == ""
+    emails = [mail(1, subject=NO_SUBJECT), mail(2, subject=NO_SUBJECT)]
     assert group(emails) == {1: 1, 2: 2}
 
 

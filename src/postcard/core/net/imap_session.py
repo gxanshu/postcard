@@ -64,8 +64,7 @@ class ImapSession:
 
     def login(self, user: str, password: str) -> None:
         try:
-            if self._imap is not None:
-                self._imap.login(user, password)
+            self._require_imap().login(user, password)
         except imaplib.IMAP4.error as error:
             raise ImapError(str(error)) from error
 
@@ -77,8 +76,10 @@ class ImapSession:
             pass
 
     def _require_imap(self) -> imaplib.IMAP4:
+        # Never return None: a caller that skipped connect() has to fail loudly
+        # rather than quietly do nothing and look like it succeeded.
         if self._imap is None:
-            raise ImapError("not connected")
+            raise ImapError(f"not connected to {self._host}:{self._port}")
         return self._imap
 
     def list_folders(self) -> list[MailboxInfo]:

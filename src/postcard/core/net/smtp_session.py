@@ -21,17 +21,25 @@ class SmtpSession:
 
     def login(self, user: str, password: str) -> None:
         try:
-            if self._smtp is not None:
-                self._smtp.login(user, password)
+            self._require_smtp().login(user, password)
         except smtplib.SMTPException as error:
             raise SmtpError(str(error)) from error
 
     def send_raw(self, from_addr: str, recipients: list[str], raw: bytes) -> None:
         try:
-            if self._smtp is not None:
-                self._smtp.sendmail(from_addr, recipients, raw)
+            self._require_smtp().sendmail(from_addr, recipients, raw)
         except smtplib.SMTPException as error:
-            raise SmtpError(str(error)) from error
+            raise SmtpError(
+                f"could not send to {', '.join(recipients)}: {error}"
+            ) from error
+
+    def _require_smtp(self) -> smtplib.SMTP:
+        # Never return None: `if self._smtp is not None` around the sendmail
+        # call meant a session that never connected returned normally, and
+        # mail_sync.send_message reported the mail as sent.
+        if self._smtp is None:
+            raise SmtpError(f"not connected to {self._host}:{self._port}")
+        return self._smtp
 
     def quit(self) -> None:
         try:

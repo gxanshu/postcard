@@ -6,6 +6,29 @@
 
 from gi.repository import GObject
 
+# Connection security values, in the order the account dialog's ComboRows list
+# them ("TLS", "STARTTLS") -- get_selected() indexes straight into this.
+SECURITY_TLS = "tls"
+SECURITY_STARTTLS = "starttls"
+SECURITY_OPTIONS = (SECURITY_TLS, SECURITY_STARTTLS)
+
+# TCP ports are 16-bit and 0 is not dialable.
+MIN_PORT = 1
+MAX_PORT = 65535
+
+
+def parse_port(text: str) -> int | None:
+    """A port number from user input, or None when it isn't one.
+
+    Returns None rather than raising: the caller is validating a text entry, so
+    "not a port yet" is an expected state, not an error.
+    """
+    try:
+        port = int(text.strip())
+    except ValueError:
+        return None
+    return port if MIN_PORT <= port <= MAX_PORT else None
+
 
 class Account(GObject.Object):
     __gtype_name__ = "PostcardAccount"

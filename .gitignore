@@ -10,5 +10,4 @@ __pycache__/
 *.flatpak
 
 # AI
-.claude
 opencode.jsonc

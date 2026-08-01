@@ -31,6 +31,10 @@ class ReaderMixin(MainWindowParts):
     """The reading pane: thread, bodies, and attachments."""
 
     def _update_reader(self) -> None:
+        # The conversation store only exists once a mail view is loaded, and
+        # there is nothing to read before then.
+        if self._account is None:
+            return
         selected = self._selected_conversations()
         if len(selected) != 1:
             self._rendered_id = None

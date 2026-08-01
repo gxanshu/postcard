@@ -148,6 +148,9 @@ class PostcardMainWindow(
 
         self._is_syncing = False
         self._sync_timer_id = 0
+        # Set here, not on first use: _on_close_request reaches
+        # _notify_background before any mail view has been loaded.
+        self._has_notified_background = False
         self._interval_handler = self._settings.connect(
             f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
         )
@@ -158,6 +161,11 @@ class PostcardMainWindow(
 
         accounts = self._db.accounts()
         if not accounts:
+            # Gio.SimpleAction starts enabled, and only _load_mail_view turns
+            # these off, so without this the accelerators stay live on a window
+            # that has no mail to act on.
+            self._set_mail_actions_enabled(False)
+            self._set_reply_forward_enabled(False)
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
             return
 

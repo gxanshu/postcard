@@ -80,6 +80,11 @@ class MailActionsMixin(MainWindowParts):
         self._set_actions_enabled(REPLY_FORWARD_ACTIONS, is_enabled)
 
     def _selected_conversations(self) -> list[Conversation]:
+        # The store is built by _load_mail_view, so before an account is open
+        # there is nothing selected rather than an error. Every mail action
+        # funnels through here, which is why the guard belongs here.
+        if self._account is None:
+            return []
         selected = []
         for position in range(self._conversation_store.get_n_items()):
             if not self._selection.is_selected(position):

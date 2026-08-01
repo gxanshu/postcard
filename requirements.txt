@@ -1,0 +1,4 @@
+# Dev tooling only — not needed to build/run the Flatpak (see pyproject.toml).
+ruff
+pytest
+pyright

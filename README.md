@@ -38,7 +38,10 @@ accumulated complexity. It's built and shipped as a Flatpak.
 - Optional sender avatars from Gravatar, with the sender's site icon as a fallback
 - Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that never loses
   a message
-- Archive, trash, move, and undo, with desktop notifications for new mail
+- Archive, trash, move, and undo — one conversation or a whole selection at once — with
+  desktop notifications for new mail
+- Sets itself up as your default mail client, so `mailto:` links open the composer already
+  filled in
 - Many more are coming soon
 
 ## Installing

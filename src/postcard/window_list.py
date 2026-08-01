@@ -1,14 +1,3 @@
-# window_list.py
-#
-# The conversation list: what it shows, searching and filtering it, and paging
-# in older mail on scroll.
-#
-# A mixin on PostcardMainWindow: see window_parts.py for the state and the
-# sibling methods it relies on.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
-
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from .conversation_row import ConversationRow

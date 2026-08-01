@@ -1,13 +1,3 @@
-# window_types.py
-#
-# Vocabulary shared by the main window and its window_*.py mixins: the constants
-# they all name, and the two records they pass between threads.
-#
-# Separate from window.py so the mixins can import these without importing the
-# window that imports them.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from dataclasses import dataclass
 
 from .core.models.folder import Folder

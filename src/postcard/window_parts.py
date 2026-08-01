@@ -1,23 +1,3 @@
-# window_parts.py
-#
-# The shared surface of PostcardMainWindow, declared once.
-#
-# The main window is split across window_*.py mixins that all operate on the
-# same instance. This class declares what they share -- the template widgets,
-# the window's state, and the methods they call on each other -- so each mixin
-# type-checks on its own without every file redeclaring the lot.
-#
-# It has no behaviour. The method stubs raise NotImplementedError so a member
-# that is declared here but implemented nowhere fails loudly instead of
-# silently doing nothing; the real implementations sit earlier in the MRO and
-# always win.
-#
-# Only methods called from a *different* module need a stub. The 60-odd methods
-# used solely within their own mixin, or wired up from PostcardMainWindow
-# itself (which inherits everything), are absent on purpose.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from typing import TYPE_CHECKING
 
 from gi.repository import Adw, Gio, Gtk

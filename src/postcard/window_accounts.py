@@ -1,12 +1,3 @@
-# window_accounts.py
-#
-# The account switcher, adding accounts, and opening the composer.
-#
-# A mixin on PostcardMainWindow: see window_parts.py for the state and the
-# sibling methods it relies on.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 import email
 from email import policy
 from email.utils import parseaddr

@@ -1,12 +1,3 @@
-# window_folders.py
-#
-# The folder sidebar: its tree model, rows, and selection.
-#
-# A mixin on PostcardMainWindow: see window_parts.py for the state and the
-# sibling methods it relies on.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from gi.repository import Gio, GObject, Gtk
 
 from . import mail_sync

@@ -1,12 +1,3 @@
-# window_actions.py
-#
-# Window actions: read/unread, star, and the row context menu.
-#
-# A mixin on PostcardMainWindow: see window_parts.py for the state and the
-# sibling methods it relies on.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 import logging
 import threading
 from collections.abc import Callable

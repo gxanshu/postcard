@@ -1,12 +1,3 @@
-# window_reader.py
-#
-# The reading pane: rendering a thread, fetching message bodies, and saving attachments.
-#
-# A mixin on PostcardMainWindow: see window_parts.py for the state and the
-# sibling methods it relies on.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 import logging
 import threading
 from gettext import gettext as _

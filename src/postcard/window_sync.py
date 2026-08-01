@@ -1,13 +1,3 @@
-# window_sync.py
-#
-# Syncing with the server, draining the Outbox, and the connection banner that
-# reports when either fails.
-#
-# A mixin on PostcardMainWindow: see window_parts.py for the state and the
-# sibling methods it relies on.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 import logging
 import threading
 from datetime import datetime

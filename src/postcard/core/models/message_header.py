@@ -1,13 +1,3 @@
-# message_header.py
-#
-# One message as a sync sees it: display-ready header fields, no body.
-#
-# This is the hand-off between the network layer and the database --
-# mail_sync builds it from the raw IMAP headers and Database.save_incoming_email
-# stores it, so it lives here rather than in either of them.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from dataclasses import dataclass, field
 
 

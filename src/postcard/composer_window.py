@@ -429,7 +429,9 @@ class PostcardComposerWindow(Adw.Window):
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         if self._has_content():
             folder = self._db.get_or_create_folder(
-                self._account.id, "Drafts", mail_sync.icon_for_folder("Drafts")
+                self._account.id,
+                mail_sync.DRAFTS_FOLDER,
+                mail_sync.icon_for_folder(mail_sync.DRAFTS_FOLDER),
             )
             msg = compose.build_mime_message(
                 self._account.email,
@@ -482,7 +484,9 @@ class PostcardComposerWindow(Adw.Window):
         # Save to Outbox before attempting to send -- a crash mid-send can
         # then never lose the message.
         outbox = self._db.get_or_create_folder(
-            self._account.id, "Outbox", mail_sync.icon_for_folder("Outbox")
+            self._account.id,
+            mail_sync.OUTBOX_FOLDER,
+            mail_sync.icon_for_folder(mail_sync.OUTBOX_FOLDER),
         )
         row = self._db.save_email(
             outbox.id,
@@ -523,7 +527,9 @@ class PostcardComposerWindow(Adw.Window):
     def _on_send_done(self, email_id: int, subject: str, raw: bytes) -> bool:
         self._db.delete_email(email_id)
         sent = self._db.get_or_create_folder(
-            self._account.id, "Sent", mail_sync.icon_for_folder("Sent")
+            self._account.id,
+            mail_sync.SENT_FOLDER,
+            mail_sync.icon_for_folder(mail_sync.SENT_FOLDER),
         )
         row = self._db.save_email(
             sent.id,

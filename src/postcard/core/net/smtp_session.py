@@ -1,5 +1,7 @@
 import smtplib
 
+from . import NET_TIMEOUT_SECONDS
+
 
 class SmtpError(Exception):
     """Raised when talking to the server fails (bad login, dropped link, ..)"""
@@ -14,10 +16,14 @@ class SmtpSession:
 
     def connect(self) -> None:
         if self._security == "starttls":
-            self._smtp = smtplib.SMTP(self._host, self._port, timeout=30)
+            self._smtp = smtplib.SMTP(
+                self._host, self._port, timeout=NET_TIMEOUT_SECONDS
+            )
             self._smtp.starttls()
         else:
-            self._smtp = smtplib.SMTP_SSL(self._host, self._port, timeout=30)
+            self._smtp = smtplib.SMTP_SSL(
+                self._host, self._port, timeout=NET_TIMEOUT_SECONDS
+            )
 
     def login(self, user: str, password: str) -> None:
         try:

@@ -15,6 +15,20 @@ from .core.models.email import Email
 
 LoadCallback = Callable[[bytes | None, str | None], None]
 
+# The standard gutter, matching the 12px spacing used by folder and
+# conversation rows. Adwaita's own margins are multiples of 6.
+GUTTER = 12
+SMALL_GUTTER = 6
+AVATAR_SIZE = 32
+
+# Tall enough that most messages need no inner scrolling; the WebView can't
+# report its content height until after layout, so this is a fixed guess.
+BODY_HEIGHT = 800
+
+# Attachment sizes. The last unit absorbs everything above it.
+SIZE_UNITS = ("B", "KB", "MB", "GB")
+BYTES_PER_UNIT = 1024
+
 
 class MessageView(Gtk.Box):
     __gtype_name__ = "PostcardMessageView"
@@ -31,10 +45,10 @@ class MessageView(Gtk.Box):
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("card")
-        self.set_margin_top(6)
-        self.set_margin_bottom(6)
-        self.set_margin_start(12)
-        self.set_margin_end(12)
+        self.set_margin_top(SMALL_GUTTER)
+        self.set_margin_bottom(SMALL_GUTTER)
+        self.set_margin_start(GUTTER)
+        self.set_margin_end(GUTTER)
 
         self._email = email
         self._on_load = on_load
@@ -50,8 +64,8 @@ class MessageView(Gtk.Box):
         self.raw: bytes | None = None
         self.parsed: message_parser.ParsedMessage | None = None
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        avatar = Adw.Avatar(size=32, show_initials=True, text=email.sender)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=GUTTER)
+        avatar = Adw.Avatar(size=AVATAR_SIZE, show_initials=True, text=email.sender)
         header.append(avatar)
         if avatars is not None and email.sender_address:
             avatars.load(email.sender_address, avatar.set_custom_image)
@@ -80,10 +94,10 @@ class MessageView(Gtk.Box):
         self._toggle.connect("clicked", self._on_toggle)
         self.append(self._toggle)
 
-        self._body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self._body.set_margin_start(12)
-        self._body.set_margin_end(12)
-        self._body.set_margin_bottom(12)
+        self._body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=GUTTER)
+        self._body.set_margin_start(GUTTER)
+        self._body.set_margin_end(GUTTER)
+        self._body.set_margin_bottom(GUTTER)
 
         self._revealer = Gtk.Revealer(child=self._body)
         self.append(self._revealer)
@@ -102,7 +116,7 @@ class MessageView(Gtk.Box):
         if self._loaded or self._loading:
             return
         self._loading = True
-        self._placeholder = Gtk.Label(label=_("Loading…"), margin_top=12)
+        self._placeholder = Gtk.Label(label=_("Loading…"), margin_top=GUTTER)
         self._placeholder.add_css_class("dim-label")
         self._body.append(self._placeholder)
         self._on_load(self._email, self._on_raw)
@@ -146,8 +160,8 @@ class MessageView(Gtk.Box):
             )
             self._recipients.set_visible(True)
 
-        grid = Gtk.Grid(row_spacing=4, column_spacing=12)
-        grid.set_margin_bottom(6)
+        grid = Gtk.Grid(row_spacing=4, column_spacing=GUTTER)
+        grid.set_margin_bottom(SMALL_GUTTER)
         row = 0
         for label, value in (
             (_("From"), parsed.from_display),
@@ -191,7 +205,7 @@ class MessageView(Gtk.Box):
             self._images_banner = banner
 
         webview = WebKit.WebView()
-        webview.set_size_request(-1, 800)
+        webview.set_size_request(-1, BODY_HEIGHT)
         webview.connect("decide-policy", self._on_decide_policy)
         settings = webview.get_settings()
         settings.set_enable_javascript(False)
@@ -265,9 +279,13 @@ class MessageView(Gtk.Box):
 
 
 def _human_size(num_bytes: int) -> str:
+    # The last unit has no larger one to promote to, so it absorbs whatever is
+    # left rather than needing a separate fall-through branch to stay in sync.
     size = float(num_bytes)
-    for unit in ("B", "KB", "MB"):
-        if size < 1024:
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} GB"
+    for unit in SIZE_UNITS[:-1]:
+        if size < BYTES_PER_UNIT:
+            return (
+                f"{size:.0f} {unit}" if unit == SIZE_UNITS[0] else f"{size:.1f} {unit}"
+            )
+        size /= BYTES_PER_UNIT
+    return f"{size:.1f} {SIZE_UNITS[-1]}"

@@ -5,6 +5,7 @@ from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
 from postcard.mail_sync import (
+    FolderRole,
     SyncResult,
     display_name_for_folder,
     fetch_mailbox,
@@ -55,6 +56,19 @@ def test_only_a_folder_named_exactly_inbox_is_the_inbox():
 def test_the_first_matching_role_wins():
     # Substrings are checked in order, so "sent" beats the later "draft".
     assert role_for_folder("Sent/Drafts") == "sent"
+
+
+def test_role_for_folder_returns_a_folder_role_member():
+    assert role_for_folder("INBOX") is FolderRole.INBOX
+    assert role_for_folder("Notes") is FolderRole.OTHER
+
+
+def test_folder_role_members_keep_their_stored_string_values():
+    # The role is persisted and compared as a plain lowercase string, so a
+    # StrEnum member has to stay interchangeable with the literal.
+    assert FolderRole.ARCHIVE == "archive"
+    assert f"{FolderRole.TRASH}" == "trash"
+    assert {"inbox": 1}[FolderRole.INBOX] == 1
 
 
 def test_icon_for_folder():

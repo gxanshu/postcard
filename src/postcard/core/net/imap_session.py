@@ -5,6 +5,11 @@ import re
 from email import policy
 from typing import NamedTuple
 
+from . import NET_TIMEOUT_SECONDS
+
+# imaplib returns the command status as the first element of every reply.
+STATUS_OK = "OK"
+
 
 class MailboxInfo(NamedTuple):
     name: str
@@ -56,10 +61,14 @@ class ImapSession:
 
     def connect(self) -> str:
         if self._security == "starttls":
-            self._imap = imaplib.IMAP4(self._host, self._port, timeout=30)
+            self._imap = imaplib.IMAP4(
+                self._host, self._port, timeout=NET_TIMEOUT_SECONDS
+            )
             self._imap.starttls()
         else:
-            self._imap = imaplib.IMAP4_SSL(self._host, self._port, timeout=30)
+            self._imap = imaplib.IMAP4_SSL(
+                self._host, self._port, timeout=NET_TIMEOUT_SECONDS
+            )
         return self._imap.welcome.decode("utf-8", "replace")
 
     def login(self, user: str, password: str) -> None:
@@ -114,7 +123,7 @@ class ImapSession:
         typ, data = self._require_imap().select(
             _quote_mailbox(mailbox), readonly=readonly
         )
-        if typ != "OK":
+        if typ != STATUS_OK:
             raise ImapError(f"could not open {mailbox}: {data}")
         return int(data[0]) if data and data[0] else 0
 
@@ -122,7 +131,7 @@ class ImapSession:
         """Add or remove flags (e.g. "\\Seen") on one message by UID."""
         command = "+FLAGS" if add else "-FLAGS"
         typ, data = self._require_imap().uid("STORE", uid, command, f"({flags})")
-        if typ != "OK":
+        if typ != STATUS_OK:
             raise ImapError(f"could not update flags on {uid}: {data}")
 
     def search_all_uids(self) -> set[str]:
@@ -132,23 +141,26 @@ class ImapSession:
         except imaplib.IMAP4.error as error:
             raise ImapError(f"search failed: {error}") from error
 
-        if typ != "OK":
+        if typ != STATUS_OK:
             raise ImapError(f"search failed: {data}")
         if not isinstance(data, (list, tuple)):
-            raise ImapError(f"search returned malformed data: {data}")
+            raise ImapError(
+                f"search returned {type(data).__name__}, not a list: {data}"
+            )
 
         tokens: list[bytes] = []
         for item in data:
             if not isinstance(item, bytes):
-                raise ImapError(f"search returned malformed data: {data}")
+                raise ImapError(f"search returned a non-bytes item: {item!r}")
             tokens.extend(item.split())
 
         try:
             uids = {token.decode("ascii") for token in tokens}
         except UnicodeDecodeError as error:
-            raise ImapError(f"search returned malformed data: {data}") from error
-        if any(not uid.isdigit() for uid in uids):
-            raise ImapError(f"search returned malformed data: {data}")
+            raise ImapError(f"search returned non-ASCII UIDs: {data}") from error
+        non_numeric = sorted(uid for uid in uids if not uid.isdigit())
+        if non_numeric:
+            raise ImapError(f"search returned non-numeric UIDs: {non_numeric}")
         return uids
 
     def move(self, uid: str, destination: str) -> str | None:
@@ -159,7 +171,7 @@ class ImapSession:
         response-code API and must be queried immediately after the command.
         """
         typ, data = self._require_imap().uid("MOVE", uid, _quote_mailbox(destination))
-        if typ != "OK":
+        if typ != STATUS_OK:
             raise ImapError(f"could not move {uid} to {destination}: {data}")
         imap = self._require_imap()
         for code in ("COPYUID", "MOVEUID"):
@@ -200,7 +212,7 @@ class ImapSession:
             "(UID FLAGS BODY.PEEK[HEADER.FIELDS "
             "(DATE FROM TO CC SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
         )
-        if typ != "OK":
+        if typ != STATUS_OK:
             raise ImapError(f"fetch failed: {data}")
 
         messages: list[dict] = []
@@ -220,7 +232,7 @@ class ImapSession:
         Does not mark it seen.
         """
         type, data = self._require_imap().uid("fetch", uid, "(BODY.PEEK[])")
-        if type != "OK":
+        if type != STATUS_OK:
             raise ImapError(f"could not fetch message {uid}: {data}")
 
         for item in data:

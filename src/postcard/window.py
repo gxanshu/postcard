@@ -46,15 +46,26 @@ from .core.net import errors
 from .core.store.database import Database
 from .folder_row import FolderRow
 from .message_view import MessageView
+from .preferences_dialog import SETTING_SYNC_INTERVAL
 
 # Window action names, grouped by what enables and disables them together.
 MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
 REPLY_FORWARD_ACTIONS = ("reply", "forward")
 
-# Local-only queue for mail composed while offline; never mirrored from the
-# server, so prune_folders keeps it. "Sent" is matched on the server list.
-OUTBOX_FOLDER = "Outbox"
-SENT_FOLDER = "Sent"
+# How long an archive/trash/move stays undoable before the real IMAP MOVE runs.
+# The Undo toast is shown for this window, so the two have to agree.
+MOVE_UNDO_MS = 5000
+
+# Wait for typing to settle before running a search over FTS.
+SEARCH_DEBOUNCE_MS = 200
+
+SECONDS_PER_MINUTE = 60
+
+# Gtk.Stack child names, matching the ids in main-window.blp.
+PAGE_MAIL = "mail"
+PAGE_NO_ACCOUNT = "no-account"
+PAGE_EMPTY = "empty"
+PAGE_LOADING = "loading"
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +173,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._syncing = False
         self._sync_timer_id = 0
         self._interval_handler = self._settings.connect(
-            "changed::sync-interval-minutes", lambda *_: self._reschedule_sync()
+            f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
         )
 
         self.connect("close-request", self._on_close_request)
@@ -171,7 +182,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         accounts = self._db.accounts()
         if not accounts:
-            self.main_stack.set_visible_child_name("no-account")
+            self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
             return
 
         self._load_mail_view(accounts[0])
@@ -188,13 +199,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # and whether older messages remain on the server.
         self._loaded_count: dict[int, int] = {}
         self._has_more: dict[int, bool] = {}
-        self.reader_stack.set_visible_child_name("empty")
+        self.reader_stack.set_visible_child_name(PAGE_EMPTY)
         self._set_mail_actions_enabled(False)
         self.reply_button.set_sensitive(False)
         self.forward_button.set_sensitive(False)
         self._set_reply_forward_enabled(False)
 
-        self.main_stack.set_visible_child_name("mail")
+        self.main_stack.set_visible_child_name(PAGE_MAIL)
         self._refresh_account_switcher()
 
         # Boxes of the rows currently on screen, keyed by folder id, so
@@ -303,7 +314,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def reload_accounts(self) -> None:
         accounts = self._db.accounts()
         if not accounts:
-            self.main_stack.set_visible_child_name("no-account")
+            self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
             return
         current = self._account.id if self._account else None
         if current is not None and any(a.id == current for a in accounts):
@@ -612,10 +623,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # --- archive / trash / move (with undo) -------------------------------
 
     def _on_archive(self, _action: Gio.SimpleAction, _param: object) -> None:
-        self._start_move_by_role("archive")
+        self._start_move_by_role(mail_sync.FolderRole.ARCHIVE)
 
     def _on_trash(self, _action: Gio.SimpleAction, _param: object) -> None:
-        self._start_move_by_role("trash")
+        self._start_move_by_role(mail_sync.FolderRole.TRASH)
 
     def _on_move(self, _action: Gio.SimpleAction, param: GLib.Variant) -> None:
         conversations = self._selected_conversations()
@@ -636,7 +647,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._start_move(conversations, dest, title)
 
     def _start_move_by_role(
-        self, role: str, conversation: Conversation | None = None
+        self, role: mail_sync.FolderRole, conversation: Conversation | None = None
     ) -> None:
         conversations = self._selected_conversations()
         if not conversations and conversation is not None:
@@ -648,7 +659,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._toast(_("No {role} folder found.").format(role=role))
             return
         count = len(conversations)
-        if role == "archive":
+        if role == mail_sync.FolderRole.ARCHIVE:
             title = ngettext("Archived", "Archived {n} conversations", count).format(
                 n=count
             )
@@ -658,20 +669,23 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
         self._start_move(conversations, dest, title)
 
-    def _folder_with_role(self, role: str) -> Folder | None:
+    def _folder_with_role(self, role: mail_sync.FolderRole) -> Folder | None:
         if self._account is None:
             return None
         current_id = self._current_folder.id if self._current_folder else None
-        matches = []
-        for folder in self._db.folders_for_account(self._account.id):
-            if (
-                folder.id != current_id
-                and mail_sync.role_for_folder(folder.name) == role
-            ):
-                matches.append(folder)
-        if role == "archive":
+        matches = [
+            folder
+            for folder in self._db.folders_for_account(self._account.id)
+            if folder.id != current_id
+            and mail_sync.role_for_folder(folder.name) == role
+        ]
+        if role == mail_sync.FolderRole.ARCHIVE:
+            # role_for_folder maps both "Archive" and Gmail's "All Mail" to
+            # ARCHIVE. When an account has both, a folder actually named
+            # Archive is the one the user means -- All Mail is a view of
+            # everything, so moving there wouldn't remove it from the inbox.
             for folder in matches:
-                if "archive" in folder.name.lower():
+                if mail_sync.FolderRole.ARCHIVE in folder.name.lower():
                     return folder
         return matches[0] if matches else None
 
@@ -728,7 +742,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             "source": source,
             "dest": dest,
             "tombstones": tombstones,
-            "timeout_id": GLib.timeout_add(5000, self._on_move_timeout),
+            "timeout_id": GLib.timeout_add(MOVE_UNDO_MS, self._on_move_timeout),
         }
         self.toast_overlay.add_toast(toast)
 
@@ -1042,7 +1056,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if isinstance(tree_row, Gtk.TreeListRow):
                 folder = tree_row.get_item()
                 assert isinstance(folder, Folder)
-                if mail_sync.role_for_folder(folder.name) == "inbox":
+                if mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX:
                     target = i
                     break
 
@@ -1127,9 +1141,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if store.get_n_items() > 0:
             self.conversation_stack.set_visible_child_name("list")
         elif self._syncing:
-            self.conversation_stack.set_visible_child_name("loading")
+            self.conversation_stack.set_visible_child_name(PAGE_LOADING)
         else:
-            self.conversation_stack.set_visible_child_name("empty")
+            self.conversation_stack.set_visible_child_name(PAGE_EMPTY)
 
         self._update_reader()
 
@@ -1148,7 +1162,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_search_changed(self, _entry: Gtk.SearchEntry) -> None:
         if self._search_timeout:
             GLib.source_remove(self._search_timeout)
-        self._search_timeout = GLib.timeout_add(200, self._on_search_timeout)
+        self._search_timeout = GLib.timeout_add(
+            SEARCH_DEBOUNCE_MS, self._on_search_timeout
+        )
 
     def _on_search_timeout(self) -> bool:
         self._search_timeout = 0
@@ -1215,7 +1231,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._set_mail_actions_enabled(bool(selected))
             if selected:
                 self._update_action_buttons(selected)
-            self.reader_stack.set_visible_child_name("empty")
+            self.reader_stack.set_visible_child_name(PAGE_EMPTY)
             return
 
         conversation = selected[0]
@@ -1425,7 +1441,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             (
                 folder
                 for folder in self._db.folders_for_account(account.id)
-                if folder.name == OUTBOX_FOLDER
+                if folder.name == mail_sync.OUTBOX_FOLDER
             ),
             None,
         )
@@ -1490,7 +1506,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 continue
             if sent_folder is None:
                 sent_folder = self._db.get_or_create_folder(
-                    account.id, SENT_FOLDER, mail_sync.icon_for_folder(SENT_FOLDER)
+                    account.id,
+                    mail_sync.SENT_FOLDER,
+                    mail_sync.icon_for_folder(mail_sync.SENT_FOLDER),
                 )
             row = self._db.save_email(
                 sent_folder.id,
@@ -1543,8 +1561,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
 
         self._set_syncing(True)
-        if self.conversation_stack.get_visible_child_name() == "empty":
-            self.conversation_stack.set_visible_child_name("loading")
+        if self.conversation_stack.get_visible_child_name() == PAGE_EMPTY:
+            self.conversation_stack.set_visible_child_name(PAGE_LOADING)
         thread = threading.Thread(
             target=self._sync_worker,
             args=(account, password, folder_name, offset),
@@ -1557,10 +1575,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self._sync_timer_id:
             GLib.source_remove(self._sync_timer_id)
             self._sync_timer_id = 0
-        minutes = self._settings.get_int("sync-interval-minutes")
+        minutes = self._settings.get_int(SETTING_SYNC_INTERVAL)
         if minutes > 0:
             self._sync_timer_id = GLib.timeout_add_seconds(
-                minutes * 60, self._on_sync_tick
+                minutes * SECONDS_PER_MINUTE, self._on_sync_tick
             )
 
     def _on_sync_tick(self) -> bool:
@@ -1619,7 +1637,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             # Mirror the server's folder list, keeping only the local Outbox.
             # This clears stale rows like a duplicate "INBOX" from earlier
             # versions.
-            names = {m.name for m in mailboxes} | {OUTBOX_FOLDER}
+            names = {m.name for m in mailboxes} | {mail_sync.OUTBOX_FOLDER}
             self._db.prune_folders(account.id, names)
 
         target = self._db.get_or_create_folder(

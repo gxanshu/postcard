@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
+from enum import StrEnum
 
 from .core.models.account import Account
 from .core.models.conversation import Conversation
@@ -12,6 +13,35 @@ RECENT_LIMIT = 50
 # Gmail nests its special folders under an unselectable "[Gmail]" container.
 # It isn't a real mailbox, so it's hidden and its children sit at the top level.
 NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
+
+
+class FolderRole(StrEnum):
+    """What a mailbox is for, inferred from its name by role_for_folder.
+
+    A StrEnum so it compares and persists as the plain lowercase string it
+    always was -- the database column and the icon table are unchanged.
+    """
+
+    INBOX = "inbox"
+    SENT = "sent"
+    DRAFTS = "drafts"
+    TRASH = "trash"
+    JUNK = "junk"
+    ARCHIVE = "archive"
+    STARRED = "starred"
+    OTHER = "other"
+
+
+# The canonical IMAP inbox name. Servers vary the casing, so this is the
+# fallback rather than something to compare against -- see inbox_name.
+INBOX_MAILBOX = "INBOX"
+
+# Folders Postcard maintains itself rather than mirroring from the server.
+# Outbox is local-only (prune_folders keeps it); Sent and Drafts are created on
+# demand when the server has no folder of that role.
+OUTBOX_FOLDER = "Outbox"
+SENT_FOLDER = "Sent"
+DRAFTS_FOLDER = "Drafts"
 
 
 @dataclass
@@ -35,7 +65,7 @@ class MessageHeader:
 class SyncResult:
     folders: list[MailboxInfo] = field(default_factory=list)
     messages: list[MessageHeader] = field(default_factory=list)
-    folder: str = "INBOX"
+    folder: str = INBOX_MAILBOX
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
     all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
@@ -55,9 +85,9 @@ def inbox_name(folders: list[str]) -> str:
     casing (Yahoo lists it as "Inbox"), so match by role and fall back to the
     canonical name."""
     for name in folders:
-        if role_for_folder(name) == "inbox":
+        if role_for_folder(name) == FolderRole.INBOX:
             return name
-    return "INBOX"
+    return INBOX_MAILBOX
 
 
 def fetch_mailbox(
@@ -197,27 +227,30 @@ def send_message(
         session.quit()
 
 
-def role_for_folder(name: str) -> str:  # noqa: PLR0911
-    """Classify a mailbox by name: inbox/sent/drafts/trash/junk/archive/other.
+def role_for_folder(name: str) -> FolderRole:  # noqa: PLR0911
+    """Classify a mailbox by name.
+
+    Matched by substring and tolerant of casing, because servers name these
+    differently ("Deleted Items", "[Gmail]/All Mail", "Bulk Mail").
 
     noqa PLR0911: a dispatch table — one return per role is the point.
     """
-    lname = name.lower()
-    if lname == "inbox":
-        return "inbox"
-    if "sent" in lname:
-        return "sent"
-    if "draft" in lname:
-        return "drafts"
-    if "trash" in lname or "deleted" in lname:
-        return "trash"
-    if "junk" in lname or "spam" in lname:
-        return "junk"
-    if "archive" in lname or "all mail" in lname:
-        return "archive"
-    if "star" in lname or "flagged" in lname:
-        return "starred"
-    return "other"
+    lowered = name.lower()
+    if lowered == FolderRole.INBOX:
+        return FolderRole.INBOX
+    if "sent" in lowered:
+        return FolderRole.SENT
+    if "draft" in lowered:
+        return FolderRole.DRAFTS
+    if "trash" in lowered or "deleted" in lowered:
+        return FolderRole.TRASH
+    if "junk" in lowered or "spam" in lowered:
+        return FolderRole.JUNK
+    if "archive" in lowered or "all mail" in lowered:
+        return FolderRole.ARCHIVE
+    if "star" in lowered or "flagged" in lowered:
+        return FolderRole.STARRED
+    return FolderRole.OTHER
 
 
 def parent_mailbox_name(name: str, delimiter: str) -> str:
@@ -244,12 +277,12 @@ def icon_for_folder(name: str) -> str:
     mail-inbox/sent/drafts-symbolic are *not* in it and render as broken images.
     """
     return {
-        "inbox": "mail-unread-symbolic",
-        "sent": "mail-send-symbolic",
-        "drafts": "document-edit-symbolic",
-        "trash": "user-trash-symbolic",
-        "junk": "mail-mark-junk-symbolic",
-        "starred": "starred-symbolic",
+        FolderRole.INBOX: "mail-unread-symbolic",
+        FolderRole.SENT: "mail-send-symbolic",
+        FolderRole.DRAFTS: "document-edit-symbolic",
+        FolderRole.TRASH: "user-trash-symbolic",
+        FolderRole.JUNK: "mail-mark-junk-symbolic",
+        FolderRole.STARRED: "starred-symbolic",
     }.get(role_for_folder(name), "folder-symbolic")
 
 

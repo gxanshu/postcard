@@ -39,8 +39,11 @@ def _configure_logging() -> None:
     level name) turns it up without a rebuild. G_MESSAGES_DEBUG only affects
     GLib's own logging, not this.
     """
+    # getLevelNamesMapping, not getattr(logging, ...): the latter resolves any
+    # attribute on the module, so POSTCARD_LOG=root would hand basicConfig a
+    # Logger object and crash on startup.
     requested = os.environ.get("POSTCARD_LOG", "warning").upper()
-    level = getattr(logging, requested, logging.WARNING)
+    level = logging.getLevelNamesMapping().get(requested, logging.WARNING)
     logging.basicConfig(level=level, format=_LOG_FORMAT, stream=sys.stderr)
 
 

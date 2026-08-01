@@ -83,14 +83,14 @@ class ReaderMixin(MainWindowParts):
             self.mark_read_button.set_icon_name("mail-read-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Read"))
         else:
-            self.mark_read_button.set_icon_name("mail-is_unread-symbolic")
+            self.mark_read_button.set_icon_name("mail-unread-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Unread"))
 
         if any(conversation.is_starred for conversation in selected):
-            self.star_button.set_icon_name("is_starred-symbolic")
+            self.star_button.set_icon_name("starred-symbolic")
             self.star_button.set_tooltip_text(_("Unstar"))
         else:
-            self.star_button.set_icon_name("non-is_starred-symbolic")
+            self.star_button.set_icon_name("non-starred-symbolic")
             self.star_button.set_tooltip_text(_("Star"))
 
     # Build one MessageView per email, newest first. The newest starts expanded
@@ -121,10 +121,10 @@ class ReaderMixin(MainWindowParts):
 
         self.reader_stack.set_visible_child_name("message")
 
-    def _on_newest_rendered(self, _view: MessageView) -> None:
+    def _on_newest_rendered(self, view: MessageView) -> None:
         if len(self._selected_conversations()) != 1:
             return
-        self._active_view = _view
+        self._active_view = view
         self.reply_button.set_sensitive(True)
         self.forward_button.set_sensitive(True)
         self._set_reply_forward_enabled(True)

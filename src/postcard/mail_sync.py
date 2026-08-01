@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from enum import StrEnum
@@ -38,7 +39,7 @@ class FolderRole(StrEnum):
     TRASH = "trash"
     JUNK = "junk"
     ARCHIVE = "archive"
-    STARRED = "is_starred"
+    STARRED = "starred"
     OTHER = "other"
 
 
@@ -175,7 +176,7 @@ def set_flag(
     account: Account,
     password: str,
     folder_name: str,
-    uids: list[str],
+    uids: Sequence[str],
     flag: str,
     should_add: bool,
 ) -> None:
@@ -279,12 +280,12 @@ def icon_for_folder(name: str) -> str:
     mail-inbox/sent/drafts-symbolic are *not* in it and render as broken images.
     """
     return {
-        FolderRole.INBOX: "mail-is_unread-symbolic",
+        FolderRole.INBOX: "mail-unread-symbolic",
         FolderRole.SENT: "mail-send-symbolic",
         FolderRole.DRAFTS: "document-edit-symbolic",
         FolderRole.TRASH: "user-trash-symbolic",
         FolderRole.JUNK: "mail-mark-junk-symbolic",
-        FolderRole.STARRED: "is_starred-symbolic",
+        FolderRole.STARRED: "starred-symbolic",
     }.get(role_for_folder(name), "folder-symbolic")
 
 

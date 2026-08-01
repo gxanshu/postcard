@@ -52,7 +52,7 @@ def conversation(*server_ids: str | None) -> Conversation:
         ("Spam", "junk"),
         ("Archive", "archive"),
         ("[Gmail]/All Mail", "archive"),
-        ("Flagged", "is_starred"),
+        ("Flagged", "starred"),
         ("Notes", "other"),
         ("", "other"),
     ],
@@ -81,15 +81,18 @@ def test_folder_role_members_keep_their_stored_string_values():
     assert FolderRole.ARCHIVE == "archive"
     assert f"{FolderRole.TRASH}" == "trash"
     assert {"inbox": 1}[FolderRole.INBOX] == 1
+    # No member carries a Python naming prefix: these are stored strings, and
+    # an is_/has_ rename sweeping over them would only surface at runtime.
+    assert not [role for role in FolderRole if role.startswith(("is_", "has_"))]
 
 
 def test_icon_for_folder():
-    assert icon_for_folder("INBOX") == "mail-is_unread-symbolic"
+    assert icon_for_folder("INBOX") == "mail-unread-symbolic"
     assert icon_for_folder("[Gmail]/Sent Mail") == "mail-send-symbolic"
     assert icon_for_folder("Drafts") == "document-edit-symbolic"
     assert icon_for_folder("Trash") == "user-trash-symbolic"
     assert icon_for_folder("Spam") == "mail-mark-junk-symbolic"
-    assert icon_for_folder("Flagged") == "is_starred-symbolic"
+    assert icon_for_folder("Flagged") == "starred-symbolic"
     assert icon_for_folder("Notes") == "folder-symbolic"
 
 

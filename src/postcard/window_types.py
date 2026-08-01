@@ -12,6 +12,11 @@ from dataclasses import dataclass
 
 from .core.models.folder import Folder
 
+# GSettings key for the poll interval. Named here rather than in
+# preferences_dialog because the window schedules the timer from it and the
+# dialog only writes it -- the window must not have to import a dialog.
+SETTING_SYNC_INTERVAL = "sync-interval-minutes"
+
 # Window action names, grouped by what enables and disables them together.
 MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
 REPLY_FORWARD_ACTIONS = ("reply", "forward")
@@ -35,7 +40,9 @@ PAGE_LOADING = "loading"
 
 # The next two exist because of the threading model (see CLAUDE.md): a worker
 # gets an immutable snapshot of what to do, never a live object the main thread
-# might mutate underneath it. Frozen so that is enforced rather than hoped for.
+# might mutate underneath it. Frozen so that is enforced rather than hoped for
+# -- which is also why uids is a tuple: frozen only blocks rebinding the field,
+# so a list there would still be mutable from the main thread.
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +50,7 @@ class FlagChange:
     """One IMAP flag edit to apply to a set of messages in one mailbox."""
 
     folder_name: str
-    uids: list[str]
+    uids: tuple[str, ...]
     flag: str
     should_add: bool
 

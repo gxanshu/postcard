@@ -25,10 +25,10 @@ class FolderRow(Gtk.Box):
         self.append(self._badge)
 
     # Fill this row from a folder. Called every time the row is (re)used.
-    def bind(self, folder: Folder, is_unread: int) -> None:
+    def bind(self, folder: Folder, unread_count: int) -> None:
         self._icon.set_from_icon_name(folder.icon_name)
         self._name_label.set_label(
             mail_sync.display_name_for_folder(folder.name, folder.display_delimiter)
         )
-        self._badge.set_label(str(is_unread))
-        self._badge.set_visible(is_unread > 0)
+        self._badge.set_label(str(unread_count))
+        self._badge.set_visible(unread_count > 0)

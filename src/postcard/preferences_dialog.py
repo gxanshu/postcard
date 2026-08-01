@@ -2,22 +2,21 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gio, Gtk
 
+from .window_types import SETTING_SYNC_INTERVAL
+
 # The sync-interval combo, in row order: the minute value stored in GSettings
 # and the label shown for it. One list rather than two index-aligned ones, so a
 # label can't drift from the value it describes. 0 = manual only.
-SYNC_INTERVALS: list[tuple[int, str]] = [
+SYNC_INTERVALS: tuple[tuple[int, str], ...] = (
     (0, _("Manually")),
     (5, _("Every 5 minutes")),
     (15, _("Every 15 minutes")),
     (30, _("Every 30 minutes")),
     (60, _("Every hour")),
-]
+)
 
 # Used when the stored value isn't one of the offered intervals.
 DEFAULT_SYNC_INTERVAL_MINUTES = 15
-
-# GSettings key, also read by window.py to schedule the poll timer.
-SETTING_SYNC_INTERVAL = "sync-interval-minutes"
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/preferences-dialog.ui")

@@ -226,7 +226,10 @@ class MailActionsMixin(MainWindowParts):
         if not password:
             return
         change = FlagChange(
-            folder_name=folder.name, uids=uids, flag=flag, should_add=should_add
+            folder_name=folder.name,
+            uids=tuple(uids),
+            flag=flag,
+            should_add=should_add,
         )
         thread = threading.Thread(
             target=self._flag_worker,

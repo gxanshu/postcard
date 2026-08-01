@@ -21,12 +21,12 @@ from .core import compose, secrets
 from .core.models.account import Account
 from .core.models.folder import Folder
 from .core.net import errors, imap_session
-from .preferences_dialog import SETTING_SYNC_INTERVAL
 from .window_parts import MainWindowParts
 from .window_types import (
     PAGE_EMPTY,
     PAGE_LOADING,
     SECONDS_PER_MINUTE,
+    SETTING_SYNC_INTERVAL,
     OutboxResult,
 )
 
@@ -91,7 +91,7 @@ class SyncMixin(MainWindowParts):
                 mail_sync.send_message(
                     account, password, account.email, recipients, raw
                 )
-            except Exception as error:  # noqa: BLE001 - reported, not swallowed
+            except Exception as error:
                 logger.exception(
                     "could not send queued message %d (%r) to %s via %s",
                     email_id,

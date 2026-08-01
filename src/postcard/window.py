@@ -28,7 +28,6 @@ from .core.models.folder import Folder
 from .core.store.database import Database
 from .folder_row import FolderRow
 from .message_view import MessageView
-from .preferences_dialog import SETTING_SYNC_INTERVAL
 from .window_accounts import AccountsMixin
 from .window_actions import MailActionsMixin
 from .window_folders import FolderTreeMixin
@@ -36,7 +35,13 @@ from .window_list import ConversationListMixin
 from .window_move import MoveMixin
 from .window_reader import ReaderMixin
 from .window_sync import SyncMixin
-from .window_types import PAGE_EMPTY, PAGE_MAIL, PAGE_NO_ACCOUNT, PendingMove
+from .window_types import (
+    PAGE_EMPTY,
+    PAGE_MAIL,
+    PAGE_NO_ACCOUNT,
+    SETTING_SYNC_INTERVAL,
+    PendingMove,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -237,14 +242,6 @@ class PostcardMainWindow(
         self._reschedule_sync()
         if self._is_online:
             self._start_sync(in_background=True)
-
-    # --- account switcher -------------------------------------------------
-
-    # --- mail actions -----------------------------------------------------
-
-    # --- archive / trash / move (with undo) -------------------------------
-
-    # --- connection banner / offline handling -----------------------------
 
     def _on_close_request(self, _window: Gtk.Window) -> bool:
         width, height = self.get_default_size()

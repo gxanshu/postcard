@@ -1,10 +1,13 @@
 [Desktop Entry]
 Name=Postcard
-Exec=postcard
+GenericName=Mail Client
+Comment=Read and send your email
+Exec=postcard %u
 Icon=in.gxanshu.postcard
 Terminal=false
 Type=Application
 Categories=Network;Email;
-Keywords=GTK;
+Keywords=GTK;Email;E-mail;Mail;IMAP;SMTP;Inbox;
+MimeType=x-scheme-handler/mailto;
 StartupNotify=true
 DBusActivatable=true

@@ -39,6 +39,11 @@
 
   <translation type="gettext">postcard</translation>
   <launchable type="desktop-id">in.gxanshu.postcard.desktop</launchable>
+
+  <provides>
+    <mediatype>x-scheme-handler/mailto</mediatype>
+  </provides>
+
   <content_rating type="oars-1.1" />
 
   <branding>

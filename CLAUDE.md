@@ -24,7 +24,7 @@ Requires `flatpak` + `flatpak-builder` on the host; Python/GTK/meson come from t
 ## Lint, format, tests
 
 - **Format:** `just fmt` (ruff, line length 88, py312 target). Editor config in `pyproject.toml`; Zed formats on save.
-- **Tests:** `just test` (host pytest, no Flatpak). `build`, `run` and `bundle` all depend on it, so a failing test blocks the Flatpak build; CI runs the same suite via `.github/workflows/tests.yml`, which `release.yml` calls before publishing. The GTK-free `core/` modules are unit-tested; tests live under `tests/` mirroring the `core/` package layout (e.g. `tests/core/test_threader.py`). `[tool.pytest.ini_options]` sets `pythonpath = ["src"]`, so the package resolves without being installed — no `conftest.py` needed. Note: the checked-in `.venv` is dev-tooling only (per `pyproject.toml`) and `.venv/bin/pytest` has a stale shebang after the project rename, which is why the recipe invokes `.venv/bin/python -m pytest`. Only the pure-Python `core/` code (threader, compose, mime parser, models, database) plus `mail_sync`'s folder-classification helpers are meaningfully testable without a display; `core/secrets.py` and the network sessions are not.
+- **Tests:** `just test` (host pytest, no Flatpak). `build`, `run` and `bundle` all depend on it, so a failing test blocks the Flatpak build; CI runs the same suite via `.github/workflows/tests.yml`, which `release.yml` calls before publishing. The GTK-free `core/` modules are unit-tested; tests live under `tests/` mirroring the `core/` package layout (e.g. `tests/core/test_threader.py`). `[tool.pytest.ini_options]` sets `pythonpath = ["src"]`, so the package resolves without being installed — no `conftest.py` needed. Note: the checked-in `.venv` is dev-tooling only (per `pyproject.toml`) and `.venv/bin/pytest` has a stale shebang after the project rename, which is why the recipe invokes `.venv/bin/python -m pytest`. Testable without a display: the pure-Python `core/` code (threader, compose, mime parser, models, database), `mail_sync`'s folder classification and its raw-header mapping, and the IMAP/SMTP sessions via a fake in place of `imaplib`/`smtplib` (see `tests/core/net/`). Not testable: `core/secrets.py` (libsecret) and the whole GTK layer, since the Adw typelib only exists inside the Flatpak. That last gap is real — four crashes have shipped in `window*.py` code no test could have caught, so exercise those changes with `just run`.
 - `pyright` runs in `basic` mode over `src/postcard`. `PyGObject-stubs` must be installed for this to be useful — without it every `gi` import reports as unresolved and drowns the real findings. Install it with `--no-deps`: it declares `PyGObject` as a dependency, which builds `pycairo` from source and needs cairo headers, but the `.venv` deliberately takes `gi` from apt via `--system-site-packages`.
 - **Check:** `just check` (ruff check + `ruff format --check` + pyright). `test` depends on `check`, and `build`/`bundle` depend on `test`, so a lint or type error blocks the Flatpak build. CI runs the same three steps.
 
@@ -50,12 +50,41 @@ Never log the `args` tuple of a network worker thread — the account password i
 
 Two layers, and the boundary matters:
 
-- **`src/postcard/core/`** — UI-agnostic logic, no GTK widgets. Sub-packages: `models/` (dataclasses: Account, Folder, Email, Conversation, Attachment), `store/database.py` (all SQLite), `net/` (`imap_session.py`, `smtp_session.py`, `errors.py` — thin stdlib `imaplib`/`smtplib` wrappers), `mime/message_parser.py`, plus `threader.py`, `compose.py`, `secrets.py`. This is where testable logic belongs.
-- **`src/postcard/*.py`** — the GTK layer. `application.py` (Adw.Application, app actions/accelerators), `window.py` (the ~1300-line main window and the bulk of the UI), and per-view modules (`composer_window.py`, `message_view.py`, `conversation_row.py`, dialogs, `mail_sync.py`, `mail_send.py`).
+- **`src/postcard/core/`** — UI-agnostic logic, no GTK widgets. Sub-packages: `models/` (Account, Folder, Email, Conversation, Attachment as `GObject.Object`s so `Gio.ListStore` accepts them, plus `MessageHeader` as a plain dataclass), `store/database.py` (all SQLite), `net/` (`imap_session.py`, `smtp_session.py`, `errors.py` — thin stdlib `imaplib`/`smtplib` wrappers), `mime/message_parser.py`, plus `threader.py`, `compose.py`, `secrets.py`. This is where testable logic belongs.
+- **`src/postcard/*.py`** — the GTK layer. `application.py` (Adw.Application, app actions/accelerators), the main window (below), and per-view modules (`composer_window.py`, `message_view.py`, `conversation_row.py`, dialogs, `mail_sync.py`).
+
+### The main window is a class split across files
+
+`PostcardMainWindow` is one class assembled from mixins, one per concern:
+
+| file | what it owns |
+|---|---|
+| `window.py` | the `@Gtk.Template`, `__init__`, `_load_mail_view`, window lifecycle |
+| `window_accounts.py` | account switcher, adding accounts, opening the composer |
+| `window_actions.py` | read/unread, star, the flag worker, row context menu |
+| `window_move.py` | archive/trash/move and the undo window |
+| `window_folders.py` | the folder sidebar tree, rows, selection |
+| `window_list.py` | the conversation list, search, scroll paging |
+| `window_reader.py` | the reading pane, message bodies, attachments |
+| `window_sync.py` | syncing, the Outbox, the connection banner |
+| `window_types.py` | constants and records the above share |
+| `window_parts.py` | the shared surface, declared once for the type checker |
+
+Three things will bite you here:
+
+- **`Adw.ApplicationWindow` is listed last** in `PostcardMainWindow`'s bases. The mixins share `MainWindowParts`, which *is* the window type when type-checking, and C3 requires a base to follow its own subclasses. Position doesn't change the GType parent, so `Gtk.Template` still sees `AdwApplicationWindow`.
+- **`MainWindowParts` inherits the window type only under `TYPE_CHECKING`**; at runtime it must stay a plain `object`. `Gtk.Template` checks that the template's declared parent matches the instance's direct parent GType, so a mixin that were itself a GObject subclass would make the direct parent a mixin and the template would refuse to build.
+- **Add a declaration to `window_parts.py`** when a mixin starts using state or a sibling method it didn't before — that file is why each mixin type-checks on its own. Stubs there `raise NotImplementedError`, so a declaration with no implementation fails loudly.
+
+Anything only used inside one mixin stays private to it; `window_parts.py` lists just the cross-module surface.
 
 ### Threading model (critical)
 
-**All network I/O runs on a `threading.Thread(daemon=True)`; results are marshalled back to the main thread with `GLib.idle_add`.** The worker function does network only — it must never touch the database or GTK widgets. The `_on_*` callback that `idle_add` schedules runs on the main loop and is the only place that mutates the DB or UI. Follow this pattern for any new network action (see `_start_sync`/`_sync_worker`/`_on_sync_done` in `window.py`). IMAP/SMTP sessions are opened and torn down per operation, not pooled.
+**All network I/O runs on a `threading.Thread(daemon=True)`; results are marshalled back to the main thread with `GLib.idle_add`.** The worker function does network only — it must never touch the database or GTK widgets, and that includes reading `self._account` or looking up the password: resolve those on the main thread and pass them in. The `_on_*` callback that `idle_add` schedules runs on the main loop and is the only place that mutates the DB or UI. Follow this pattern for any new network action (see `_start_sync`/`_sync_worker`/`_on_sync_done` in `window_sync.py`). Hand the worker a frozen snapshot rather than a live object the main thread might mutate — `FlagChange` and `BodyRequest` in `window_types.py` are the examples. IMAP/SMTP sessions are opened and torn down per operation, not pooled.
+
+### No account is a real state
+
+`_load_mail_view` is skipped entirely when the database has no accounts, so everything it assigns — `_account`, the conversation store, the folder tree — does not exist yet, while background callbacks (the sync timer, `network-changed`, notification actions, accelerators) can still fire. Read that state through a guard clause, never directly. Four separate crashes have come from forgetting this; if you add a method that touches per-account state, check it against a window built on an empty database.
 
 ### UI is Blueprint, not hand-written XML
 
@@ -66,7 +95,7 @@ UI is authored in `src/ui/*.blp` (Blueprint). At build time meson runs `blueprin
 - SQLite at `$XDG_DATA_HOME/postcard/postcard.db`, created/migrated in `Database._create_tables`. Full-text search uses an FTS5 virtual table (`emails_fts`) kept in sync via triggers; search goes through `search_conversations`.
 - **Conversation threading:** `core/threader.py` union-finds emails by Message-ID / In-Reply-To / References with a normalized-subject fallback; the conversation id is the smallest email id in the group. `Database.reassign_conversations` recomputes and persists it after each sync.
 - Message ordering uses the IMAP UID (`server_id`), **not** the local autoincrement id, because load-on-scroll backfill assigns newer local ids to older mail (see `_arrival_key`).
-- Folders mirror the server list each sync (`prune_folders`), keeping only the local `Outbox`. Folder role/icon/display-name classification lives in `mail_sync.py` (`role_for_folder`, `icon_for_folder`, `display_name_for_folder`) — matched by name substring, tolerant of casing and Gmail's `[Gmail]/` prefixes.
+- Folders mirror the server list each sync (`prune_folders`), keeping only the local `Outbox`. Folder role/icon/display-name classification lives in `mail_sync.py` (`role_for_folder`, `icon_for_folder`, `display_name_for_folder`) — matched by name substring, tolerant of casing and Gmail's `[Gmail]/` prefixes. `role_for_folder` returns a `FolderRole` `StrEnum`; compare against its members rather than bare strings, and note that both `Archive` and Gmail's `All Mail` classify as `ARCHIVE`, which `_folder_with_role` breaks in favour of a real `Archive` folder.
 - Settings are GSettings, schema `in.gxanshu.postcard` in `data/*.gschema.xml` (sync interval, notifications, remote-image loading, signature, window geometry). Add keys there before reading them.
 - Passwords are stored in the system keyring via libsecret (`core/secrets.py`), never in the DB.
 

@@ -4,9 +4,12 @@ import postcard.mail_sync as mail_sync
 from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
+from postcard.core.net.imap_session import FetchedHeader
 from postcard.mail_sync import (
+    NO_SUBJECT,
     FolderRole,
     SyncResult,
+    _to_message_header,
     display_name_for_folder,
     fetch_mailbox,
     icon_for_folder,
@@ -209,3 +212,82 @@ def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_pag
     assert FakeImapSession.searches == search_calls
     assert result.all_uids == snapshot
     assert SyncResult().all_uids is None
+
+
+# --- raw wire headers -> display-ready MessageHeader ------------------------
+
+
+def fetched(**overrides) -> FetchedHeader:
+    fields = {
+        "uid": "42",
+        "from_header": "Ada Lovelace <ada@example.com>",
+        "to_header": "Me <me@example.com>",
+        "cc_header": "",
+        "subject": "Lunch",
+        "date": "Thu, 16 Jul 2026 10:00:00 +0000",
+        "message_id": "<a@example.com>",
+        "in_reply_to": "",
+        "references": "",
+        "seen": False,
+        "flagged": False,
+    }
+    return FetchedHeader(**{**fields, **overrides})
+
+
+def test_the_display_name_and_address_are_split_out():
+    header = _to_message_header(fetched())
+    assert header.sender == "Ada Lovelace"
+    assert header.sender_address == "ada@example.com"
+
+
+def test_a_bare_address_becomes_its_own_display_name():
+    header = _to_message_header(fetched(from_header="ada@example.com"))
+    assert header.sender == "ada@example.com"
+    assert header.sender_address == "ada@example.com"
+
+
+def test_the_date_is_shortened_for_the_list():
+    assert _to_message_header(fetched()).date == "Jul 16"
+
+
+def test_an_unparseable_date_is_passed_through_unchanged():
+    assert _to_message_header(fetched(date="whenever")).date == "whenever"
+
+
+def test_the_seen_flag_is_inverted_into_unread():
+    # The single most confusable field in the mapping: the server reports what
+    # has been read, the app tracks what has not.
+    assert _to_message_header(fetched(seen=False)).is_unread is True
+    assert _to_message_header(fetched(seen=True)).is_unread is False
+
+
+def test_the_flagged_flag_becomes_starred():
+    assert _to_message_header(fetched(flagged=True)).is_starred is True
+
+
+def test_a_missing_subject_gets_the_placeholder():
+    # NO_SUBJECT, never a translated string -- see the threader tests.
+    assert _to_message_header(fetched(subject="")).subject == NO_SUBJECT
+
+
+def test_every_address_on_the_message_is_collected_for_contacts():
+    header = _to_message_header(
+        fetched(
+            from_header="Ada <ada@example.com>",
+            to_header="Me <me@example.com>",
+            cc_header="Grace <grace@example.com>",
+        )
+    )
+    assert header.addresses == [
+        ("Ada", "ada@example.com"),
+        ("Me", "me@example.com"),
+        ("Grace", "grace@example.com"),
+    ]
+
+
+def test_the_uid_and_threading_headers_carry_over_verbatim():
+    header = _to_message_header(
+        fetched(uid="7", message_id="<b>", in_reply_to="<a>", references="<a> <x>")
+    )
+    assert (header.uid, header.message_id) == ("7", "<b>")
+    assert (header.in_reply_to, header.references) == ("<a>", "<a> <x>")

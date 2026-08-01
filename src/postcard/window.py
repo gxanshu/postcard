@@ -20,6 +20,7 @@
 import email
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from email import policy
 from email.utils import parseaddr
@@ -49,6 +50,21 @@ from .message_view import MessageView
 # Window action names, grouped by what enables and disables them together.
 MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
 REPLY_FORWARD_ACTIONS = ("reply", "forward")
+
+# Local-only queue for mail composed while offline; never mirrored from the
+# server, so prune_folders keeps it. "Sent" is matched on the server list.
+OUTBOX_FOLDER = "Outbox"
+SENT_FOLDER = "Sent"
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxResult:
+    """One attempted send from the Outbox. error is None when it went out."""
+
+    email_id: int
+    subject: str
+    raw: bytes
+    error: Exception | None
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/main-window.ui")
@@ -95,6 +111,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         if settings.get_boolean("window-maximized"):
             self.maximize()
+
+        # None until _load_mail_view runs, which __init__ skips entirely when
+        # there are no accounts yet. Read it through a guard clause, never
+        # directly -- background callbacks (sync timer, network-changed,
+        # notification actions) can fire while it is still None.
+        self._account: Account | None = None
 
         self._current_folder: Folder | None = None
         self._active_view: MessageView | None = None
@@ -156,7 +178,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _load_mail_view(self, account: Account) -> None:
         self._account = account
-        self._account_id = account.id
 
         # Reset per-account reader state so a switch starts clean.
         self._current_folder = None
@@ -225,7 +246,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # --- account switcher -------------------------------------------------
 
     def _refresh_account_switcher(self) -> None:
-        self.account_switcher.set_label(self._account.email)
+        account = self._account
+        if account is None:
+            return
+        self.account_switcher.set_label(account.email)
         self.account_switcher.set_popover(self._build_account_popover())
 
     def _build_account_popover(self) -> Gtk.Popover:
@@ -239,7 +263,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             row = Adw.ActionRow(
                 title=account.email, subtitle=account.display_name, activatable=True
             )
-            if account.id == self._account_id:
+            if self._account is not None and account.id == self._account.id:
                 row.add_suffix(Gtk.Image.new_from_icon_name("object-select-symbolic"))
             row.connect("activated", self._on_account_row_activated, account)
             accounts_list.append(row)
@@ -261,7 +285,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _on_account_row_activated(self, _row: Adw.ActionRow, account: Account) -> None:
         self.account_switcher.popdown()
-        if account.id != self._account_id:
+        if self._account is None or account.id != self._account.id:
             self._load_mail_view(account)
 
     def _on_switcher_add(self, button: Gtk.Button) -> None:
@@ -281,7 +305,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not accounts:
             self.main_stack.set_visible_child_name("no-account")
             return
-        current = getattr(self, "_account_id", None)
+        current = self._account.id if self._account else None
         if current is not None and any(a.id == current for a in accounts):
             self._refresh_account_switcher()
         else:
@@ -344,10 +368,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._open_composer(subject=subject, body=body)
 
     def _open_composer(self, to: str = "", subject: str = "", body: str = "") -> None:
+        account = self._account
+        if account is None:
+            return
         composer = PostcardComposerWindow(
             self.get_application(),
             self._db,
-            self._account,
+            account,
             to=to,
             subject=subject,
             body=body,
@@ -547,13 +574,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _run_flag_worker(
         self, uids: list[str], flag: str, add: bool, revert: Callable[[], None]
     ) -> None:
-        password = secrets.lookup_password(self._account_id)
+        account = self._account
         folder = self._current_folder
-        if not password or folder is None:
+        if account is None or folder is None:
+            return
+        password = secrets.lookup_password(account.id)
+        if not password:
             return
         thread = threading.Thread(
             target=self._flag_worker,
-            args=(self._account, password, folder.name, uids, flag, add, revert),
+            args=(account, password, folder.name, uids, flag, add, revert),
             daemon=True,
         )
         thread.start()
@@ -629,9 +659,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._start_move(conversations, dest, title)
 
     def _folder_with_role(self, role: str) -> Folder | None:
+        if self._account is None:
+            return None
         current_id = self._current_folder.id if self._current_folder else None
         matches = []
-        for folder in self._db.folders_for_account(self._account_id):
+        for folder in self._db.folders_for_account(self._account.id):
             if (
                 folder.id != current_id
                 and mail_sync.role_for_folder(folder.name) == role
@@ -644,7 +676,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         return matches[0] if matches else None
 
     def _find_folder_by_name(self, name: str) -> Folder | None:
-        for folder in self._db.folders_for_account(self._account_id):
+        if self._account is None:
+            return None
+        for folder in self._db.folders_for_account(self._account.id):
             if folder.name == name:
                 return folder
         return None
@@ -761,14 +795,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 self._move_tombstones.pop((tombstone_folder_id, uid), None)
 
     def _run_move_worker(self, pending: dict) -> None:
-        password = secrets.lookup_password(self._account_id)
-        if not password:
+        account = self._account
+        password = secrets.lookup_password(account.id) if account else None
+        if account is None or not password:
             self._restore_move(pending)
             self._toast(_("No saved password for this account."))
             return
         thread = threading.Thread(
             target=self._move_worker,
-            args=(self._account, password, pending),
+            args=(account, password, pending),
             daemon=True,
         )
         thread.start()
@@ -824,8 +859,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # action prefix (the toolbar uses win.move and context menus use context.move).
     def _build_move_menu(self, action_prefix: str = "win") -> Gio.Menu:
         menu = Gio.Menu()
+        if self._account is None:
+            return menu
         current_id = self._current_folder.id if self._current_folder else None
-        for folder in self._db.folders_for_account(self._account_id):
+        for folder in self._db.folders_for_account(self._account.id):
             if folder.id == current_id:
                 continue
             label = mail_sync.display_name_for_folder(
@@ -1276,29 +1313,38 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             callback(None, _("This message hasn't finished syncing yet."))
             return
 
-        assert self._current_folder is not None
+        account = self._account
+        folder = self._current_folder
+        if account is None or folder is None:
+            callback(None, _("No account is open."))
+            return
+
+        password = secrets.lookup_password(account.id)
+        if not password:
+            callback(None, _("No saved password for this account."))
+            return
+
         thread = threading.Thread(
             target=self._body_worker,
-            args=(mail.id, mail.server_id, self._current_folder.name, callback),
+            args=(mail.id, mail.server_id, folder.name, callback, account, password),
             daemon=True,
         )
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access. Takes
-    # plain values rather than the Email, which the main thread may mutate.
+    # plain values rather than the Email, which the main thread may mutate --
+    # the account and password are resolved by _load_body for the same reason.
     def _body_worker(
-        self, email_id: int, uid: str, folder_name: str, callback: Callable
+        self,
+        email_id: int,
+        uid: str,
+        folder_name: str,
+        callback: Callable,
+        account: Account,
+        password: str,
     ) -> None:
-        password = secrets.lookup_password(self._account_id)
-        if not password:
-            GLib.idle_add(
-                self._deliver_body, callback, email_id, None, "no saved password"
-            )
-            return
         try:
-            raw = mail_sync.fetch_full_message(
-                self._account, password, folder_name, uid
-            )
+            raw = mail_sync.fetch_full_message(account, password, folder_name, uid)
         except Exception as error:
             GLib.idle_add(self._deliver_body, callback, email_id, None, str(error))
             return
@@ -1371,11 +1417,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.search_bar.set_search_mode(not self.search_bar.get_search_mode())
 
     def _drain_outbox(self) -> None:
+        account = self._account
+        if account is None:
+            return
+
         outbox = next(
             (
                 folder
-                for folder in self._db.folders_for_account(self._account_id)
-                if folder.name == "Outbox"
+                for folder in self._db.folders_for_account(account.id)
+                if folder.name == OUTBOX_FOLDER
             ),
             None,
         )
@@ -1386,72 +1436,93 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not pending:
             return
 
-        password = secrets.lookup_password(self._account_id)
+        password = secrets.lookup_password(account.id)
         if not password:
             return
 
-        items = []
-        for item in pending:
-            raw = self._db.get_raw_message(item.id)
+        jobs = []
+        for mail in pending:
+            raw = self._db.get_raw_message(mail.id)
             if raw is None:
                 continue
-            items.append((item.id, item.subject, compose.extract_recipients(raw), raw))
-        if not items:
+            jobs.append((mail.id, mail.subject, compose.extract_recipients(raw), raw))
+        if not jobs:
             return
 
         thread = threading.Thread(
             target=self._outbox_worker,
-            args=(self._account, password, items),
+            args=(account, password, jobs),
             daemon=True,
         )
         thread.start()
 
-    # Runs on the worker thread: network only, no Gtk/database access.
+    # Runs on the worker thread: network only, no Gtk/database access. Failures
+    # travel back as the exception itself -- the mail stays in the Outbox, so
+    # the user has to be told why rather than left believing it was sent.
     def _outbox_worker(
         self,
         account: Account,
         password: str,
-        items: list[tuple[int, str, list[str], bytes]],
+        jobs: list[tuple[int, str, list[str], bytes]],
     ) -> None:
-        results = []
-        for email_id, subject, recipients, raw in items:
+        results: list[OutboxResult] = []
+        for email_id, subject, recipients, raw in jobs:
             try:
                 mail_sync.send_message(
                     account, password, account.email, recipients, raw
                 )
-                results.append((email_id, subject, raw, True))
-            except Exception:
-                results.append((email_id, subject, raw, False))
+            except Exception as error:  # noqa: BLE001 - reported, not swallowed
+                results.append(OutboxResult(email_id, subject, raw, error))
+            else:
+                results.append(OutboxResult(email_id, subject, raw, None))
         GLib.idle_add(self._on_outbox_drained, results)
 
     # Back on the main thread: safe to touch the database and widgets.
-    def _on_outbox_drained(self, results: list[tuple[int, str, bytes, bool]]) -> bool:
+    def _on_outbox_drained(self, results: list[OutboxResult]) -> bool:
+        account = self._account
+        if account is None:
+            return False
+
         sent_folder: Folder | None = None
         sent_count = 0
-        for email_id, subject, raw, ok in results:
-            if not ok:
+        for result in results:
+            if result.error is not None:
                 continue
             if sent_folder is None:
                 sent_folder = self._db.get_or_create_folder(
-                    self._account_id, "Sent", mail_sync.icon_for_folder("Sent")
+                    account.id, SENT_FOLDER, mail_sync.icon_for_folder(SENT_FOLDER)
                 )
             row = self._db.save_email(
                 sent_folder.id,
-                sender=self._account.email,
-                sender_address=self._account.email,
-                subject=subject,
-                preview=subject,
+                sender=account.email,
+                sender_address=account.email,
+                subject=result.subject,
+                preview=result.subject,
                 date=datetime.now().strftime("%b %d"),
                 unread=False,
             )
-            self._db.save_raw_message(row.id, raw)
-            self._db.delete_email(email_id)
+            self._db.save_raw_message(row.id, result.raw)
+            self._db.delete_email(result.email_id)
             sent_count += 1
 
         if sent_count:
             self._reload_folders()
             self._refresh_conversations()
             self._toast(_("Sent {n} queued message(s).").format(n=sent_count))
+
+        # Queued mail that could not be sent is still in the Outbox, so say so
+        # -- silently leaving it there reads as "sent" to the user.
+        send_errors = [result.error for result in results if result.error is not None]
+        if send_errors:
+            category, message = errors.classify(send_errors[0], account.smtp_host)
+            self._show_connection_banner(
+                ngettext(
+                    "Couldn't send a queued message. {reason}",
+                    "Couldn't send {n} queued messages. {reason}",
+                    len(send_errors),
+                ).format(n=len(send_errors), reason=message),
+                self._retry_button_label(category),
+            )
         return False
 
     def _start_sync(
@@ -1464,8 +1535,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # one already running.
         if background and self._syncing:
             return
-        password = secrets.lookup_password(self._account_id)
-        if not password:
+        account = self._account
+        password = secrets.lookup_password(account.id) if account else None
+        if account is None or not password:
             if not background:
                 self._toast(_("No saved password for this account."))
             return
@@ -1475,7 +1547,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.conversation_stack.set_visible_child_name("loading")
         thread = threading.Thread(
             target=self._sync_worker,
-            args=(self._account, password, folder_name, offset),
+            args=(account, password, folder_name, offset),
             daemon=True,
         )
         thread.start()
@@ -1492,11 +1564,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
 
     def _on_sync_tick(self) -> bool:
-        if (
-            getattr(self, "_account_id", None) is not None
-            and self._online
-            and not self._syncing
-        ):
+        if self._account is not None and self._online and not self._syncing:
             self._drain_outbox()
             self._start_sync(background=True)
         return True
@@ -1521,6 +1589,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # Back on the main thread: safe to touch the database and widgets.
     def _on_sync_done(self, result: mail_sync.SyncResult) -> bool:
+        account = self._account
+        if account is None:
+            return False
+
         # Remember the open conversation so a background poll doesn't yank it.
         selected = self._selected_conversation()
         keep_id = selected.id if selected is not None else None
@@ -1535,10 +1607,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             name, delimiter = mailbox.name, mailbox.delimiter
             selectable = "\\Noselect" not in mailbox.flags
             icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
-            folder = self._db.get_or_create_folder(self._account_id, name, icon)
+            folder = self._db.get_or_create_folder(account.id, name, icon)
 
             parent_name = mail_sync.parent_mailbox_name(name, delimiter)
-            parent = self._db.get_folder_by_name(self._account_id, parent_name)
+            parent = self._db.get_folder_by_name(account.id, parent_name)
             self._db.set_folder_parent(
                 folder.id, parent.id if parent else None, delimiter
             )
@@ -1547,11 +1619,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             # Mirror the server's folder list, keeping only the local Outbox.
             # This clears stale rows like a duplicate "INBOX" from earlier
             # versions.
-            names = {m.name for m in mailboxes} | {"Outbox"}
-            self._db.prune_folders(self._account_id, names)
+            names = {m.name for m in mailboxes} | {OUTBOX_FOLDER}
+            self._db.prune_folders(account.id, names)
 
         target = self._db.get_or_create_folder(
-            self._account_id, result.folder, mail_sync.icon_for_folder(result.folder)
+            account.id, result.folder, mail_sync.icon_for_folder(result.folder)
         )
         new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
@@ -1631,11 +1703,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _on_sync_error(self, category: str, message: str) -> bool:
         self._set_syncing(False)
+        self._show_connection_banner(message, self._retry_button_label(category))
+        return False
+
+    @staticmethod
+    def _retry_button_label(category: str) -> str:
         # Auth failures aren't worth a Retry button (same password); everything
         # else is a transient connection problem the user can retry.
-        button = "" if category == "auth" else _("Retry")
-        self._show_connection_banner(message, button)
-        return False
+        return "" if category == errors.CATEGORY_AUTH else _("Retry")
 
     # --- connection banner / offline handling -----------------------------
 
@@ -1651,7 +1726,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _on_banner_retry(self, _banner: Adw.Banner) -> None:
         self.connection_banner.set_revealed(False)
-        if getattr(self, "_account_id", None) is not None:
+        if self._account is not None:
             self._drain_outbox()
             self._start_sync()
 
@@ -1666,7 +1741,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._show_offline_banner()
             return
         self.connection_banner.set_revealed(False)
-        if getattr(self, "_account_id", None) is not None:
+        if self._account is not None:
             self._drain_outbox()
             self._start_sync()
 
@@ -1720,7 +1795,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # expand/collapse state, so only rebuild when the folders or their nesting
     # actually changed. A plain badge/icon update refreshes the rows in place.
     def _reload_folders(self) -> None:
-        folders = self._db.folders_for_account(self._account_id)
+        if self._account is None:
+            return
+        folders = self._db.folders_for_account(self._account.id)
 
         self._folder_children = {}
         for folder in folders:
@@ -1770,7 +1847,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # makes the reader rebuild even if the thread is already shown, so the usual
     # open path marks it read.
     def open_email(self, folder_id: int, uid: str) -> None:
-        if getattr(self, "_account_id", None) is None:
+        if self._account is None:
             return
         self._select_folder_by_id(folder_id)
 

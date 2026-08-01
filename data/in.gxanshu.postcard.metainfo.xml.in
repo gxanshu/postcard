@@ -59,6 +59,22 @@
   </screenshots>
 
   <releases>
+    <release version="1.6.0" date="2026-08-01">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Postcard can now be your default mail client — mailto: links open the composer
+          with the recipient, subject and body already filled in</li>
+          <li>Select several conversations at once and archive, move or trash them together,
+          from the list or the right-click menu</li>
+          <li>Fix sending reporting success when the server had actually rejected the
+          message</li>
+          <li>Fix crashes when opening mail from a notification and before an account has
+          loaded</li>
+          <li>Fix archived mail reappearing after a sync</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.0" date="2026-07-28">
       <description translate="no">
         <p>New in this release:</p>

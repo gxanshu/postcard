@@ -184,7 +184,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self.connection_banner.connect("button-clicked", self._on_banner_retry)
         self._network = Gio.NetworkMonitor.get_default()
-        self._online = self._network.get_network_available()
+        self._is_online = self._network.get_network_available()
         self._network_handler = self._network.connect(
             "network-changed", self._on_network_changed
         )
@@ -194,14 +194,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             "changed::load-sender-avatars", lambda *_: self._refresh_conversations()
         )
 
-        self._syncing = False
+        self._is_syncing = False
         self._sync_timer_id = 0
         self._interval_handler = self._settings.connect(
             f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
         )
 
         self.connect("close-request", self._on_close_request)
-        if not self._online:
+        if not self._is_online:
             self._show_offline_banner()
 
         accounts = self._db.accounts()
@@ -221,8 +221,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Load-on-scroll paging state, keyed by folder id: how many of the
         # newest messages we've paged through (also the next page's offset),
         # and whether older messages remain on the server.
-        self._loaded_count: dict[int, int] = {}
-        self._has_more: dict[int, bool] = {}
+        self._loaded_counts: dict[int, int] = {}
+        self._folders_with_more_mail: dict[int, bool] = {}
         self.reader_stack.set_visible_child_name(PAGE_EMPTY)
         self._set_mail_actions_enabled(False)
         self.reply_button.set_sensitive(False)
@@ -236,7 +236,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # _reload_folders can refresh them without rebuilding the tree.
         self._folder_rows: dict[int, FolderRow] = {}
         # The (id, parent_id) pairs the tree was last built from.
-        self._folder_shape: list[tuple[int, int | None]] = []
+        self._folder_shape_pairs: list[tuple[int, int | None]] = []
         # Folders grouped by parent id; None holds the roots.
         self._folder_children: dict[int | None, list[Folder]] = {}
 
@@ -275,8 +275,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._drain_outbox()
         self._reschedule_sync()
-        if self._online:
-            self._start_sync(background=True)
+        if self._is_online:
+            self._start_sync(in_background=True)
 
     # --- account switcher -------------------------------------------------
 
@@ -341,7 +341,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
             return
         current = self._account.id if self._account else None
-        if current is not None and any(a.id == current for a in accounts):
+        if current is not None and any(account.id == current for account in accounts):
             self._refresh_account_switcher()
         else:
             self._load_mail_view(accounts[0])
@@ -460,20 +460,20 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ):
                 app.set_accels_for_action(name, accels)
 
-    def _set_actions_enabled(self, names: tuple[str, ...], enabled: bool) -> None:
+    def _set_actions_enabled(self, names: tuple[str, ...], is_enabled: bool) -> None:
         # Only Gio.SimpleAction can be toggled; the plain Gio.Action interface
         # exposes no setter, so anything else is skipped rather than crashing.
         for name in names:
             action = self.lookup_action(name)
             if isinstance(action, Gio.SimpleAction):
-                action.set_enabled(enabled)
+                action.set_enabled(is_enabled)
 
-    def _set_mail_actions_enabled(self, enabled: bool) -> None:
-        self._set_actions_enabled(MAIL_ACTIONS, enabled)
-        self.move_button.set_sensitive(enabled)
+    def _set_mail_actions_enabled(self, is_enabled: bool) -> None:
+        self._set_actions_enabled(MAIL_ACTIONS, is_enabled)
+        self.move_button.set_sensitive(is_enabled)
 
-    def _set_reply_forward_enabled(self, enabled: bool) -> None:
-        self._set_actions_enabled(REPLY_FORWARD_ACTIONS, enabled)
+    def _set_reply_forward_enabled(self, is_enabled: bool) -> None:
+        self._set_actions_enabled(REPLY_FORWARD_ACTIONS, is_enabled)
 
     def _selected_conversations(self) -> list[Conversation]:
         selected = []
@@ -495,22 +495,19 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         self._toggle_read_many(conversations)
 
-    def _toggle_read(self, conversation: Conversation) -> None:
-        self._toggle_read_many([conversation])
-
     def _toggle_read_many(self, conversations: list[Conversation]) -> None:
         # A mixed selection follows the aggregate command shown in the menu:
-        # if anything is unread, mark the whole selection read.
-        unread = not any(conversation.unread for conversation in conversations)
+        # if anything is is_unread, mark the whole selection read.
+        is_unread = not any(conversation.is_unread for conversation in conversations)
         originals = {
-            mail.id: mail.unread
+            mail.id: mail.is_unread
             for conversation in conversations
             for mail in conversation.emails
         }
         for conversation in conversations:
             for mail in conversation.emails:
-                mail.unread = unread
-                if unread:
+                mail.is_unread = is_unread
+                if is_unread:
                     self._db.mark_email_unread(mail.id)
                 else:
                     self._db.mark_email_read(mail.id)
@@ -519,7 +516,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for conversation in conversations:
                 for mail in conversation.emails:
                     old_unread = originals[mail.id]
-                    mail.unread = old_unread
+                    mail.is_unread = old_unread
                     if old_unread:
                         self._db.mark_email_unread(mail.id)
                     else:
@@ -533,7 +530,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for uid in mail_sync.server_uids(conversation)
         ]
         self._run_flag_worker(
-            uids, imap_session.FLAG_SEEN, add=not unread, revert=revert
+            uids, imap_session.FLAG_SEEN, should_add=not is_unread, revert=revert
         )
 
     def _on_toggle_star(self, _action: Gio.SimpleAction, _param: object) -> None:
@@ -542,28 +539,25 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         self._toggle_star_many(conversations)
 
-    def _toggle_star(self, conversation: Conversation) -> None:
-        self._toggle_star_many([conversation])
-
     def _toggle_star_many(self, conversations: list[Conversation]) -> None:
         # As with read state, one aggregate command gives the whole selection a
         # deterministic state even when the conversations are mixed.
-        starred = not any(conversation.starred for conversation in conversations)
+        is_starred = not any(conversation.is_starred for conversation in conversations)
         originals = {
-            mail.id: mail.starred
+            mail.id: mail.is_starred
             for conversation in conversations
             for mail in conversation.emails
         }
         for conversation in conversations:
             for mail in conversation.emails:
-                mail.starred = starred
-                self._db.set_email_starred(mail.id, starred)
+                mail.is_starred = is_starred
+                self._db.set_email_starred(mail.id, is_starred)
 
         def revert() -> None:
             for conversation in conversations:
                 for mail in conversation.emails:
                     old_starred = originals[mail.id]
-                    mail.starred = old_starred
+                    mail.is_starred = old_starred
                     self._db.set_email_starred(mail.id, old_starred)
             self._after_flag_change(conversations)
 
@@ -574,29 +568,31 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for uid in mail_sync.server_uids(conversation)
         ]
         self._run_flag_worker(
-            uids, imap_session.FLAG_FLAGGED, add=starred, revert=revert
+            uids, imap_session.FLAG_FLAGGED, should_add=is_starred, revert=revert
         )
 
-    # Clear the unread flag for a whole conversation: locally, in the badges
+    # Clear the is_unread flag for a whole conversation: locally, in the badges
     # and list, and on the server. A no-op if it's already read, so reopening a
     # read thread costs nothing.
     def _mark_conversation_read(self, conversation: Conversation) -> None:
-        if not conversation.unread:
+        if not conversation.is_unread:
             return
 
         for mail in conversation.emails:
-            mail.unread = False
+            mail.is_unread = False
             self._db.mark_email_read(mail.id)
 
         def revert() -> None:
             for mail in conversation.emails:
-                mail.unread = True
+                mail.is_unread = True
                 self._db.mark_email_unread(mail.id)
             self._after_flag_change(conversation)
 
         self._after_flag_change(conversation)
         uids = mail_sync.server_uids(conversation)
-        self._run_flag_worker(uids, imap_session.FLAG_SEEN, add=True, revert=revert)
+        self._run_flag_worker(
+            uids, imap_session.FLAG_SEEN, should_add=True, revert=revert
+        )
 
     # Update badges and the list after a flag change, keeping this
     # conversation selected (so the reader doesn't reload).
@@ -611,7 +607,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._refresh_conversations(keep_id=keep_id)
 
     def _run_flag_worker(
-        self, uids: list[str], flag: str, add: bool, revert: Callable[[], None]
+        self, uids: list[str], flag: str, should_add: bool, revert: Callable[[], None]
     ) -> None:
         account = self._account
         folder = self._current_folder
@@ -622,7 +618,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         thread = threading.Thread(
             target=self._flag_worker,
-            args=(account, password, folder.name, uids, flag, add, revert),
+            args=(account, password, folder.name, uids, flag, should_add, revert),
             daemon=True,
         )
         thread.start()
@@ -635,11 +631,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         folder_name: str,
         uids: list[str],
         flag: str,
-        add: bool,
+        should_add: bool,
         revert: Callable[[], None],
     ) -> None:
         try:
-            mail_sync.set_flag(account, password, folder_name, uids, flag, add)
+            mail_sync.set_flag(account, password, folder_name, uids, flag, should_add)
         except Exception as error:
             logger.exception(
                 "could not set %s on %d message(s) in %s (account %s)",
@@ -926,9 +922,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 
-    def _rebuild_move_menu(self) -> None:
-        self.move_button.set_menu_model(self._build_move_menu())
-
     # A menu of every folder except the current one, each targeting the given
     # action prefix (the toolbar uses win.move and context menus use context.move).
     def _build_move_menu(self, action_prefix: str = "win") -> Gio.Menu:
@@ -1028,8 +1021,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         selected = self._selected_conversations() or [conversation]
 
         flags = Gio.Menu()
-        read = _("Mark Read") if any(c.unread for c in selected) else _("Mark Unread")
-        star = _("Unstar") if any(c.starred for c in selected) else _("Star")
+        read = (
+            _("Mark Read")
+            if any(item.is_unread for item in selected)
+            else _("Mark Unread")
+        )
+        star = _("Unstar") if any(item.is_starred for item in selected) else _("Star")
         flags.append(read, "context.toggle-read")
         flags.append(star, "context.toggle-star")
         menu.append_section(None, flags)
@@ -1107,17 +1104,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # Select the inbox row, or the first folder if we can't spot one.
     def _select_inbox_row(self) -> None:
-        n = self._folder_tree_model.get_n_items()
-        if n == 0:
+        row_count = self._folder_tree_model.get_n_items()
+        if row_count == 0:
             return
         target = 0
-        for i in range(n):
-            tree_row = self._folder_tree_model.get_item(i)
+        for position in range(row_count):
+            tree_row = self._folder_tree_model.get_item(position)
             if isinstance(tree_row, Gtk.TreeListRow):
                 folder = tree_row.get_item()
                 assert isinstance(folder, Folder)
                 if mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX:
-                    target = i
+                    target = position
                     break
 
         # Row 0 is autoselected when the tree is built, so set_selected() may
@@ -1149,8 +1146,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Only sync on a real folder change — rebuilding the sidebar re-emits
         # selection-changed for the same folder, which would loop.
         changed = previous is None or previous.id != folder.id
-        if changed and self._online:
-            self._start_sync(background=True, folder_name=folder.name)
+        if changed and self._is_online:
+            self._start_sync(in_background=True, folder_name=folder.name)
 
     # Rebuild the conversation list from the current folder, applying the
     # search query if one is typed. Called on folder change and search change.
@@ -1173,7 +1170,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             # Keep the conversation being read (keep_id) even once it's marked
             # read, so opening a mail here doesn't make it vanish under you; it
             # drops out on the next refresh when you move to another.
-            matches = [c for c in matches if c.unread or c.id == keep_id]
+            matches = [item for item in matches if item.is_unread or item.id == keep_id]
 
         # Clear the selection before updating the existing store. MultiSelection
         # tracks positions, while keep_id tracks the conversation itself. Hold
@@ -1200,7 +1197,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         if store.get_n_items() > 0:
             self.conversation_stack.set_visible_child_name("list")
-        elif self._syncing:
+        elif self._is_syncing:
             self.conversation_stack.set_visible_child_name(PAGE_LOADING)
         else:
             self.conversation_stack.set_visible_child_name(PAGE_EMPTY)
@@ -1261,14 +1258,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if pos != Gtk.PositionType.BOTTOM:
             return
         folder = self._current_folder
-        if folder is None or self._syncing or not self._online:
+        if folder is None or self._is_syncing or not self._is_online:
             return
-        if not self._has_more.get(folder.id, False):
+        if not self._folders_with_more_mail.get(folder.id, False):
             return
         self._start_sync(
-            background=True,
+            in_background=True,
             folder_name=folder.name,
-            offset=self._loaded_count.get(folder.id, 0),
+            offset=self._loaded_counts.get(folder.id, 0),
         )
 
     # (position, n_items) come from the signal; we just re-read the current
@@ -1325,18 +1322,18 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             selected = conversations
         self._set_mail_actions_enabled(True)
 
-        if any(conversation.unread for conversation in selected):
+        if any(conversation.is_unread for conversation in selected):
             self.mark_read_button.set_icon_name("mail-read-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Read"))
         else:
-            self.mark_read_button.set_icon_name("mail-unread-symbolic")
+            self.mark_read_button.set_icon_name("mail-is_unread-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Unread"))
 
-        if any(conversation.starred for conversation in selected):
-            self.star_button.set_icon_name("starred-symbolic")
+        if any(conversation.is_starred for conversation in selected):
+            self.star_button.set_icon_name("is_starred-symbolic")
             self.star_button.set_tooltip_text(_("Unstar"))
         else:
-            self.star_button.set_icon_name("non-starred-symbolic")
+            self.star_button.set_icon_name("non-is_starred-symbolic")
             self.star_button.set_tooltip_text(_("Star"))
 
     # Build one MessageView per email, newest first. The newest starts expanded
@@ -1350,17 +1347,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.thread_box.remove(child)
             child = next_child
 
-        remote_images = self._settings.get_boolean("load-remote-images")
+        should_load_remote_images = self._settings.get_boolean("load-remote-images")
         emails = list(reversed(conversation.emails))
         for index, mail in enumerate(emails):
-            newest = index == 0
+            is_newest = index == 0
             view = MessageView(
                 mail,
                 on_load=self._load_body,
                 on_save_attachment=self._save_attachment,
-                on_rendered=self._on_newest_rendered if newest else None,
-                expanded=newest,
-                remote_images=remote_images,
+                on_rendered=self._on_newest_rendered if is_newest else None,
+                is_expanded=is_newest,
+                should_load_remote_images=should_load_remote_images,
                 avatars=self._avatars,
             )
             self.thread_box.append(view)
@@ -1604,7 +1601,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 subject=result.subject,
                 preview=result.subject,
                 date=datetime.now().strftime("%b %d"),
-                unread=False,
+                is_unread=False,
             )
             self._db.save_raw_message(row.id, result.raw)
             self._db.delete_email(result.email_id)
@@ -1632,18 +1629,18 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _start_sync(
         self,
-        background: bool = False,
+        in_background: bool = False,
         folder_name: str | None = None,
         offset: int = 0,
     ) -> None:
         # Don't pile background syncs (folder clicks, the poll timer) on top of
         # one already running.
-        if background and self._syncing:
+        if in_background and self._is_syncing:
             return
         account = self._account
         password = secrets.lookup_password(account.id) if account else None
         if account is None or not password:
-            if not background:
+            if not in_background:
                 self._toast(_("No saved password for this account."))
             return
 
@@ -1669,9 +1666,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
 
     def _on_sync_tick(self) -> bool:
-        if self._account is not None and self._online and not self._syncing:
+        if self._account is not None and self._is_online and not self._is_syncing:
             self._drain_outbox()
-            self._start_sync(background=True)
+            self._start_sync(in_background=True)
         return True
 
     # Runs on the worker thread: network only, no Gtk/database access.
@@ -1710,12 +1707,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         keep_id = selected.id if selected is not None else None
 
         mailboxes = [
-            m for m in result.folders if m.name not in mail_sync.NAMESPACE_ROOTS
+            mailbox
+            for mailbox in result.folders
+            if mailbox.name not in mail_sync.NAMESPACE_ROOTS
         ]
 
         # Shortest name first: a parent's name is a prefix of its children's, so
         # every parent is stored before a child looks it up.
-        for mailbox in sorted(mailboxes, key=lambda m: len(m.name)):
+        for mailbox in sorted(mailboxes, key=lambda box: len(box.name)):
             name, delimiter = mailbox.name, mailbox.delimiter
             selectable = imap_session.ATTR_NOSELECT not in mailbox.flags
             icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
@@ -1731,7 +1730,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             # Mirror the server's folder list, keeping only the local Outbox.
             # This clears stale rows like a duplicate "INBOX" from earlier
             # versions.
-            names = {m.name for m in mailboxes} | {mail_sync.OUTBOX_FOLDER}
+            names = {box.name for box in mailboxes} | {mail_sync.OUTBOX_FOLDER}
             self._db.prune_folders(account.id, names)
 
         target = self._db.get_or_create_folder(
@@ -1742,7 +1741,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if (target.id, message.uid) in self._move_tombstones:
                 continue
             added = self._db.save_incoming_email(target.id, message)
-            if added and message.unread:
+            if added and message.is_unread:
                 new_messages.append(message)
         if result.all_uids is not None:
             self._db.prune_stale_emails(target.id, result.all_uids)
@@ -1754,15 +1753,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # From every fetched header, not just the newly added ones, so an
         # existing install fills its contacts on the next sync.
-        self._db.save_contacts([a for m in result.messages for a in m.addresses])
+        self._db.save_contacts(
+            [address for message in result.messages for address in message.addresses]
+        )
 
         # Update paging state: track the deepest page loaded (max() so a
         # newest-page poll never forgets how far the user has scrolled back),
         # and offer "more" only while messages remain beyond it.
         reached = result.offset + len(result.messages)
-        loaded = min(result.exists, max(self._loaded_count.get(target.id, 0), reached))
-        self._loaded_count[target.id] = loaded
-        self._has_more[target.id] = result.exists > loaded
+        loaded = min(result.exists, max(self._loaded_counts.get(target.id, 0), reached))
+        self._loaded_counts[target.id] = loaded
+        self._folders_with_more_mail[target.id] = result.exists > loaded
 
         self._set_syncing(False)
         self._reload_folders()
@@ -1791,7 +1792,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 "app.open-mail", GLib.Variant("(is)", (folder_id, messages[0].uid))
             )
         else:
-            senders = ", ".join(dict.fromkeys(m.sender for m in messages))
+            senders = ", ".join(dict.fromkeys(message.sender for message in messages))
             notification = Gio.Notification.new(
                 _("{n} new messages").format(n=len(messages))
             )
@@ -1831,12 +1832,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # network-changed fires on any change; act only on real online/offline flips.
     def _on_network_changed(
-        self, _monitor: Gio.NetworkMonitor, available: bool
+        self, _monitor: Gio.NetworkMonitor, is_available: bool
     ) -> None:
-        if available == self._online:
+        if is_available == self._is_online:
             return
-        self._online = available
-        if not available:
+        self._is_online = is_available
+        if not is_available:
             self._show_offline_banner()
             return
         self.connection_banner.set_revealed(False)
@@ -1867,25 +1868,25 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         return False
 
     def _notify_background(self) -> None:
-        if getattr(self, "_bg_notified", False):
+        if self._has_notified_background:
             return
 
-        self._bg_notified = True
+        self._has_notified_background = True
 
         app = self.get_application()
         if app is None:
             return
 
-        n = Gio.Notification.new(_("Postcard is running in the background"))
-        n.set_body(_("It will keep checking for new mail. Quit to stop."))
-        n.set_default_action("app.focus-mail")
-        app.send_notification("running-background", n)
+        notification = Gio.Notification.new(_("Postcard is running in the background"))
+        notification.set_body(_("It will keep checking for new mail. Quit to stop."))
+        notification.set_default_action("app.focus-mail")
+        app.send_notification("running-background", notification)
 
-    def _set_syncing(self, syncing: bool) -> None:
-        self._syncing = syncing
-        self.refresh_button.set_sensitive(not syncing)
-        self.sync_spinner.set_visible(syncing)
-        if syncing:
+    def _set_syncing(self, is_syncing: bool) -> None:
+        self._is_syncing = is_syncing
+        self.refresh_button.set_sensitive(not is_syncing)
+        self.sync_spinner.set_visible(is_syncing)
+        if is_syncing:
             self.sync_spinner.start()
         else:
             self.sync_spinner.stop()
@@ -1902,9 +1903,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         for folder in folders:
             self._folder_children.setdefault(folder.parent_id, []).append(folder)
 
-        shape = [(f.id, f.parent_id) for f in folders]
-        if shape != self._folder_shape:
-            self._folder_shape = shape
+        shape = [(folder.id, folder.parent_id) for folder in folders]
+        if shape != self._folder_shape_pairs:
+            self._folder_shape_pairs = shape
             self._rebuild_folder_tree()
 
         for folder in folders:
@@ -1931,15 +1932,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._suppress_folder_refresh = False
 
     def _select_folder_by_id(self, folder_id: int) -> None:
-        n = self._folder_tree_model.get_n_items()
-        if n == 0:
+        row_count = self._folder_tree_model.get_n_items()
+        if row_count == 0:
             return
-        for i in range(n):
-            tree_row = self._folder_tree_model.get_item(i)
+        for position in range(row_count):
+            tree_row = self._folder_tree_model.get_item(position)
             if isinstance(tree_row, Gtk.TreeListRow):
-                f = tree_row.get_item()
-                if isinstance(f, Folder) and f.id == folder_id:
-                    self._folder_selection.set_selected(i)
+                folder = tree_row.get_item()
+                if isinstance(folder, Folder) and folder.id == folder_id:
+                    self._folder_selection.set_selected(position)
                     return
 
     # Open one message by IMAP UID (from a notification). Clearing _rendered_id

@@ -16,7 +16,7 @@ class MessageHeader:
     """A fetched message's headers, already cleaned up for display.
 
     Distinct from imap_session.FetchedHeader, which is the raw wire form: the
-    sender here is a display name, the date is formatted, and `unread` is the
+    sender here is a display name, the date is formatted, and `is_unread` is the
     inverse of the server's \\Seen flag.
     """
 
@@ -25,8 +25,8 @@ class MessageHeader:
     sender_address: str
     subject: str
     date: str
-    unread: bool
-    starred: bool = False
+    is_unread: bool
+    is_starred: bool = False
     preview: str = ""
     message_id: str = ""
     in_reply_to: str = ""

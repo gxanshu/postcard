@@ -46,8 +46,10 @@ max-args = 5
 "tests/core/test_avatars.py" = ["E402"]
 
 # A test double has to match the signature of the thing it stands in for, so
-# the arguments it ignores are load-bearing.
-"tests/*" = ["ARG"]
+# the arguments it ignores are load-bearing. SLF001: tests legitimately reach
+# into the internals of the thing under test -- the suite already covers
+# module-private helpers like _arrival_key and _fts_query.
+"tests/*" = ["ARG", "SLF001"]
 
 # --- Permanent carve-outs, with the reason -----------------------------------
 # Account/Email/Folder are GObject.Object subclasses because Gio.ListStore only

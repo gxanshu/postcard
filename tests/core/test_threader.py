@@ -17,7 +17,7 @@ def mail(
         subject=subject,
         preview="",
         date="",
-        unread=False,
+        is_unread=False,
         message_id=message_id,
         in_reply_to=in_reply_to,
         references=references,

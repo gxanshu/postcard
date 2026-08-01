@@ -135,9 +135,9 @@ class ImapSession:
         hierarchy. The delimiter is "" when the server reports NIL, meaning a
         flat namespace whose names must not be split into parent and child.
         """
-        typ, data = self._require_imap().list()
+        status, payload = self._require_imap().list()
         result: list[MailboxInfo] = []
-        for raw in data:
+        for raw in payload:
             if not isinstance(raw, bytes):
                 continue
             line = raw.decode("utf-8", "replace")
@@ -151,42 +151,42 @@ class ImapSession:
             result.append(MailboxInfo(name, delimiter, flags_part))
         return result
 
-    def select(self, mailbox: str, readonly: bool = True) -> int:
+    def select(self, mailbox: str, is_readonly: bool = True) -> int:
         """Open a mailbox; return how many messages it holds.
 
-        readonly=True (the default) keeps us non-destructive and never marks
+        is_readonly=True (the default) keeps us non-destructive and never marks
         mail as read. Flag/move actions open it writable.
         """
-        typ, data = self._require_imap().select(
-            _quote_mailbox(mailbox), readonly=readonly
+        status, payload = self._require_imap().select(
+            _quote_mailbox(mailbox), readonly=is_readonly
         )
-        if typ != STATUS_OK:
-            raise ImapError(f"could not open {mailbox}: {data}")
-        return int(data[0]) if data and data[0] else 0
+        if status != STATUS_OK:
+            raise ImapError(f"could not open {mailbox}: {payload}")
+        return int(payload[0]) if payload and payload[0] else 0
 
-    def store_flags(self, uid: str, flags: str, add: bool) -> None:
+    def store_flags(self, uid: str, flags: str, should_add: bool) -> None:
         """Add or remove flags (e.g. "\\Seen") on one message by UID."""
-        command = "+FLAGS" if add else "-FLAGS"
-        typ, data = self._require_imap().uid("STORE", uid, command, f"({flags})")
-        if typ != STATUS_OK:
-            raise ImapError(f"could not update flags on {uid}: {data}")
+        command = "+FLAGS" if should_add else "-FLAGS"
+        status, payload = self._require_imap().uid("STORE", uid, command, f"({flags})")
+        if status != STATUS_OK:
+            raise ImapError(f"could not update flags on {uid}: {payload}")
 
     def search_all_uids(self) -> set[str]:
         """Return every UID in the currently selected mailbox."""
         try:
-            typ, data = self._require_imap().uid("SEARCH", "ALL")
+            status, payload = self._require_imap().uid("SEARCH", "ALL")
         except imaplib.IMAP4.error as error:
             raise ImapError(f"search failed: {error}") from error
 
-        if typ != STATUS_OK:
-            raise ImapError(f"search failed: {data}")
-        if not isinstance(data, (list, tuple)):
+        if status != STATUS_OK:
+            raise ImapError(f"search failed: {payload}")
+        if not isinstance(payload, (list, tuple)):
             raise ImapError(
-                f"search returned {type(data).__name__}, not a list: {data}"
+                f"search returned {type(payload).__name__}, not a list: {payload}"
             )
 
         tokens: list[bytes] = []
-        for item in data:
+        for item in payload:
             if not isinstance(item, bytes):
                 raise ImapError(f"search returned a non-bytes item: {item!r}")
             tokens.extend(item.split())
@@ -194,7 +194,7 @@ class ImapSession:
         try:
             uids = {token.decode("ascii") for token in tokens}
         except UnicodeDecodeError as error:
-            raise ImapError(f"search returned non-ASCII UIDs: {data}") from error
+            raise ImapError(f"search returned non-ASCII UIDs: {payload}") from error
         non_numeric = sorted(uid for uid in uids if not uid.isdigit())
         if non_numeric:
             raise ImapError(f"search returned non-numeric UIDs: {non_numeric}")
@@ -207,12 +207,14 @@ class ImapSession:
         some servers implementing RFC 6851.  ``response`` is imaplib's public
         response-code API and must be queried immediately after the command.
         """
-        typ, data = self._require_imap().uid("MOVE", uid, _quote_mailbox(destination))
-        if typ != STATUS_OK:
-            raise ImapError(f"could not move {uid} to {destination}: {data}")
+        status, payload = self._require_imap().uid(
+            "MOVE", uid, _quote_mailbox(destination)
+        )
+        if status != STATUS_OK:
+            raise ImapError(f"could not move {uid} to {destination}: {payload}")
         imap = self._require_imap()
         for code in ("COPYUID", "MOVEUID"):
-            _typ, response = imap.response(code)
+            _status, response = imap.response(code)
             destination_uid = self._destination_uid(response)
             if destination_uid is not None:
                 return destination_uid
@@ -243,17 +245,17 @@ class ImapSession:
         if end < 1:
             return []
         start = max(1, end - limit + 1)  # exists=1000,limit=50,offset=50 -> 901:950
-        typ, data = self._require_imap().fetch(
+        status, payload = self._require_imap().fetch(
             f"{start}:{end}",
             # BODY.PEEK[...] = look at the header WITHOUT marking it \Seen.
             "(UID FLAGS BODY.PEEK[HEADER.FIELDS "
             "(DATE FROM TO CC SUBJECT MESSAGE-ID IN-REPLY-TO REFERENCES)])",
         )
-        if typ != STATUS_OK:
-            raise ImapError(f"fetch failed: {data}")
+        if status != STATUS_OK:
+            raise ImapError(f"fetch failed: {payload}")
 
         messages: list[FetchedHeader] = []
-        for item in data:
+        for item in payload:
             # imaplib hands each message back as a tuple of metadata bytes
             # followed by header bytes.  The stray ")" closing lines arrive as
             # plain bytes instead — we skip those.
@@ -268,11 +270,11 @@ class ImapSession:
 
         Does not mark it seen.
         """
-        type, data = self._require_imap().uid("fetch", uid, "(BODY.PEEK[])")
-        if type != STATUS_OK:
-            raise ImapError(f"could not fetch message {uid}: {data}")
+        status, payload = self._require_imap().uid("fetch", uid, "(BODY.PEEK[])")
+        if status != STATUS_OK:
+            raise ImapError(f"could not fetch message {uid}: {payload}")
 
-        for item in data:
+        for item in payload:
             if isinstance(item, tuple):
                 return item[1]
 

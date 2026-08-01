@@ -37,7 +37,7 @@ class ConversationRow(Gtk.Box):
         self._sender_label.add_css_class("conversation-sender")
         top.append(self._sender_label)
 
-        self._star = Gtk.Image.new_from_icon_name("starred-symbolic")
+        self._star = Gtk.Image.new_from_icon_name("is_starred-symbolic")
         self._star.set_pixel_size(12)
         top.append(self._star)
 
@@ -61,7 +61,7 @@ class ConversationRow(Gtk.Box):
         self._unread_dot = Gtk.Image.new_from_icon_name("media-record-symbolic")
         self._unread_dot.set_pixel_size(10)
         self._unread_dot.set_valign(Gtk.Align.CENTER)
-        self._unread_dot.add_css_class("unread-dot")
+        self._unread_dot.add_css_class("is_unread-dot")
         bottom.append(self._unread_dot)
 
     # Fill this row from a conversation. Called every time the row is (re)used.
@@ -73,16 +73,16 @@ class ConversationRow(Gtk.Box):
         self._avatar.set_text(conversation.latest.sender)
         self._load_avatar(conversation.latest.sender_address)
         self._sender_label.set_label(conversation.participants)
-        self._star.set_visible(conversation.starred)
+        self._star.set_visible(conversation.is_starred)
         self._date_label.set_label(conversation.date)
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)
-        self._unread_dot.set_visible(conversation.unread)
+        self._unread_dot.set_visible(conversation.is_unread)
 
-        if conversation.unread:
-            self.add_css_class("unread")
+        if conversation.is_unread:
+            self.add_css_class("is_unread")
         else:
-            self.remove_css_class("unread")
+            self.remove_css_class("is_unread")
 
     def _load_avatar(self, address: str) -> None:
         # Rows are recycled, so clear the old face and ignore a fetch that

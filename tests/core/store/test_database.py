@@ -31,7 +31,7 @@ def _email(*, server_id: str | None) -> Email:
         subject="s",
         preview="",
         date="",
-        unread=False,
+        is_unread=False,
     )
 
 
@@ -40,7 +40,7 @@ def incoming(db, folder_id, uid, subject="Lunch", **kwargs):
     kwargs.setdefault("sender_address", "")
     kwargs.setdefault("preview", "see you at one")
     kwargs.setdefault("date", "Jul 16")
-    kwargs.setdefault("unread", True)
+    kwargs.setdefault("is_unread", True)
     header = MessageHeader(uid=uid, subject=subject, **kwargs)
     return db.save_incoming_email(folder_id, header)
 
@@ -194,8 +194,22 @@ def test_prune_stale_emails_accepts_an_authoritative_set_over_sqlite_variable_li
     assert [mail.server_id for mail in db.emails_in_folder(folder.id)] == ["active"]
 
 
+def test_the_python_flags_map_onto_the_original_column_names(db, folder):
+    # The Email/MessageHeader fields are is_unread/is_starred but the columns
+    # are still `unread`/`starred`, so _email_from_row bridges the two. A rename
+    # leaking into the SQL would only show up at runtime.
+    incoming(db, folder.id, "1", is_unread=True, is_starred=True)
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.is_unread, mail.is_starred) == (True, True)
+
+    columns = {row[1] for row in db._conn.execute("PRAGMA table_info(emails)")}
+    assert {"unread", "starred"} <= columns
+    assert not {"is_unread", "is_starred"} & columns
+
+
 def test_read_and_unread(db, folder):
-    incoming(db, folder.id, "1", unread=True)
+    incoming(db, folder.id, "1", is_unread=True)
     (email,) = db.emails_in_folder(folder.id)
     assert db.unread_count_in_folder(folder.id) == 1
 
@@ -209,10 +223,10 @@ def test_read_and_unread(db, folder):
 def test_starring(db, folder):
     incoming(db, folder.id, "1")
     (email,) = db.emails_in_folder(folder.id)
-    assert email.starred is False
+    assert email.is_starred is False
 
     db.set_email_starred(email.id, True)
-    assert db.emails_in_folder(folder.id)[0].starred is True
+    assert db.emails_in_folder(folder.id)[0].is_starred is True
 
 
 def test_moving_an_email_between_folders(db, folder):

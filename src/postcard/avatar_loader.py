@@ -31,7 +31,7 @@ class AvatarLoader:
             max_workers=MAX_WORKERS, thread_name_prefix="avatar"
         )
         self._cache: dict[str, Gdk.Texture | None] = {}
-        self._waiting: dict[str, list[Callable[[Gdk.Texture], None]]] = {}
+        self._waiting_callbacks: dict[str, list[Callable[[Gdk.Texture], None]]] = {}
 
     def load(self, address: str, on_ready: Callable[[Gdk.Texture], None]) -> None:
         address = address.strip().lower()
@@ -42,10 +42,10 @@ class AvatarLoader:
             texture = self._cache[address]
             if texture:
                 on_ready(texture)
-        elif address in self._waiting:
-            self._waiting[address].append(on_ready)
+        elif address in self._waiting_callbacks:
+            self._waiting_callbacks[address].append(on_ready)
         else:
-            self._waiting[address] = [on_ready]
+            self._waiting_callbacks[address] = [on_ready]
             self._pool.submit(self._worker, address)
 
     def shutdown(self) -> None:
@@ -69,7 +69,7 @@ class AvatarLoader:
             self._cache.clear()
         self._cache[address] = texture
 
-        for on_ready in self._waiting.pop(address, []):
+        for on_ready in self._waiting_callbacks.pop(address, []):
             if texture:
                 on_ready(texture)
         return GLib.SOURCE_REMOVE

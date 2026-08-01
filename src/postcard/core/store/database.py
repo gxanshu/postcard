@@ -413,9 +413,9 @@ class Database:
         self._conn.execute("UPDATE emails SET unread = 1 WHERE id = ?", (email_id,))
         self._conn.commit()
 
-    def set_email_starred(self, email_id: int, starred: bool) -> None:
+    def set_email_starred(self, email_id: int, is_starred: bool) -> None:
         self._conn.execute(
-            "UPDATE emails SET starred = ? WHERE id = ?", (int(starred), email_id)
+            "UPDATE emails SET starred = ? WHERE id = ?", (int(is_starred), email_id)
         )
         self._conn.commit()
 
@@ -521,7 +521,7 @@ class Database:
         subject: str,
         preview: str,
         date: str,
-        unread: bool,
+        is_unread: bool,
         server_id: str | None = None,
         sender_address: str = "",
     ) -> Email:
@@ -539,7 +539,7 @@ class Database:
                 subject,
                 preview,
                 date,
-                int(unread),
+                int(is_unread),
                 sender_address,
             ),
         )
@@ -569,8 +569,8 @@ class Database:
                 header.subject,
                 header.preview,
                 header.date,
-                int(header.unread),
-                int(header.starred),
+                int(header.is_unread),
+                int(header.is_starred),
                 header.message_id,
                 header.in_reply_to,
                 header.references,
@@ -594,8 +594,8 @@ class Database:
             subject=row["subject"],
             preview=row["preview"],
             date=row["date"],
-            unread=bool(row["unread"]),
-            starred=bool(row["starred"]),
+            is_unread=bool(row["unread"]),
+            is_starred=bool(row["starred"]),
             message_id=row["message_id"] or "",
             in_reply_to=row["in_reply_to"] or "",
             references=row["reference_ids"] or "",

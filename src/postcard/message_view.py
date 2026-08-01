@@ -39,8 +39,8 @@ class MessageView(Gtk.Box):
         on_load: Callable[[Email, LoadCallback], None],
         on_save_attachment: Callable[[Attachment], None],
         on_rendered: Callable[["MessageView"], None] | None = None,
-        expanded: bool = False,
-        remote_images: bool = False,
+        is_expanded: bool = False,
+        should_load_remote_images: bool = False,
         avatars: AvatarLoader | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -54,9 +54,9 @@ class MessageView(Gtk.Box):
         self._on_load = on_load
         self._on_save_attachment = on_save_attachment
         self._on_rendered = on_rendered
-        self._remote_images = remote_images
-        self._loaded = False
-        self._loading = False
+        self._should_load_remote_images = should_load_remote_images
+        self._is_loaded = False
+        self._is_loading = False
         self._placeholder: Gtk.Widget | None = None
         self._webview: WebKit.WebView | None = None
         self._html: str | None = None
@@ -102,7 +102,7 @@ class MessageView(Gtk.Box):
         self._revealer = Gtk.Revealer(child=self._body)
         self.append(self._revealer)
 
-        if expanded:
+        if is_expanded:
             self._expand()
 
     def _on_toggle(self, _button: Gtk.Button) -> None:
@@ -113,16 +113,16 @@ class MessageView(Gtk.Box):
 
     def _expand(self) -> None:
         self._revealer.set_reveal_child(True)
-        if self._loaded or self._loading:
+        if self._is_loaded or self._is_loading:
             return
-        self._loading = True
+        self._is_loading = True
         self._placeholder = Gtk.Label(label=_("Loading…"), margin_top=GUTTER)
         self._placeholder.add_css_class("dim-label")
         self._body.append(self._placeholder)
         self._on_load(self._email, self._on_raw)
 
     def _on_raw(self, raw: bytes | None, error: str | None) -> None:
-        self._loading = False
+        self._is_loading = False
         if self._placeholder is not None:
             self._body.remove(self._placeholder)
             self._placeholder = None
@@ -135,7 +135,7 @@ class MessageView(Gtk.Box):
             self._body.append(label)
             return
 
-        self._loaded = True
+        self._is_loaded = True
         self.raw = raw
         self.parsed = message_parser.parse_message(raw)
 
@@ -194,7 +194,7 @@ class MessageView(Gtk.Box):
     def _show_html(self, html: str) -> None:
         self._html = html
 
-        if not self._remote_images:
+        if not self._should_load_remote_images:
             banner = Adw.Banner(
                 title=_("Remote images are blocked to protect your privacy."),
                 button_label=_("Show Images"),
@@ -209,7 +209,7 @@ class MessageView(Gtk.Box):
         webview.connect("decide-policy", self._on_decide_policy)
         settings = webview.get_settings()
         settings.set_enable_javascript(False)
-        settings.set_auto_load_images(self._remote_images)
+        settings.set_auto_load_images(self._should_load_remote_images)
         webview.load_html(html, None)
         self._webview = webview
         self._body.append(webview)

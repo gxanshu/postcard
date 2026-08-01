@@ -452,7 +452,7 @@ class PostcardComposerWindow(Adw.Window):
                 subject=self.subject_row.get_text().strip() or NO_SUBJECT,
                 preview=self._preview_text()[:100],
                 date=_now(),
-                unread=False,
+                is_unread=False,
             )
             self._db.save_raw_message(row.id, msg.as_bytes())
             self.emit("finished")
@@ -499,7 +499,7 @@ class PostcardComposerWindow(Adw.Window):
             subject=subject,
             preview=self._preview_text()[:100],
             date=_now(),
-            unread=False,
+            is_unread=False,
         )
         self._db.save_raw_message(row.id, raw)
 
@@ -558,7 +558,7 @@ class PostcardComposerWindow(Adw.Window):
             subject=subject,
             preview=subject,
             date=_now(),
-            unread=False,
+            is_unread=False,
         )
         self._db.save_raw_message(row.id, raw)
         self.emit("finished")
@@ -576,11 +576,11 @@ class PostcardComposerWindow(Adw.Window):
         self.close()
         return False
 
-    def _set_sending(self, sending: bool) -> None:
-        self.send_button.set_sensitive(not sending)
-        self.cancel_button.set_sensitive(not sending)
-        self.send_spinner.set_visible(sending)
-        if sending:
+    def _set_sending(self, is_sending: bool) -> None:
+        self.send_button.set_sensitive(not is_sending)
+        self.cancel_button.set_sensitive(not is_sending)
+        self.send_spinner.set_visible(is_sending)
+        if is_sending:
             self.send_spinner.start()
         else:
             self.send_spinner.stop()

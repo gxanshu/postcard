@@ -35,17 +35,17 @@ class Conversation(GObject.Object):
         return len(self.emails)
 
     @property
-    def unread(self) -> bool:
-        return any(mail.unread for mail in self.emails)
+    def is_unread(self) -> bool:
+        return any(mail.is_unread for mail in self.emails)
 
     @property
-    def starred(self) -> bool:
-        return any(mail.starred for mail in self.emails)
+    def is_starred(self) -> bool:
+        return any(mail.is_starred for mail in self.emails)
 
     @property
     def participants(self) -> str:
-        seen: list[str] = []
+        seen_senders: list[str] = []
         for mail in self.emails:
-            if mail.sender not in seen:
-                seen.append(mail.sender)
-        return ", ".join(seen)
+            if mail.sender not in seen_senders:
+                seen_senders.append(mail.sender)
+        return ", ".join(seen_senders)

@@ -38,7 +38,7 @@ class FolderRole(StrEnum):
     TRASH = "trash"
     JUNK = "junk"
     ARCHIVE = "archive"
-    STARRED = "starred"
+    STARRED = "is_starred"
     OTHER = "other"
 
 
@@ -126,7 +126,7 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
 
     This is where the two shapes differ: the sender becomes a display name,
     the date is shortened, and the server's \\Seen flag is inverted into
-    `unread`, which is how the rest of the app thinks about it.
+    `is_unread`, which is how the rest of the app thinks about it.
     """
     return MessageHeader(
         uid=fetched.uid,
@@ -134,8 +134,8 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
         sender_address=_sender_address(fetched.from_header),
         subject=fetched.subject or NO_SUBJECT,
         date=_format_date(fetched.date),
-        unread=not fetched.seen,
-        starred=fetched.flagged,
+        is_unread=not fetched.seen,
+        is_starred=fetched.flagged,
         message_id=fetched.message_id,
         in_reply_to=fetched.in_reply_to,
         references=fetched.references,
@@ -177,16 +177,16 @@ def set_flag(
     folder_name: str,
     uids: list[str],
     flag: str,
-    add: bool,
+    should_add: bool,
 ) -> None:
     """Add or remove an IMAP flag on every message in a conversation."""
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.login(account.email, password)
-        session.select(folder_name, readonly=False)
+        session.select(folder_name, is_readonly=False)
         for uid in uids:
-            session.store_flags(uid, flag, add)
+            session.store_flags(uid, flag, should_add)
     finally:
         session.logout()
 
@@ -203,7 +203,7 @@ def move_messages(
     session.connect()
     try:
         session.login(account.email, password)
-        session.select(folder_name, readonly=False)
+        session.select(folder_name, is_readonly=False)
         destination_uids = []
         for index, uid in enumerate(uids):
             try:
@@ -279,12 +279,12 @@ def icon_for_folder(name: str) -> str:
     mail-inbox/sent/drafts-symbolic are *not* in it and render as broken images.
     """
     return {
-        FolderRole.INBOX: "mail-unread-symbolic",
+        FolderRole.INBOX: "mail-is_unread-symbolic",
         FolderRole.SENT: "mail-send-symbolic",
         FolderRole.DRAFTS: "document-edit-symbolic",
         FolderRole.TRASH: "user-trash-symbolic",
         FolderRole.JUNK: "mail-mark-junk-symbolic",
-        FolderRole.STARRED: "starred-symbolic",
+        FolderRole.STARRED: "is_starred-symbolic",
     }.get(role_for_folder(name), "folder-symbolic")
 
 

@@ -28,7 +28,7 @@ def conversation(*server_ids: str | None) -> Conversation:
                 subject="Lunch",
                 preview="",
                 date="",
-                unread=False,
+                is_unread=False,
             )
             for i, uid in enumerate(server_ids, start=1)
         ]
@@ -49,7 +49,7 @@ def conversation(*server_ids: str | None) -> Conversation:
         ("Spam", "junk"),
         ("Archive", "archive"),
         ("[Gmail]/All Mail", "archive"),
-        ("Flagged", "starred"),
+        ("Flagged", "is_starred"),
         ("Notes", "other"),
         ("", "other"),
     ],
@@ -81,12 +81,12 @@ def test_folder_role_members_keep_their_stored_string_values():
 
 
 def test_icon_for_folder():
-    assert icon_for_folder("INBOX") == "mail-unread-symbolic"
+    assert icon_for_folder("INBOX") == "mail-is_unread-symbolic"
     assert icon_for_folder("[Gmail]/Sent Mail") == "mail-send-symbolic"
     assert icon_for_folder("Drafts") == "document-edit-symbolic"
     assert icon_for_folder("Trash") == "user-trash-symbolic"
     assert icon_for_folder("Spam") == "mail-mark-junk-symbolic"
-    assert icon_for_folder("Flagged") == "starred-symbolic"
+    assert icon_for_folder("Flagged") == "is_starred-symbolic"
     assert icon_for_folder("Notes") == "folder-symbolic"
 
 

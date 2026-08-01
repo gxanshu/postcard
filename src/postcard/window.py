@@ -1765,7 +1765,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 continue
             if any(mail.server_id == uid for mail in conversation.emails):
                 self._rendered_id = None
-                self._selection.set_selected(index)
+                # Gtk.MultiSelection has no set_selected -- that is
+                # SingleSelection's API. Same idiom as _on_row_right_click.
+                self._selection.unselect_all()
+                self._selection.select_item(index, True)
                 self._update_reader()
                 return
 

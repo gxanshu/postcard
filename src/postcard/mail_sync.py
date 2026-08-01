@@ -4,8 +4,18 @@ from enum import StrEnum
 
 from .core.models.account import Account
 from .core.models.conversation import Conversation
-from .core.net.imap_session import ImapSession, MailboxInfo, decode_mailbox_name
+
+# Re-exported: callers reach MessageHeader through mail_sync, which is where it
+# is built. It lives in core.models so core.store can accept one directly.
+from .core.models.message_header import MessageHeader
+from .core.net.imap_session import (
+    FetchedHeader,
+    ImapSession,
+    MailboxInfo,
+    decode_mailbox_name,
+)
 from .core.net.smtp_session import SmtpSession
+from .core.threader import NO_SUBJECT
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
@@ -42,23 +52,6 @@ INBOX_MAILBOX = "INBOX"
 OUTBOX_FOLDER = "Outbox"
 SENT_FOLDER = "Sent"
 DRAFTS_FOLDER = "Drafts"
-
-
-@dataclass
-class MessageHeader:
-    uid: str
-    sender: str
-    sender_address: str
-    subject: str
-    date: str
-    unread: bool
-    starred: bool = False
-    preview: str = ""
-    message_id: str = ""
-    in_reply_to: str = ""
-    references: str = ""
-    # every (name, address) pair on the message, for the contacts list
-    addresses: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -116,22 +109,7 @@ def fetch_mailbox(
     finally:
         session.logout()
 
-    messages = [
-        MessageHeader(
-            uid=item["uid"],
-            sender=_clean_sender(item["from"]),
-            sender_address=_sender_address(item["from"]),
-            subject=item["subject"] or "(no subject)",
-            date=_format_date(item["date"]),
-            unread=not item["seen"],
-            starred=item["flagged"],
-            message_id=item["message_id"],
-            in_reply_to=item["in_reply_to"],
-            references=item["references"],
-            addresses=getaddresses([item["from"], item["to"], item["cc"]]),
-        )
-        for item in raw
-    ]
+    messages = [_to_message_header(fetched) for fetched in raw]
 
     return SyncResult(
         folders=mailboxes,
@@ -140,6 +118,30 @@ def fetch_mailbox(
         exists=exists,
         offset=offset,
         all_uids=all_uids,
+    )
+
+
+def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
+    """Turn raw wire headers into the display-ready form.
+
+    This is where the two shapes differ: the sender becomes a display name,
+    the date is shortened, and the server's \\Seen flag is inverted into
+    `unread`, which is how the rest of the app thinks about it.
+    """
+    return MessageHeader(
+        uid=fetched.uid,
+        sender=_clean_sender(fetched.from_header),
+        sender_address=_sender_address(fetched.from_header),
+        subject=fetched.subject or NO_SUBJECT,
+        date=_format_date(fetched.date),
+        unread=not fetched.seen,
+        starred=fetched.flagged,
+        message_id=fetched.message_id,
+        in_reply_to=fetched.in_reply_to,
+        references=fetched.references,
+        addresses=getaddresses(
+            [fetched.from_header, fetched.to_header, fetched.cc_header]
+        ),
     )
 
 

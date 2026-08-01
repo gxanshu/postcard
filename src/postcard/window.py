@@ -45,7 +45,7 @@ from .core.models.folder import Folder
 from .core.net import errors
 from .core.store.database import Database
 from .folder_row import FolderRow
-from .message_view import MessageView
+from .message_view import LoadCallback, MessageView
 from .preferences_dialog import SETTING_SYNC_INTERVAL
 
 # Window action names, grouped by what enables and disables them together.
@@ -76,6 +76,27 @@ class OutboxResult:
     subject: str
     raw: bytes
     error: Exception | None
+
+
+@dataclass(slots=True)
+class PendingMove:
+    """An archive/trash/move applied locally but not yet run on the server.
+
+    email_ids, uids, originals and tombstones are index-aligned: a move that
+    fails part-way reports how many succeeded, and the tail is restored by
+    slicing all four at the same point.
+
+    timeout_id is the GLib source that commits the move once the undo window
+    closes; cancelling the move means removing that source.
+    """
+
+    email_ids: list[int]
+    uids: list[str]
+    originals: list[tuple[int, int, str]]
+    source: Folder
+    dest: Folder
+    tombstones: list[tuple[int, str]]
+    timeout_id: int
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/main-window.ui")
@@ -135,7 +156,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._rendered_id: int | None = None
         self._suppress_folder_refresh: bool = False
         self._selection_update_in_progress: bool = False
-        self._pending_move: dict | None = None
+        self._pending_move: PendingMove | None = None
         self._pending_toast: Adw.Toast | None = None
         # Source UIDs stay protected while an optimistic move is pending or
         # its worker is in flight.  Completed moves remain protected until a
@@ -735,22 +756,22 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         toast = Adw.Toast(title=verb, button_label=_("Undo"))
         toast.connect("button-clicked", self._on_undo_move)
         self._pending_toast = toast
-        self._pending_move = {
-            "email_ids": email_ids,
-            "uids": uids,
-            "originals": originals,
-            "source": source,
-            "dest": dest,
-            "tombstones": tombstones,
-            "timeout_id": GLib.timeout_add(MOVE_UNDO_MS, self._on_move_timeout),
-        }
+        self._pending_move = PendingMove(
+            email_ids=email_ids,
+            uids=uids,
+            originals=originals,
+            source=source,
+            dest=dest,
+            tombstones=tombstones,
+            timeout_id=GLib.timeout_add(MOVE_UNDO_MS, self._on_move_timeout),
+        )
         self.toast_overlay.add_toast(toast)
 
     def _on_undo_move(self, _toast: Adw.Toast) -> None:
         pending = self._pending_move
         if pending is None:
             return
-        GLib.source_remove(pending["timeout_id"])
+        GLib.source_remove(pending.timeout_id)
         self._pending_move = None
         self._pending_toast = None
         self._restore_move(pending)
@@ -770,21 +791,21 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         pending = self._pending_move
         if pending is None:
             return
-        GLib.source_remove(pending["timeout_id"])
+        GLib.source_remove(pending.timeout_id)
         self._pending_move = None
         if self._pending_toast is not None:
             self._pending_toast.dismiss()
             self._pending_toast = None
         self._run_move_worker(pending)
 
-    def _restore_move(self, pending: dict) -> None:
-        self._db.restore_emails(pending["originals"])
+    def _restore_move(self, pending: PendingMove) -> None:
+        self._db.restore_emails(pending.originals)
         self._clear_move_tombstones(pending)
         self._reload_folders()
         self._refresh_conversations()
 
-    def _clear_move_tombstones(self, pending: dict, start: int = 0) -> None:
-        for tombstone in pending["tombstones"][start:]:
+    def _clear_move_tombstones(self, pending: PendingMove, start: int = 0) -> None:
+        for tombstone in pending.tombstones[start:]:
             state = self._move_tombstones.get(tombstone)
             if state is None:
                 continue
@@ -792,8 +813,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if state["active"] <= 0 and state["awaiting"] <= 0:
                 self._move_tombstones.pop(tombstone, None)
 
-    def _await_move_tombstones(self, pending: dict, completed: int) -> None:
-        for tombstone in pending["tombstones"][:completed]:
+    def _await_move_tombstones(self, pending: PendingMove, completed: int) -> None:
+        for tombstone in pending.tombstones[:completed]:
             state = self._move_tombstones.get(tombstone)
             if state is None:
                 continue
@@ -808,7 +829,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if state["active"] <= 0:
                 self._move_tombstones.pop((tombstone_folder_id, uid), None)
 
-    def _run_move_worker(self, pending: dict) -> None:
+    def _run_move_worker(self, pending: PendingMove) -> None:
         account = self._account
         password = secrets.lookup_password(account.id) if account else None
         if account is None or not password:
@@ -823,26 +844,30 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access.
-    def _move_worker(self, account: Account, password: str, pending: dict) -> None:
+    def _move_worker(
+        self, account: Account, password: str, pending: PendingMove
+    ) -> None:
         try:
             result = mail_sync.move_messages(
                 account,
                 password,
-                pending["source"].name,
-                pending["uids"],
-                pending["dest"].name,
+                pending.source.name,
+                pending.uids,
+                pending.dest.name,
             )
             GLib.idle_add(self._on_move_result, pending, result)
         except Exception as error:
             GLib.idle_add(self._on_move_failed, pending, str(error))
 
-    def _on_move_result(self, pending: dict, result: mail_sync.MoveResult) -> bool:
+    def _on_move_result(
+        self, pending: PendingMove, result: mail_sync.MoveResult
+    ) -> bool:
         completed = len(result.destination_uids)
         self._await_move_tombstones(pending, completed)
         completed_moves = list(
             zip(
-                pending["email_ids"][:completed],
-                [pending["dest"].id] * completed,
+                pending.email_ids[:completed],
+                [pending.dest.id] * completed,
                 result.destination_uids,
                 strict=True,
             )
@@ -850,10 +875,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if completed_moves:
             self._db.reconcile_moved_emails(completed_moves)
         failed_index = result.failed_index
-        if failed_index is None and completed < len(pending["uids"]):
+        if failed_index is None and completed < len(pending.uids):
             failed_index = completed
         if failed_index is not None:
-            self._db.restore_emails(pending["originals"][failed_index:])
+            self._db.restore_emails(pending.originals[failed_index:])
             self._clear_move_tombstones(pending, failed_index)
         self._reload_folders()
         self._refresh_conversations()
@@ -861,7 +886,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._toast(_("Move failed: {msg}").format(msg=result.error))
         return False
 
-    def _on_move_failed(self, pending: dict, message: str) -> bool:
+    def _on_move_failed(self, pending: PendingMove, message: str) -> bool:
         self._restore_move(pending)
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
@@ -1318,7 +1343,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # Fetch one message's raw bytes for a MessageView: serve the cached copy if
     # we have it, else pull it over IMAP on a worker thread. (Marking read is
     # handled once per conversation in _mark_conversation_read.)
-    def _load_body(self, mail: Email, callback: Callable) -> None:
+    def _load_body(self, mail: Email, callback: LoadCallback) -> None:
         cached = self._db.get_raw_message(mail.id)
         if cached is not None:
             callback(cached, None)
@@ -1355,7 +1380,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         email_id: int,
         uid: str,
         folder_name: str,
-        callback: Callable,
+        callback: LoadCallback,
         account: Account,
         password: str,
     ) -> None:
@@ -1369,7 +1394,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # Back on the main thread: cache the body, then hand it to the MessageView.
     def _deliver_body(
         self,
-        callback: Callable,
+        callback: LoadCallback,
         email_id: int,
         raw: bytes | None,
         error: str | None,
@@ -1647,20 +1672,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         for message in result.messages:
             if (target.id, message.uid) in self._move_tombstones:
                 continue
-            added = self._db.save_incoming_email(
-                folder_id=target.id,
-                server_id=message.uid,
-                sender=message.sender,
-                sender_address=message.sender_address,
-                subject=message.subject,
-                preview=message.preview,
-                date=message.date,
-                unread=message.unread,
-                starred=message.starred,
-                message_id=message.message_id,
-                in_reply_to=message.in_reply_to,
-                references=message.references,
-            )
+            added = self._db.save_incoming_email(target.id, message)
             if added and message.unread:
                 new_messages.append(message)
         if result.all_uids is not None:

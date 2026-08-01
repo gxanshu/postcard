@@ -1,13 +1,20 @@
 import os
 import sqlite3
+from collections.abc import Sequence
 
 from gi.repository import GLib
 
 from .. import threader
-from ..models.account import Account
+from ..models.account import (
+    IMPLICIT_TLS_PORT,
+    SECURITY_STARTTLS,
+    SECURITY_TLS,
+    Account,
+)
 from ..models.conversation import Conversation
 from ..models.email import Email
 from ..models.folder import Folder
+from ..models.message_header import MessageHeader
 
 
 def _fts_query(text: str) -> str:
@@ -173,11 +180,15 @@ class Database:
         imap_port: int,
         smtp_host: str,
         smtp_port: int,
-        imap_security: str = "tls",
+        imap_security: str = SECURITY_TLS,
         smtp_security: str | None = None,
     ) -> Account:
         if smtp_security is None:
-            smtp_security = "tls" if smtp_port == 465 else "starttls"
+            # Port 465 is implicit TLS (SMTPS); everything else is assumed to
+            # negotiate up from plaintext with STARTTLS.
+            smtp_security = (
+                SECURITY_TLS if smtp_port == IMPLICIT_TLS_PORT else SECURITY_STARTTLS
+            )
         cursor = self._conn.execute(
             """
             INSERT INTO accounts
@@ -425,8 +436,13 @@ class Database:
                 [(folder_id, email_id) for email_id in email_ids],
             )
 
-    def restore_emails(self, emails: list[tuple[int, int, str | None]]) -> None:
-        """Atomically restore pending moves and their original mailbox UIDs."""
+    def restore_emails(self, emails: Sequence[tuple[int, int, str]]) -> None:
+        """Atomically restore pending moves and their original mailbox UIDs.
+
+        The UID is never None: only messages the server already knows about can
+        be moved, so only those can need restoring. (A NULL wouldn't match the
+        `server_id = ?` lookup below anyway.)
+        """
         with self._conn:
             for email_id, folder_id, server_id in emails:
                 existing = self._conn.execute(
@@ -533,22 +549,12 @@ class Database:
         ).fetchone()
         return self._email_from_row(row)
 
-    def save_incoming_email(
-        self,
-        folder_id: int,
-        server_id: str,
-        sender: str,
-        subject: str,
-        preview: str,
-        date: str,
-        unread: bool,
-        starred: bool = False,
-        message_id: str = "",
-        in_reply_to: str = "",
-        references: str = "",
-        sender_address: str = "",
-    ) -> bool:
-        """Insert one fetched email; skip it if we already have it."""
+    def save_incoming_email(self, folder_id: int, header: MessageHeader) -> bool:
+        """Insert one fetched email; skip it if we already have it.
+
+        Returns True when the row was new, which is how a sync tells which
+        messages to notify about.
+        """
         cursor = self._conn.execute(
             """
             INSERT OR IGNORE INTO emails
@@ -558,17 +564,17 @@ class Database:
             """,
             (
                 folder_id,
-                server_id,
-                sender,
-                subject,
-                preview,
-                date,
-                int(unread),
-                int(starred),
-                message_id,
-                in_reply_to,
-                references,
-                sender_address,
+                header.uid,
+                header.sender,
+                header.subject,
+                header.preview,
+                header.date,
+                int(header.unread),
+                int(header.starred),
+                header.message_id,
+                header.in_reply_to,
+                header.references,
+                header.sender_address,
             ),
         )
         self._conn.commit()

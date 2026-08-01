@@ -16,6 +16,9 @@ SECURITY_OPTIONS = (SECURITY_TLS, SECURITY_STARTTLS)
 MIN_PORT = 1
 MAX_PORT = 65535
 
+# SMTP over implicit TLS (SMTPS). Any other port is assumed to use STARTTLS.
+IMPLICIT_TLS_PORT = 465
+
 
 def parse_port(text: str) -> int | None:
     """A port number from user input, or None when it isn't one.
@@ -35,6 +38,7 @@ class Account(GObject.Object):
 
     def __init__(
         self,
+        *,
         id: int,
         email: str,
         display_name: str,

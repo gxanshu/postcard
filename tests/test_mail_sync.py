@@ -20,7 +20,16 @@ from postcard.mail_sync import (
 def conversation(*server_ids: str | None) -> Conversation:
     return Conversation(
         [
-            Email(i, 1, uid, "a@x", "Lunch", "", "", False)
+            Email(
+                id=i,
+                folder_id=1,
+                server_id=uid,
+                sender="a@x",
+                subject="Lunch",
+                preview="",
+                date="",
+                unread=False,
+            )
             for i, uid in enumerate(server_ids, start=1)
         ]
     )
@@ -185,7 +194,15 @@ def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_pag
             pass
 
     monkeypatch.setattr(mail_sync, "ImapSession", FakeImapSession)
-    account = Account(1, "ada@example.com", "Ada", "imap.example.com", 993, "", 0)
+    account = Account(
+        id=1,
+        email="ada@example.com",
+        display_name="Ada",
+        imap_host="imap.example.com",
+        imap_port=993,
+        smtp_host="",
+        smtp_port=0,
+    )
 
     result = fetch_mailbox(account, "password", offset=offset)
 

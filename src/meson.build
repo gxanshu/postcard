@@ -62,6 +62,7 @@ postcard_core_models_sources = [
   'postcard/core/models/account.py',
   'postcard/core/models/folder.py',
   'postcard/core/models/email.py',
+  'postcard/core/models/message_header.py',
   'postcard/core/models/conversation.py',
   'postcard/core/models/attachment.py',
 ]

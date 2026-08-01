@@ -4,6 +4,12 @@ from .models.email import Email
 
 _REPLY_PREFIX = re.compile(r"^\s*(re|fwd|fw)\s*:\s*", re.IGNORECASE)
 
+# Stored, never translated. _normalize_subject blanks it so that unrelated
+# subject-less messages don't all thread into one conversation -- which means
+# whatever writes it has to use this exact string. Translating it at the point
+# of storage would defeat the check for every non-English locale.
+NO_SUBJECT = "(no subject)"
+
 
 def group(emails: list[Email]) -> dict[int, int]:
     """Map each email id to a stable conversation id (the smallest id in its
@@ -59,7 +65,7 @@ def group(emails: list[Email]) -> dict[int, int]:
 
 def _normalize_subject(subject: str) -> str:
     text = subject.strip()
-    if text.lower() == "(no subject)":
+    if text.lower() == NO_SUBJECT:
         return ""
     while True:
         stripped = _REPLY_PREFIX.sub("", text)

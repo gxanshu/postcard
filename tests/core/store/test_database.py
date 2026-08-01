@@ -1,6 +1,7 @@
 import pytest
 
 from postcard.core.models.email import Email
+from postcard.core.models.message_header import MessageHeader
 from postcard.core.store.database import Database, _arrival_key, _fts_query
 
 
@@ -20,12 +21,28 @@ def folder(db):
     return db.get_or_create_folder(account.id, "INBOX")
 
 
+def _email(*, server_id: str | None) -> Email:
+    """A bare Email, for the pure helpers that only read one field off it."""
+    return Email(
+        id=1,
+        folder_id=1,
+        server_id=server_id,
+        sender="a@x",
+        subject="s",
+        preview="",
+        date="",
+        unread=False,
+    )
+
+
 def incoming(db, folder_id, uid, subject="Lunch", **kwargs):
     kwargs.setdefault("sender", "Ada <ada@example.com>")
+    kwargs.setdefault("sender_address", "")
     kwargs.setdefault("preview", "see you at one")
     kwargs.setdefault("date", "Jul 16")
     kwargs.setdefault("unread", True)
-    return db.save_incoming_email(folder_id, uid, subject=subject, **kwargs)
+    header = MessageHeader(uid=uid, subject=subject, **kwargs)
+    return db.save_incoming_email(folder_id, header)
 
 
 # --- accounts ---------------------------------------------------------------
@@ -229,14 +246,14 @@ def test_raw_message_round_trip(db, folder):
 
 
 def test_arrival_key_uses_the_imap_uid():
-    assert _arrival_key(Email(1, 1, "42", "a@x", "s", "", "", False)) == 42
+    assert _arrival_key(_email(server_id="42")) == 42
 
 
 def test_arrival_key_sorts_uid_less_messages_newest():
     # A Sent copy saved locally has no UID until the next sync confirms it.
     newest = 2**31 - 1
-    assert _arrival_key(Email(1, 1, None, "a@x", "s", "", "", False)) == newest
-    assert _arrival_key(Email(1, 1, "", "a@x", "s", "", "", False)) == newest
+    assert _arrival_key(_email(server_id=None)) == newest
+    assert _arrival_key(_email(server_id="")) == newest
 
 
 def test_conversations_are_newest_first_by_uid_not_by_local_id(db, folder):

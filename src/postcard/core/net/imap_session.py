@@ -10,11 +10,42 @@ from . import NET_TIMEOUT_SECONDS
 # imaplib returns the command status as the first element of every reply.
 STATUS_OK = "OK"
 
+# IMAP system flags (RFC 3501 2.3.2). These are the protocol contract: the same
+# spellings are parsed out of a FETCH reply here and sent back by store_flags,
+# so both halves have to name them from one place.
+FLAG_SEEN = "\\Seen"
+FLAG_FLAGGED = "\\Flagged"
+
+# A LIST attribute, not a message flag: the mailbox is a container that cannot
+# hold mail (Gmail's "[Gmail]"), so it is shown but never selected.
+ATTR_NOSELECT = "\\Noselect"
+
 
 class MailboxInfo(NamedTuple):
     name: str
     delimiter: str  # "" when the server reports NIL: a flat namespace
     flags: str
+
+
+class FetchedHeader(NamedTuple):
+    """One message's headers exactly as the server sent them.
+
+    Raw on purpose: addresses are unparsed header text and `date` is the
+    original RFC 5322 string. mail_sync turns this into a MessageHeader, which
+    is the display-ready form.
+    """
+
+    uid: str
+    from_header: str
+    to_header: str
+    cc_header: str
+    subject: str
+    date: str
+    message_id: str
+    in_reply_to: str
+    references: str
+    seen: bool
+    flagged: bool
 
 
 def decode_mailbox_name(name: str) -> str:
@@ -195,7 +226,7 @@ class ImapSession:
 
     def fetch_recent_headers(
         self, exists: int, limit: int, offset: int = 0
-    ) -> list[dict]:
+    ) -> list[FetchedHeader]:
         """Fetch UID + flags + a few headers for a window of `limit` messages,
         `offset` messages back from the newest. offset=0 is the newest page;
         offset=50 is the 50 before that, and so on (used for load-on-scroll)."""
@@ -215,7 +246,7 @@ class ImapSession:
         if typ != STATUS_OK:
             raise ImapError(f"fetch failed: {data}")
 
-        messages: list[dict] = []
+        messages: list[FetchedHeader] = []
         for item in data:
             # imaplib hands each message back as a tuple of metadata bytes
             # followed by header bytes.  The stray ")" closing lines arrive as
@@ -241,29 +272,30 @@ class ImapSession:
 
         raise ImapError(f"no message body returned for uid {uid}")
 
-    def _parse(self, meta: str, header_bytes: bytes) -> dict:
+    def _parse(self, meta: str, header_bytes: bytes) -> FetchedHeader:
         uid = re.search(r"UID (\d+)", meta)
         flags = re.search(r"FLAGS \(([^)]*)\)", meta)
         flag_text = flags.group(1) if flags else ""
-        seen = "\\Seen" in flag_text
-        flagged = "\\Flagged" in flag_text
 
         # Let the stdlib decode the header block: it handles line folding and
         # the =?utf-8?...?= encoding you'd otherwise see as gibberish. Full MIME
         # body parsing with GMime comes in Phase 6 — this is just three headers.
         headers = email.message_from_bytes(header_bytes, policy=policy.default)
-        return {
-            "uid": uid.group(1) if uid else "",
-            "from": str(headers["From"]) if headers["From"] else "",
-            "to": str(headers["To"]) if headers["To"] else "",
-            "cc": str(headers["Cc"]) if headers["Cc"] else "",
-            "subject": str(headers["Subject"]) if headers["Subject"] else "",
-            "date": str(headers["Date"]) if headers["Date"] else "",
-            "message_id": str(headers["Message-ID"]) if headers["Message-ID"] else "",
-            "in_reply_to": str(headers["In-Reply-To"])
-            if headers["In-Reply-To"]
-            else "",
-            "references": str(headers["References"]) if headers["References"] else "",
-            "seen": seen,
-            "flagged": flagged,
-        }
+
+        def header(name: str) -> str:
+            value = headers[name]
+            return str(value) if value else ""
+
+        return FetchedHeader(
+            uid=uid.group(1) if uid else "",
+            from_header=header("From"),
+            to_header=header("To"),
+            cc_header=header("Cc"),
+            subject=header("Subject"),
+            date=header("Date"),
+            message_id=header("Message-ID"),
+            in_reply_to=header("In-Reply-To"),
+            references=header("References"),
+            seen=FLAG_SEEN in flag_text,
+            flagged=FLAG_FLAGGED in flag_text,
+        )

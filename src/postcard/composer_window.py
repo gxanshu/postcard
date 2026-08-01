@@ -27,6 +27,7 @@ from .core import compose, secrets
 from .core.models.account import Account
 from .core.models.attachment import Attachment
 from .core.store.database import Database
+from .core.threader import NO_SUBJECT
 
 _EDITOR_PAGE = """<!DOCTYPE html>
 <html>
@@ -444,7 +445,7 @@ class PostcardComposerWindow(Adw.Window):
             row = self._db.save_email(
                 folder.id,
                 sender=self._recipients_display(),
-                subject=self.subject_row.get_text().strip() or _("(no subject)"),
+                subject=self.subject_row.get_text().strip() or NO_SUBJECT,
                 preview=self._preview_text()[:100],
                 date=_now(),
                 unread=False,

@@ -13,6 +13,7 @@ class Folder(GObject.Object):
 
     def __init__(
         self,
+        *,
         id: int,
         account_id: int,
         name: str,

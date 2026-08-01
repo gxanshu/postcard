@@ -13,6 +13,7 @@ class Email(GObject.Object):
 
     def __init__(
         self,
+        *,
         id: int,
         folder_id: int,
         # None until a sync assigns a UID -- a Sent copy saved locally right

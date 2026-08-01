@@ -56,9 +56,11 @@ max-args = 5
 "src/postcard/core/models/*.py" = ["PLR0913"]
 
 # --- Deferred: delete each entry as the refactor phase named clears it -------
-# Phase 4 (dataclasses): a bare dict widened into a parameter list. save_email,
-# save_incoming_email, save_account, fetch_mailbox, set_flag, _flag_worker.
+# save_account and save_email take the account/email columns as parameters; both
+# insert into a table wider than 5 columns and have no natural carrier object
+# (unlike save_incoming_email, which now takes a MessageHeader).
 "src/postcard/core/store/database.py" = ["PLR0913"]
+# fetch_mailbox and set_flag take the connection details plus what to act on.
 "src/postcard/mail_sync.py" = ["PLR0913"]
 # Phase 7 (splitting window.py and the long __init__s): oversized functions.
 "src/postcard/window.py" = ["E402", "C901", "PLR0912", "PLR0913"]

@@ -1,10 +1,3 @@
-# email.py
-#
-# A single email message (headers + preview only, for now — the full body
-# arrives in Phase 6).
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from gi.repository import GObject
 
 

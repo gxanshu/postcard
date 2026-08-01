@@ -1,7 +1,3 @@
-# conversation_row.py
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from gi.repository import Adw, Gdk, Gtk, Pango
 
 from .avatar_loader import AvatarLoader

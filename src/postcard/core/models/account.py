@@ -1,9 +1,3 @@
-# account.py
-#
-# A mail account: where to log in, nothing more. No logic lives here.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from gi.repository import GObject
 
 # Connection security values, in the order the account dialog's ComboRows list

@@ -1,7 +1,3 @@
-# avatar_loader.py
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor

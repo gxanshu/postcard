@@ -1,10 +1,3 @@
-# folder.py
-#
-# A mailbox folder (Inbox, Sent, ...). The emails inside it are fetched from
-# the database on demand — a Folder does not hold them itself.
-#
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 from gi.repository import GObject
 
 

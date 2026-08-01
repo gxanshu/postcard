@@ -19,7 +19,9 @@ _AUTH_HINTS = (
 # Turn a raw exception into a (category, friendly message) pair. Categories:
 # "auth", "unreachable", "tls", "server". Order matters — most socket errors
 # subclass OSError, so the specific cases are checked first.
-def classify(exc: Exception, host: str) -> tuple[str, str]:
+def classify(exc: Exception, host: str) -> tuple[str, str]:  # noqa: PLR0911
+    # noqa PLR0911: a dispatch table. One return per exception category is the
+    # clearest shape here; collapsing them into a dict costs readability.
     if isinstance(exc, ssl.SSLError):
         return "tls", _("Couldn't establish a secure connection to {host}.").format(
             host=host

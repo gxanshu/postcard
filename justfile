@@ -92,9 +92,18 @@ lint:
 
 # Format the codebase with ruff.
 fmt:
-    ruff format src tests
+    {{python}} -m ruff format src tests
 
-test *ARGS:
+# Lint, format-check and type-check the Python source. Enforces
+# .claude/skills/coding-standards — see [tool.ruff.lint] in pyproject.toml.
+check:
+    {{python}} -m ruff check src tests
+    {{python}} -m ruff format --check src tests
+    {{python}} -m pyright src/postcard
+
+# `build` and `bundle` depend on `test`, so gating `test` on `check` means a
+# lint or type error blocks the Flatpak build too.
+test *ARGS: check
     {{python}} -m pytest {{ARGS}}
 
 # Regenerate the .pot translation template. Opt-in dev tool: needs `meson`,

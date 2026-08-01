@@ -121,7 +121,7 @@ class PostcardApplication(Adw.Application):
         "Anshu Meena https://github.com/gxanshu",
     ]
 
-    def on_about_action(self, *args: object) -> None:
+    def on_about_action(self, *_args: object) -> None:
         about = Adw.AboutDialog.new_from_appdata(
             "/in/gxanshu/postcard/metainfo.xml", self.version
         )
@@ -130,7 +130,7 @@ class PostcardApplication(Adw.Application):
         about.set_copyright("© 2026 Anshu")
         about.present(self.props.active_window)
 
-    def on_preferences_action(self, *args: object) -> None:
+    def on_preferences_action(self, *_args: object) -> None:
         dialog = PostcardPreferencesDialog(self.settings)
         dialog.present(self.props.active_window)
 
@@ -141,10 +141,10 @@ class PostcardApplication(Adw.Application):
             folder_id, uid = param.unpack()
             win.open_email(folder_id, uid)
 
-    def on_new_window_action(self, *args: object) -> None:
+    def on_new_window_action(self, *_args: object) -> None:
         PostcardMainWindow(self, self.db, self.settings).present()
 
-    def on_shortcuts_action(self, *args: object) -> None:
+    def on_shortcuts_action(self, *_args: object) -> None:
         builder = Gtk.Builder.new_from_resource(
             "/in/gxanshu/postcard/ui/shortcuts-dialog.ui"
         )

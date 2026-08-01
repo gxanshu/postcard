@@ -46,6 +46,10 @@ from .core.store.database import Database
 from .folder_row import FolderRow
 from .message_view import MessageView
 
+# Window action names, grouped by what enables and disables them together.
+MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
+REPLY_FORWARD_ACTIONS = ("reply", "forward")
+
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/main-window.ui")
 class PostcardMainWindow(Adw.ApplicationWindow):
@@ -394,18 +398,20 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ):
                 app.set_accels_for_action(name, accels)
 
-    def _set_mail_actions_enabled(self, enabled: bool) -> None:
-        for name in ("toggle-read", "toggle-star", "archive", "trash", "move"):
+    def _set_actions_enabled(self, names: tuple[str, ...], enabled: bool) -> None:
+        # Only Gio.SimpleAction can be toggled; the plain Gio.Action interface
+        # exposes no setter, so anything else is skipped rather than crashing.
+        for name in names:
             action = self.lookup_action(name)
             if isinstance(action, Gio.SimpleAction):
                 action.set_enabled(enabled)
+
+    def _set_mail_actions_enabled(self, enabled: bool) -> None:
+        self._set_actions_enabled(MAIL_ACTIONS, enabled)
         self.move_button.set_sensitive(enabled)
 
     def _set_reply_forward_enabled(self, enabled: bool) -> None:
-        for name in ("reply", "forward"):
-            action = self.lookup_action(name)
-            if action is not None:
-                action.set_enabled(enabled)
+        self._set_actions_enabled(REPLY_FORWARD_ACTIONS, enabled)
 
     def _selected_conversations(self) -> list[Conversation]:
         selected = []
@@ -655,15 +661,18 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._commit_pending_move()
 
-        mails = [
-            mail
+        # Pair each mail with its UID in one pass so the "has a UID" narrowing
+        # survives into email_ids/uids/originals, which stay index-aligned.
+        # A locally saved copy has no UID yet -- see mail_sync.server_uids.
+        mails_with_uids = [
+            (mail, mail.server_id)
             for conversation in conversations
             for mail in conversation.emails
             if mail.server_id is not None
         ]
-        email_ids = [mail.id for mail in mails]
-        uids = [mail.server_id for mail in mails]
-        originals = [(mail.id, source.id, mail.server_id) for mail in mails]
+        email_ids = [mail.id for mail, _ in mails_with_uids]
+        uids = [uid for _, uid in mails_with_uids]
+        originals = [(mail.id, source.id, uid) for mail, uid in mails_with_uids]
         tombstones = [(source.id, uid) for uid in uids]
         self._db.move_emails(email_ids, dest.id)
         for tombstone in tombstones:
@@ -855,9 +864,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not isinstance(conversation, Conversation):
             return
 
+        # A gesture detached from its widget has nothing to anchor the popover
+        # to; that can't happen while the row is on screen, but set_parent(None)
+        # would abort in C rather than raise, so bail out here instead.
+        row_widget = gesture.get_widget()
+        if row_widget is None:
+            return
+
         popover = Gtk.PopoverMenu()
         popover.insert_action_group("context", self._context_actions(conversation))
-        popover.set_parent(gesture.get_widget())
+        popover.set_parent(row_widget)
         popover.set_menu_model(self._context_menu(conversation))
         popover.set_has_arrow(False)
         # GtkModelButton activates its action after closing the popover, so keep

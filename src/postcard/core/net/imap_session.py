@@ -171,10 +171,7 @@ class ImapSession:
     @staticmethod
     def _destination_uid(response: object) -> str | None:
         """Extract a single destination UID from a COPYUID/MOVEUID response."""
-        if isinstance(response, (list, tuple)):
-            values = response
-        else:
-            values = [response]
+        values = response if isinstance(response, (list, tuple)) else [response]
         text = " ".join(
             value.decode("ascii", "replace") if isinstance(value, bytes) else str(value)
             for value in values
@@ -207,9 +204,9 @@ class ImapSession:
 
         messages: list[dict] = []
         for item in data:
-            # imaplib hands each message back as a tuple:
-            #   (metadata_bytes, header_bytes)
-            # The stray ")" closing lines arrive as plain bytes — we skip those.
+            # imaplib hands each message back as a tuple of metadata bytes
+            # followed by header bytes.  The stray ")" closing lines arrive as
+            # plain bytes instead — we skip those.
             if not isinstance(item, tuple):
                 continue
             meta, header_bytes = item

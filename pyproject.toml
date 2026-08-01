@@ -6,20 +6,66 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-# A sane starter set: pyflakes (F), pycodestyle (E/W), isort (I), and a few
-# bug-catchers. Add more rules as you get comfortable.
-select = ["E", "W", "F", "I", "UP", "B", "SLF"]
+# Enforces .claude/skills/coding-standards. Beyond the original starter set
+# (E/W/F/I/UP/B/SLF) these cover the rules the standard states explicitly:
+#   N     naming conventions
+#   SIM   KISS — collapses needless branching
+#   RET   guard clauses / early return
+#   TRY   don't swallow exceptions, don't raise inside try
+#   ARG   delete unused arguments
+#   ERA   delete commented-out code
+#   PLR09xx, C901   the complexity limits (returns/branches/args/statements)
+select = [
+  "E", "W", "F", "I", "UP", "B", "SLF",
+  "N", "SIM", "RET", "TRY", "ARG", "ERA",
+  "PLR0911", "PLR0912", "PLR0913", "PLR0915", "C901",
+]
+# TRY003 ("avoid long messages outside the exception class") contradicts the
+# standard's own logging rule, which wants messages that name the resource and
+# the reason -- ImapError(f"could not move {uid} to {destination}: {data}") is
+# exactly what we want, and satisfying TRY003 means one exception subclass per
+# message. That is the speculative generality the same standard forbids.
+ignore = ["TRY003"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+# The standard asks for "fewer than 4 parameters"; ruff excludes `self`, so 5
+# here allows 4 real ones on a method.
+max-args = 5
 
 [tool.ruff.lint.per-file-ignores]
 # gi.require_version() must run before the gi.repository import it configures,
 # which pushes that import (and everything after it) below E402's threshold.
+# (window.py, composer_window.py and message_view.py also need E402 -- their
+# entries live in the deferred block below so each file has one key.)
 "src/postcard/application.py" = ["E402"]
-"src/postcard/composer_window.py" = ["E402"]
 "src/postcard/core/avatars.py" = ["E402"]
 "src/postcard/core/secrets.py" = ["E402"]
-"src/postcard/message_view.py" = ["E402"]
-"src/postcard/window.py" = ["E402"]
 "tests/core/test_avatars.py" = ["E402"]
+
+# A test double has to match the signature of the thing it stands in for, so
+# the arguments it ignores are load-bearing.
+"tests/*" = ["ARG"]
+
+# --- Permanent carve-outs, with the reason -----------------------------------
+# Account/Email/Folder are GObject.Object subclasses because Gio.ListStore only
+# accepts GObjects, so they can't become dataclasses and every field has to be
+# a constructor parameter. Mitigated by making them keyword-only instead.
+"src/postcard/core/models/*.py" = ["PLR0913"]
+
+# --- Deferred: delete each entry as the refactor phase named clears it -------
+# Phase 4 (dataclasses): a bare dict widened into a parameter list. save_email,
+# save_incoming_email, save_account, fetch_mailbox, set_flag, _flag_worker.
+"src/postcard/core/store/database.py" = ["PLR0913"]
+"src/postcard/mail_sync.py" = ["PLR0913"]
+# Phase 7 (splitting window.py and the long __init__s): oversized functions.
+"src/postcard/window.py" = ["E402", "C901", "PLR0912", "PLR0913"]
+"src/postcard/composer_window.py" = ["E402", "PLR0913"]
+"src/postcard/message_view.py" = ["E402", "PLR0913"]
+"src/postcard/core/compose.py" = ["PLR0913"]
+"src/postcard/core/threader.py" = ["C901"]
 
 [tool.pytest.ini_options]
 # The package isn't installed (meson does that at Flatpak build time), so point

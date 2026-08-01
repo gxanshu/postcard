@@ -197,8 +197,11 @@ def send_message(
         session.quit()
 
 
-def role_for_folder(name: str) -> str:
-    """Classify a mailbox by name: inbox/sent/drafts/trash/junk/archive/other."""
+def role_for_folder(name: str) -> str:  # noqa: PLR0911
+    """Classify a mailbox by name: inbox/sent/drafts/trash/junk/archive/other.
+
+    noqa PLR0911: a dispatch table — one return per role is the point.
+    """
     lname = name.lower()
     if lname == "inbox":
         return "inbox"

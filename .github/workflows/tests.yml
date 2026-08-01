@@ -16,6 +16,24 @@ jobs:
           sudo apt-get install -y python3-gi gir1.2-glib-2.0 \
             gir1.2-gdkpixbuf-2.0 python3-pytest
 
+      # Lint + format + types, enforcing .claude/skills/coding-standards.
+      # Installed with pip rather than `just check` so CI needs no `just`.
+      # PyGObject-stubs needs --no-deps: it depends on PyGObject, which builds
+      # pycairo from source and needs cairo headers. gi comes from python3-gi
+      # (installed above) and the stubs are pure .pyi files regardless.
+      - name: Install lint and type-check tooling
+        run: |
+          pip install ruff pyright
+          pip install --no-deps PyGObject-stubs
+
+      - name: Lint and format check
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+
+      - name: Type check
+        run: pyright src/postcard
+
       # pythonpath = ["src"] in pyproject.toml puts the package on sys.path,
       # so there is nothing to install or build first.
       - name: Run the tests

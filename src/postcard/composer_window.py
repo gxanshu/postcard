@@ -238,6 +238,8 @@ class PostcardComposerWindow(Adw.Window):
         to: str = "",
         subject: str = "",
         body: str = "",
+        cc: str = "",
+        bcc: str = "",
     ) -> None:
         super().__init__(application=app)
         self._db = db
@@ -251,6 +253,8 @@ class PostcardComposerWindow(Adw.Window):
         }
 
         self.to_row.set_text(to)
+        self.cc_row.set_text(cc)
+        self.bcc_row.set_text(bcc)
         self.subject_row.set_text(subject)
         self._build_editor()
 

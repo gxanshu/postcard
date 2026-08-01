@@ -4,6 +4,7 @@ from postcard.core.compose import (
     forward_body,
     forward_subject,
     html_to_text,
+    parse_mailto,
     quote_reply_body,
     replace_last_address,
     reply_subject,
@@ -206,3 +207,31 @@ def test_replace_last_address_swaps_the_entry_being_typed():
 
 def test_replace_last_address_on_the_first_entry():
     assert replace_last_address("bo", "bob@x.com") == "bob@x.com, "
+
+
+def test_parse_mailto_takes_the_recipient_from_the_path():
+    draft = parse_mailto("mailto:bob@example.com")
+    assert draft.to == "bob@example.com"
+    assert draft.subject == ""
+    assert draft.body_html == ""
+
+
+def test_parse_mailto_decodes_headers_and_escapes_the_body():
+    draft = parse_mailto(
+        "mailto:bob@example.com?subject=Hi%20there&cc=carl@x.com"
+        "&bcc=dan@x.com&body=a%20%3Cb%3E%0Aline"
+    )
+    assert draft.subject == "Hi there"
+    assert draft.cc == "carl@x.com"
+    assert draft.bcc == "dan@x.com"
+    assert draft.body_html == "a &lt;b&gt;<br>line"
+
+
+def test_parse_mailto_keeps_plus_addressing_intact():
+    assert parse_mailto("mailto:?to=bob%2Btag@x.com").to == "bob+tag@x.com"
+
+
+def test_parse_mailto_merges_path_and_query_recipients():
+    draft = parse_mailto("mailto:bob@x.com?to=carl@x.com&SUBJECT=Hi")
+    assert draft.to == "bob@x.com, carl@x.com"
+    assert draft.subject == "Hi"

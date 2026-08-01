@@ -148,7 +148,29 @@ class AccountsMixin(MainWindowParts):
         )
         self._open_composer(subject=subject, body=body)
 
-    def _open_composer(self, to: str = "", subject: str = "", body: str = "") -> None:
+    # Open the composer for a mailto: link handed to us by the desktop.
+    def open_mailto(self, uri: str) -> None:
+        draft = compose.parse_mailto(uri)
+        signature = self._signature_text()
+        body = draft.body_html or (
+            compose.signature_block(signature) if signature else ""
+        )
+        self._open_composer(
+            to=draft.to,
+            subject=draft.subject,
+            body=body,
+            cc=draft.cc,
+            bcc=draft.bcc,
+        )
+
+    def _open_composer(
+        self,
+        to: str = "",
+        subject: str = "",
+        body: str = "",
+        cc: str = "",
+        bcc: str = "",
+    ) -> None:
         account = self._account
         if account is None:
             return
@@ -159,6 +181,8 @@ class AccountsMixin(MainWindowParts):
             to=to,
             subject=subject,
             body=body,
+            cc=cc,
+            bcc=bcc,
         )
         composer.connect("finished", self._on_composer_finished)
         composer.present()

@@ -1,8 +1,10 @@
 import email
 import email.utils
+from dataclasses import dataclass
 from email.message import EmailMessage
 from html import escape
 from html.parser import HTMLParser
+from urllib.parse import unquote
 
 from .models.attachment import Attachment
 
@@ -142,6 +144,48 @@ def extract_recipients(raw: bytes) -> list[str]:
         [str(headers["To"] or ""), str(headers["Cc"] or "")]
     )
     return [addr for _, addr in addrs if addr]
+
+
+@dataclass(frozen=True)
+class MailtoDraft:
+    """The composer fields a mailto: link asks for."""
+
+    to: str = ""
+    cc: str = ""
+    bcc: str = ""
+    subject: str = ""
+    body_html: str = ""
+
+
+def _mailto_headers(query: str) -> dict[str, str]:
+    # Not urllib.parse.parse_qsl: it decodes "+" as a space, which would break
+    # plus-addressed recipients. RFC 6068 encodes spaces as %20 only.
+    headers: dict[str, str] = {}
+    for part in query.split("&"):
+        key, _, value = part.partition("=")
+        if key:
+            headers.setdefault(unquote(key).lower(), unquote(value))
+    return headers
+
+
+def parse_mailto(uri: str) -> MailtoDraft:
+    """Split an RFC 6068 mailto: URI into composer fields.
+
+    The body is escaped into HTML here: it arrives from outside the app, and
+    the composer renders its body as HTML.
+    """
+    path, _, query = uri.partition("?")
+    headers = _mailto_headers(query)
+    addressed = (unquote(path.partition(":")[2]), headers.get("to", ""))
+    recipients = [addr for addr in addressed if addr]
+    body = headers.get("body", "")
+    return MailtoDraft(
+        to=", ".join(recipients),
+        cc=headers.get("cc", ""),
+        bcc=headers.get("bcc", ""),
+        subject=headers.get("subject", ""),
+        body_html=_to_html(body) if body else "",
+    )
 
 
 def suggest_addresses(text: str, addresses: list[str], limit: int = 5) -> list[str]:

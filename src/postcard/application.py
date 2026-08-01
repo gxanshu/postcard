@@ -17,6 +17,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
 from collections.abc import Callable
 from gettext import gettext as _
 from typing import cast
@@ -33,6 +34,10 @@ from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
 from .window import PostcardMainWindow
 
+logger = logging.getLogger(__name__)
+
+MAILTO_SCHEME = "mailto:"
+
 
 class PostcardApplication(Adw.Application):
     __gtype_name__ = "PostcardApplication"
@@ -40,7 +45,8 @@ class PostcardApplication(Adw.Application):
     def __init__(self, version: str) -> None:
         super().__init__(
             application_id="in.gxanshu.postcard",
-            flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
+            # HANDLES_OPEN so the desktop can hand us mailto: links.
+            flags=Gio.ApplicationFlags.HANDLES_OPEN,
             resource_base_path="/in/gxanshu/postcard",
         )
         self.version = version
@@ -92,6 +98,18 @@ class PostcardApplication(Adw.Application):
             self._should_start_hidden = False
             return
         win.present()
+
+    def do_open(self, files: list[Gio.File], _n_files: int, _hint: str) -> None:
+        self.do_activate()
+        win = self.props.active_window
+        if not isinstance(win, PostcardMainWindow):
+            return
+        for file in files:
+            uri = file.get_uri()
+            if uri.lower().startswith(MAILTO_SCHEME):
+                win.open_mailto(uri)
+            else:
+                logger.warning("ignoring unsupported URI %s", uri)
 
     def _load_css(self) -> None:
         display = Gdk.Display.get_default()

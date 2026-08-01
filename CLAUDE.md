@@ -38,6 +38,12 @@ Three places the standard is deliberately not applied literally, each with the r
 - **"Fewer than 4 parameters" cannot apply to `core/models/*.py`.** `Account`, `Email` and `Folder` are `GObject.Object` subclasses because `Gio.ListStore` only accepts GObjects, so they can't become dataclasses and every field has to be a constructor parameter. They are keyword-only instead, so call sites still read like a dataclass.
 - **"Under 200 lines per file" is the target for `core/` only.** `@Gtk.Template` modules aim for under 400: a templated widget class can't be split below its own widget surface without fighting the template.
 
+### Logging
+
+`logging` is configured once in `main.py` and writes to stderr (journald captures it for the Flatpak). Each module takes `logger = logging.getLogger(__name__)`. Default level is WARNING so a normal run is silent; `POSTCARD_LOG=debug just run` (or any level name) turns it up without a rebuild. This is separate from `G_MESSAGES_DEBUG`, which only affects GLib's own logging.
+
+Every error surfaced to the user as a toast or banner is also logged, because a toast is gone the moment it fades. Log at the worker-thread boundary where the exception is caught, with a message naming the resource — `"could not move %d message(s) from %s to %s (account %s)"`, not `"Error"`. Workers pass the exception itself back to their `idle_add` handler, which turns it into user-facing text via `errors.classify()`; don't interpolate `str(error)` into a toast, it leaks server-verbatim text into the UI.
+
 Never log the `args` tuple of a network worker thread — the account password is a positional item in it (`threading.Thread(args=(..., password, ...))`). CPython tracebacks don't print argument values, so this is safe by default, but any locals-printing formatter would serialize the plaintext password. For the same reason, never set `imaplib.Debug > 4` or call `smtplib.set_debuglevel` — both echo the `LOGIN` command.
 
 ## Architecture

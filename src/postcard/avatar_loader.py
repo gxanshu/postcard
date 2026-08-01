@@ -2,12 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib
 
 from .core import avatars
+
+logger = logging.getLogger(__name__)
 
 MAX_WORKERS = 4
 
@@ -52,7 +55,11 @@ class AvatarLoader:
         try:
             image = avatars.fetch(address)
         except Exception:
-            # Never leave the address stuck in _waiting.
+            # avatars.fetch already returns None for every expected failure
+            # (404, timeout, not an image), so reaching here means a bug rather
+            # than a missing avatar -- log it instead of hiding it. Still
+            # swallowed: the address must never be left stuck in _waiting.
+            logger.exception("avatar lookup failed for %s", address)
             image = None
         GLib.idle_add(self._deliver, address, image)
 

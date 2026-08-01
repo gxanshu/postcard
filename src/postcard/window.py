@@ -18,6 +18,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import email
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -42,11 +43,13 @@ from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
 from .core.models.email import Email
 from .core.models.folder import Folder
-from .core.net import errors
+from .core.net import errors, imap_session
 from .core.store.database import Database
 from .folder_row import FolderRow
 from .message_view import LoadCallback, MessageView
 from .preferences_dialog import SETTING_SYNC_INTERVAL
+
+logger = logging.getLogger(__name__)
 
 # Window action names, grouped by what enables and disables them together.
 MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
@@ -529,7 +532,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for conversation in conversations
             for uid in mail_sync.server_uids(conversation)
         ]
-        self._run_flag_worker(uids, "\\Seen", add=not unread, revert=revert)
+        self._run_flag_worker(
+            uids, imap_session.FLAG_SEEN, add=not unread, revert=revert
+        )
 
     def _on_toggle_star(self, _action: Gio.SimpleAction, _param: object) -> None:
         conversations = self._selected_conversations()
@@ -568,7 +573,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for conversation in conversations
             for uid in mail_sync.server_uids(conversation)
         ]
-        self._run_flag_worker(uids, "\\Flagged", add=starred, revert=revert)
+        self._run_flag_worker(
+            uids, imap_session.FLAG_FLAGGED, add=starred, revert=revert
+        )
 
     # Clear the unread flag for a whole conversation: locally, in the badges
     # and list, and on the server. A no-op if it's already read, so reopening a
@@ -589,7 +596,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._after_flag_change(conversation)
         uids = mail_sync.server_uids(conversation)
-        self._run_flag_worker(uids, "\\Seen", add=True, revert=revert)
+        self._run_flag_worker(uids, imap_session.FLAG_SEEN, add=True, revert=revert)
 
     # Update badges and the list after a flag change, keeping this
     # conversation selected (so the reader doesn't reload).
@@ -634,10 +641,20 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         try:
             mail_sync.set_flag(account, password, folder_name, uids, flag, add)
         except Exception as error:
-            GLib.idle_add(self._on_action_failed, revert, str(error))
+            logger.exception(
+                "could not set %s on %d message(s) in %s (account %s)",
+                flag,
+                len(uids),
+                folder_name,
+                account.email,
+            )
+            GLib.idle_add(self._on_action_failed, revert, account.imap_host, error)
 
-    def _on_action_failed(self, revert: Callable[[], None], message: str) -> bool:
+    def _on_action_failed(
+        self, revert: Callable[[], None], host: str, error: Exception
+    ) -> bool:
         revert()
+        _category, message = errors.classify(error, host)
         self._toast(_("Action failed: {msg}").format(msg=message))
         return False
 
@@ -857,7 +874,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
             GLib.idle_add(self._on_move_result, pending, result)
         except Exception as error:
-            GLib.idle_add(self._on_move_failed, pending, str(error))
+            logger.exception(
+                "could not move %d message(s) from %s to %s (account %s)",
+                len(pending.uids),
+                pending.source.name,
+                pending.dest.name,
+                account.email,
+            )
+            GLib.idle_add(self._on_move_failed, pending, account.imap_host, error)
 
     def _on_move_result(
         self, pending: PendingMove, result: mail_sync.MoveResult
@@ -883,11 +907,22 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._reload_folders()
         self._refresh_conversations()
         if result.error is not None:
+            logger.warning(
+                "move stopped after %d of %d message(s) from %s to %s: %s",
+                completed,
+                len(pending.uids),
+                pending.source.name,
+                pending.dest.name,
+                result.error,
+            )
             self._toast(_("Move failed: {msg}").format(msg=result.error))
         return False
 
-    def _on_move_failed(self, pending: PendingMove, message: str) -> bool:
+    def _on_move_failed(
+        self, pending: PendingMove, host: str, error: Exception
+    ) -> bool:
         self._restore_move(pending)
+        _category, message = errors.classify(error, host)
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 
@@ -1387,7 +1422,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         try:
             raw = mail_sync.fetch_full_message(account, password, folder_name, uid)
         except Exception as error:
-            GLib.idle_add(self._deliver_body, callback, email_id, None, str(error))
+            logger.exception(
+                "could not fetch message uid %s from %s (account %s)",
+                uid,
+                folder_name,
+                account.email,
+            )
+            _category, message = errors.classify(error, account.imap_host)
+            GLib.idle_add(self._deliver_body, callback, email_id, None, message)
             return
         GLib.idle_add(self._deliver_body, callback, email_id, raw, None)
 
@@ -1419,9 +1461,22 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         except GLib.Error:
             return  # user cancelled the dialog
 
-        file.replace_contents(
-            attachment.content, None, False, Gio.FileCreateFlags.NONE, None
-        )
+        # A full disk or a read-only target fails here, not in save_finish. Left
+        # unhandled the exception is swallowed by PyGObject and the user sees
+        # neither the "Saved" toast nor any reason why.
+        try:
+            file.replace_contents(
+                attachment.content, None, False, Gio.FileCreateFlags.NONE, None
+            )
+        except GLib.Error as error:
+            logger.exception("could not save attachment to %s", file.get_path())
+            self._toast(
+                _("Couldn't save {name}: {msg}").format(
+                    name=attachment.filename, msg=error.message
+                )
+            )
+            return
+
         self._toast(_("Saved {name}.").format(name=attachment.filename))
 
     def _build_conversation_factory(self) -> Gtk.SignalListItemFactory:
@@ -1513,6 +1568,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                     account, password, account.email, recipients, raw
                 )
             except Exception as error:  # noqa: BLE001 - reported, not swallowed
+                logger.exception(
+                    "could not send queued message %d (%r) to %s via %s",
+                    email_id,
+                    subject,
+                    ", ".join(recipients),
+                    account.smtp_host,
+                )
                 results.append(OutboxResult(email_id, subject, raw, error))
             else:
                 results.append(OutboxResult(email_id, subject, raw, None))
@@ -1625,6 +1687,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 account, password, folder_name, offset=offset
             )
         except Exception as error:
+            logger.exception(
+                "sync failed for %s on %s (folder %s, offset %d)",
+                account.email,
+                account.imap_host,
+                folder_name or "inbox",
+                offset,
+            )
             category, message = errors.classify(error, account.imap_host)
             GLib.idle_add(self._on_sync_error, category, message)
             return
@@ -1648,7 +1717,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # every parent is stored before a child looks it up.
         for mailbox in sorted(mailboxes, key=lambda m: len(m.name)):
             name, delimiter = mailbox.name, mailbox.delimiter
-            selectable = "\\Noselect" not in mailbox.flags
+            selectable = imap_session.ATTR_NOSELECT not in mailbox.flags
             icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
             folder = self._db.get_or_create_folder(account.id, name, icon)
 

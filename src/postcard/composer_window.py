@@ -1,4 +1,5 @@
 import json
+import logging
 import mimetypes
 import threading
 from datetime import datetime
@@ -26,8 +27,11 @@ from . import mail_sync
 from .core import compose, secrets
 from .core.models.account import Account
 from .core.models.attachment import Attachment
+from .core.net import errors
 from .core.store.database import Database
 from .core.threader import NO_SUBJECT
+
+logger = logging.getLogger(__name__)
 
 _EDITOR_PAGE = """<!DOCTYPE html>
 <html>
@@ -499,28 +503,44 @@ class PostcardComposerWindow(Adw.Window):
         )
         self._db.save_raw_message(row.id, raw)
 
+        # Resolve the password here, on the main thread: the worker does
+        # network only, and this way a missing password is reported before the
+        # UI switches into its sending state.
+        password = secrets.lookup_password(self._account.id)
+        if not password:
+            self._on_send_failed(_("No saved password for this account."))
+            return
+
         self._set_sending(True)
         thread = threading.Thread(
             target=self._send_worker,
-            args=(row.id, subject, recipients, raw),
+            args=(row.id, subject, recipients, raw, password),
             daemon=True,
         )
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access.
     def _send_worker(
-        self, email_id: int, subject: str, recipients: list[str], raw: bytes
+        self,
+        email_id: int,
+        subject: str,
+        recipients: list[str],
+        raw: bytes,
+        password: str,
     ) -> None:
-        password = secrets.lookup_password(self._account.id)
-        if not password:
-            GLib.idle_add(self._on_send_failed, "no saved password")
-            return
+        account = self._account
         try:
-            mail_sync.send_message(
-                self._account, password, self._account.email, recipients, raw
-            )
+            mail_sync.send_message(account, password, account.email, recipients, raw)
         except Exception as error:
-            GLib.idle_add(self._on_send_failed, str(error))
+            logger.exception(
+                "could not send %r to %s via %s (account %s)",
+                subject,
+                ", ".join(recipients),
+                account.smtp_host,
+                account.email,
+            )
+            _category, message = errors.classify(error, account.smtp_host)
+            GLib.idle_add(self._on_send_failed, message)
             return
         GLib.idle_add(self._on_send_done, email_id, subject, raw)
 

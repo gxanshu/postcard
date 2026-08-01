@@ -1,11 +1,14 @@
 import base64
 import email
 import imaplib
+import logging
 import re
 from email import policy
 from typing import NamedTuple
 
 from . import NET_TIMEOUT_SECONDS
+
+logger = logging.getLogger(__name__)
 
 # imaplib returns the command status as the first element of every reply.
 STATUS_OK = "OK"
@@ -109,11 +112,14 @@ class ImapSession:
             raise ImapError(str(error)) from error
 
     def logout(self) -> None:
+        # Runs from a `finally:` on every operation, so it must not raise and
+        # mask the error that is already on its way out. Logged at debug
+        # because a server hanging up first is normal, not a problem.
         try:
             if self._imap is not None:
                 self._imap.logout()
         except Exception:
-            pass
+            logger.debug("IMAP logout from %s failed", self._host, exc_info=True)
 
     def _require_imap(self) -> imaplib.IMAP4:
         # Never return None: a caller that skipped connect() has to fail loudly

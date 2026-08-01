@@ -1,6 +1,9 @@
+import logging
 import smtplib
 
 from . import NET_TIMEOUT_SECONDS
+
+logger = logging.getLogger(__name__)
 
 
 class SmtpError(Exception):
@@ -48,8 +51,10 @@ class SmtpSession:
         return self._smtp
 
     def quit(self) -> None:
+        # Same contract as ImapSession.logout: called from a `finally:`, so it
+        # must never raise over the top of the real error.
         try:
             if self._smtp is not None:
                 self._smtp.quit()
         except Exception:
-            pass
+            logger.debug("SMTP quit to %s failed", self._host, exc_info=True)

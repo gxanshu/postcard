@@ -1,0 +1,51 @@
+# Maintainer: Anshu <hi@gxanshu.in>
+#
+# Template, not a recipe: the release workflow rewrites pkgver and fills in
+# sha256sums before pushing to the AUR, so `makepkg` here builds the previous
+# release with verification disabled. Build the AUR package instead.
+
+pkgname=postcard
+pkgver=1.6.2
+pkgrel=1
+pkgdesc="A modern email client for GNOME"
+arch=('any')
+url="https://github.com/gxanshu/postcard"
+license=('GPL-3.0-or-later')
+# The meson build declares no dependency() on any of these — it only installs
+# Python sources — so nothing but this array stands between a user and an app
+# that crashes on import. Mirror the gi.require_version() calls in src/postcard/.
+depends=(
+  'gdk-pixbuf2'
+  'gtk4'
+  'libadwaita'
+  'libsecret'
+  'python'
+  'python-gobject'
+  'webkitgtk-6.0'
+)
+makedepends=(
+  'blueprint-compiler'
+  'gettext'
+  'meson'
+)
+checkdepends=(
+  'appstream'
+  'desktop-file-utils'
+)
+source=("$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  meson setup "$pkgname-$pkgver" build --prefix=/usr --buildtype=release
+  meson compile -C build
+}
+
+check() {
+  # Validates the .desktop and AppStream metadata — the two files whose
+  # breakage otherwise stays hidden until someone's software centre chokes.
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}

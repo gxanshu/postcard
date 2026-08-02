@@ -59,6 +59,16 @@
   </screenshots>
 
   <releases>
+    <release version="1.6.1" date="2026-08-02">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Fix sent mail never appearing in Sent on the server</li>
+          <li>Fix read and starred marks not following what the server reports</li>
+          <li>Fix unread counts going stale in folders other than the Inbox</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.0" date="2026-08-01">
       <description translate="no">
         <p>New in this release:</p>

@@ -59,6 +59,14 @@
   </screenshots>
 
   <releases>
+    <release version="1.6.2" date="2026-08-02">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>One-click install: Postcard now ships a .flatpakref, so adding the repository by hand is no longer needed</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.1" date="2026-08-02">
       <description translate="no">
         <p>New in this release:</p>

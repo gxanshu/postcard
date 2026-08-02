@@ -127,3 +127,42 @@ def test_paging_past_the_oldest_message_returns_nothing(monkeypatch):
 
     assert session.fetch_recent_headers(exists=10, limit=50, offset=10) == []
     assert imap.calls == []
+
+
+# --- append -----------------------------------------------------------------
+
+
+class AppendingImap(FakeImap):
+    def __init__(self, reply=("OK", [b"[APPENDUID 1 7] APPEND completed"])):
+        super().__init__()
+        self._reply = reply
+        self.capabilities = ("IMAP4REV1", "X-GM-EXT-1")
+
+    def append(self, *args):
+        self.calls.append(args)
+        return self._reply
+
+
+def test_append_quotes_the_mailbox_and_stores_the_copy_as_read(monkeypatch):
+    # A Sent mailbox with a space in its name arrives as two tokens unless it
+    # is quoted, and the server answers BAD.
+    imap = AppendingImap()
+    session = connect(monkeypatch, imap)
+
+    session.append("[Gmail]/Sent Mail", b"raw")
+
+    assert imap.calls == [('"[Gmail]/Sent Mail"', "\\Seen", None, b"raw")]
+
+
+def test_append_raises_when_the_server_refuses(monkeypatch):
+    session = connect(monkeypatch, AppendingImap(reply=("NO", [b"[TRYCREATE]"])))
+
+    with pytest.raises(ImapError, match="could not append to Sent"):
+        session.append("Sent", b"raw")
+
+
+def test_has_capability_is_case_insensitive(monkeypatch):
+    session = connect(monkeypatch, AppendingImap())
+
+    assert session.has_capability("x-gm-ext-1")
+    assert not session.has_capability("X-SOMETHING-ELSE")

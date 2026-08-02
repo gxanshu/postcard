@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
@@ -10,6 +11,7 @@ from .core.models.conversation import Conversation
 # is built. It lives in core.models so core.store can accept one directly.
 from .core.models.message_header import MessageHeader
 from .core.net.imap_session import (
+    GMAIL_CAPABILITY,
     FetchedHeader,
     ImapSession,
     MailboxInfo,
@@ -17,6 +19,8 @@ from .core.net.imap_session import (
 )
 from .core.net.smtp_session import SmtpSession
 from .core.threader import NO_SUBJECT
+
+logger = logging.getLogger(__name__)
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
@@ -228,6 +232,46 @@ def send_message(
         session.send_raw(from_addr, recipients, raw)
     finally:
         session.quit()
+
+    # SMTP only hands the message to the recipient's server; nothing puts a copy
+    # in our own Sent mailbox, so without this the mail is missing from every
+    # other client. Never fatal: it has already gone out, and failing here would
+    # leave it in the Outbox to be sent a second time.
+    try:
+        _append_to_sent(account, password, raw)
+    except Exception:
+        logger.warning(
+            "could not save a copy of the sent message to Sent on %s (account %s)",
+            account.imap_host,
+            account.email,
+            exc_info=True,
+        )
+
+
+def _append_to_sent(account: Account, password: str, raw: bytes) -> None:
+    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
+    session.connect()
+
+    try:
+        session.login(account.email, password)
+        if session.has_capability(GMAIL_CAPABILITY):
+            return
+        sent = next(
+            (
+                mailbox.name
+                for mailbox in session.list_folders()
+                if role_for_folder(mailbox.name) == FolderRole.SENT
+            ),
+            None,
+        )
+        if sent is None:
+            logger.warning(
+                "no Sent mailbox on %s (account %s)", account.imap_host, account.email
+            )
+            return
+        session.append(sent, raw)
+    finally:
+        session.logout()
 
 
 def role_for_folder(name: str) -> FolderRole:  # noqa: PLR0911

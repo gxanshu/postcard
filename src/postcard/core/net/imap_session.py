@@ -23,6 +23,10 @@ FLAG_FLAGGED = "\\Flagged"
 # hold mail (Gmail's "[Gmail]"), so it is shown but never selected.
 ATTR_NOSELECT = "\\Noselect"
 
+# Gmail files its own copy of everything sent through it. This capability is how
+# it identifies itself, so we don't append a second copy on top.
+GMAIL_CAPABILITY = "X-GM-EXT-1"
+
 
 class MailboxInfo(NamedTuple):
     name: str
@@ -163,6 +167,23 @@ class ImapSession:
         if status != STATUS_OK:
             raise ImapError(f"could not open {mailbox}: {payload}")
         return int(payload[0]) if payload and payload[0] else 0
+
+    def has_capability(self, name: str) -> bool:
+        """Whether the server advertises a capability. imaplib upper-cases the
+        ones it parsed, so the comparison has to as well."""
+        return name.upper() in self._require_imap().capabilities
+
+    def append(self, mailbox: str, raw: bytes) -> None:
+        """Upload a message into a mailbox, without selecting it first.
+
+        Stored \\Seen: this is our own copy of something we just sent, and
+        arriving as unread mail would be wrong.
+        """
+        status, payload = self._require_imap().append(
+            _quote_mailbox(mailbox), FLAG_SEEN, None, raw
+        )
+        if status != STATUS_OK:
+            raise ImapError(f"could not append to {mailbox}: {payload}")
 
     def store_flags(self, uid: str, flags: str, should_add: bool) -> None:
         """Add or remove flags (e.g. "\\Seen") on one message by UID."""

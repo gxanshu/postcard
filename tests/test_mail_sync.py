@@ -4,7 +4,12 @@ import postcard.mail_sync as mail_sync
 from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
-from postcard.core.net.imap_session import FetchedHeader
+from postcard.core.net.imap_session import (
+    GMAIL_CAPABILITY,
+    FetchedHeader,
+    ImapError,
+    MailboxInfo,
+)
 from postcard.mail_sync import (
     NO_SUBJECT,
     FolderRole,
@@ -294,3 +299,112 @@ def test_the_uid_and_threading_headers_carry_over_verbatim():
     )
     assert (header.uid, header.message_id) == ("7", "<b>")
     assert (header.in_reply_to, header.references) == ("<a>", "<a> <x>")
+
+
+# --- filing a copy of a sent message in Sent --------------------------------
+
+
+class FakeSmtpSession:
+    def __init__(self, host, port, security):
+        pass
+
+    def connect(self):
+        pass
+
+    def login(self, user, password):
+        pass
+
+    def send_raw(self, from_addr, recipients, raw):
+        pass
+
+    def quit(self):
+        pass
+
+
+class AppendingImapSession:
+    """An IMAP server that records what was appended where."""
+
+    appends: list[tuple[str, bytes]] = []
+    mailboxes: list[str] = []
+    capabilities: tuple[str, ...] = ()
+
+    def __init__(self, host, port, security):
+        pass
+
+    def connect(self):
+        pass
+
+    def login(self, user, password):
+        pass
+
+    def has_capability(self, name):
+        return name in type(self).capabilities
+
+    def list_folders(self):
+        return [MailboxInfo(name, "/", "") for name in type(self).mailboxes]
+
+    def append(self, mailbox, raw):
+        type(self).appends.append((mailbox, raw))
+
+    def logout(self):
+        pass
+
+
+@pytest.fixture
+def imap(monkeypatch):
+    AppendingImapSession.appends = []
+    AppendingImapSession.mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
+    AppendingImapSession.capabilities = ()
+    monkeypatch.setattr(mail_sync, "SmtpSession", FakeSmtpSession)
+    monkeypatch.setattr(mail_sync, "ImapSession", AppendingImapSession)
+    return AppendingImapSession
+
+
+def send() -> None:
+    account = Account(
+        id=1,
+        email="ada@example.com",
+        display_name="Ada",
+        imap_host="imap.example.com",
+        imap_port=993,
+        smtp_host="smtp.example.com",
+        smtp_port=465,
+    )
+    mail_sync.send_message(
+        account, "hunter2", "ada@example.com", ["you@example.com"], b"raw"
+    )
+
+
+def test_a_sent_message_is_appended_to_the_server_s_sent_mailbox(imap):
+    # SMTP alone only delivers to the recipient -- every other client would
+    # show an empty Sent folder.
+    send()
+
+    assert imap.appends == [("[Gmail]/Sent Mail", b"raw")]
+
+
+def test_gmail_files_its_own_copy_so_nothing_is_appended(imap):
+    imap.capabilities = (GMAIL_CAPABILITY,)
+
+    send()
+
+    assert imap.appends == []
+
+
+def test_a_server_without_a_sent_mailbox_is_skipped_rather_than_failing(imap):
+    imap.mailboxes = ["INBOX"]
+
+    send()
+
+    assert imap.appends == []
+
+
+def test_the_send_still_counts_as_done_when_the_append_fails(imap, monkeypatch):
+    # The mail has already left over SMTP. Raising here would report a failure
+    # and leave it in the Outbox, which sends it a second time.
+    def refuse(self, mailbox, raw):
+        raise ImapError("over quota")
+
+    monkeypatch.setattr(imap, "append", refuse)
+
+    send()

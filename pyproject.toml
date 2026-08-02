@@ -84,6 +84,9 @@ testpaths = ["tests"]
 typeCheckingMode = "basic"
 pythonVersion = "3.12"
 include = ["src/postcard"]
+# The package is never installed into the .venv (it ships as a Flatpak), so
+# tests import it off the source tree — same as pytest's pythonpath setting.
+extraPaths = ["src"]
 venvPath = "."
 venv = ".venv"
 # gi.repository submodules (Gtk, Adw, ...) are generated at runtime from

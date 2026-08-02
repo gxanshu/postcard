@@ -3,10 +3,15 @@
 
   # Postcard
 
-  A modern email client for GNOME.
+  **Geary's three-pane email, rebuilt on GTK 4 — without twelve years of accumulated complexity.**
 
-  [![Version](https://img.shields.io/badge/version-1.6.0-3584e4)](https://github.com/gxanshu/postcard/releases)
-  [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4)](COPYING)
+  [![Release](https://img.shields.io/github/v/release/gxanshu/postcard?style=flat-square&color=3584e4&label=release)](https://github.com/gxanshu/postcard/releases)
+  [![Tests](https://img.shields.io/github/actions/workflow/status/gxanshu/postcard/tests.yml?style=flat-square&label=tests)](https://github.com/gxanshu/postcard/actions/workflows/tests.yml)
+  [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4?style=flat-square)](COPYING)
+  [![Flatpak](https://img.shields.io/badge/install-Flatpak-4a86cf?style=flat-square&logo=flatpak&logoColor=white)](#installing)
+  [![Stars](https://img.shields.io/github/stars/gxanshu/postcard?style=flat-square&color=f6d32d)](https://github.com/gxanshu/postcard/stargazers)
+
+  [**Install**](#installing) · [**Providers**](#supported-providers) · [**Features**](#features) · [**Roadmap**](#roadmap) · [**Build**](#building-from-source)
 </div>
 
 Postcard started out as Geary's three-pane layout (folders, conversations, reading pane)
@@ -14,9 +19,20 @@ rebuilt on a modern stack: GTK 4, libadwaita, and Python. It's quickly growing i
 alternative, with modern technology, a simple codebase, and a clean UI, minus the years of
 accumulated complexity. It's built and shipped as a Flatpak.
 
+**No accounts, no telemetry, no cloud.** Your mail lives in a SQLite file on your machine and
+your passwords live in the system keyring. Postcard talks to your mail server and nothing else.
+
 <div align="center">
   <img src="data/screenshots/main-window.png" alt="Postcard showing the three-pane layout with folders, conversations, and reader">
 </div>
+
+<table>
+  <tr>
+    <td width="33%"><img src="data/screenshots/mail-compose.png" alt="The composer at a narrow window size, with To/Cc/Bcc fields and a rich-text toolbar"><br><sub><b>Composer</b> — rich text, and the layout adapts down to a phone-width window</sub></td>
+    <td width="33%"><img src="data/screenshots/preferences.png" alt="Preferences showing notification, remote image, avatar, background and signature settings"><br><sub><b>Preferences</b> — notifications, remote images, background sync, signature</sub></td>
+    <td width="33%"><img src="data/screenshots/about.png" alt="The About dialog showing Postcard version 1.6.0"><br><sub><b>About</b> — plain libadwaita, no custom chrome</sub></td>
+  </tr>
+</table>
 
 > **Heavy development.** Postcard is under active development and can have bugs or unexpected
 > behavior. If you hit one, please [report it on the GitHub issues
@@ -24,25 +40,47 @@ accumulated complexity. It's built and shipped as a Flatpak.
 
 ## Features
 
+**📬 Mail**
 - Multiple IMAP/SMTP accounts, with passwords stored in the system keyring and a TLS/STARTTLS
   choice per server (so Proton Mail Bridge works)
 - Conversations grouped into threads, with nested folders shown as a tree
 - Instant full-text search across your mail
 - Offline reading from a local cache, and syncing that carries on in the background after you
   close the window
-- HTML and plain-text mail, with remote images blocked until you allow them, and links opening
-  in your default browser
+
+**✍️ Composing**
 - Rich-text composer: bold, italic, underline, strikethrough, bulleted and numbered lists, and
   links — sent as HTML with a plain-text alternative
-- Recipient autocomplete drawn from the addresses already in your mail
-- Optional sender avatars from Gravatar, with the sender's site icon as a fallback
 - Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that never loses
   a message
+- Recipient autocomplete drawn from the addresses already in your mail
+
+**🖥️ Desktop**
+- HTML and plain-text mail, with remote images blocked until you allow them, and links opening
+  in your default browser
 - Archive, trash, move, and undo — one conversation or a whole selection at once — with
   desktop notifications for new mail
+- Optional sender avatars from Gravatar, with the sender's site icon as a fallback
 - Sets itself up as your default mail client, so `mailto:` links open the composer already
   filled in
-- Many more are coming soon
+
+…and many more are coming soon.
+
+## Supported providers
+
+Postcard talks plain IMAP and SMTP, so anything that speaks those works. **Works** means the
+protocol is supported; **Tested** means it's been run against a real account.
+
+| Provider | Works | Tested | Notes |
+|---|:---:|:---:|---|
+| **Gmail** | ✅ | ✅ | Needs 2-Step Verification + an [app password](https://myaccount.google.com/apppasswords) — your normal password won't authenticate |
+| **Yahoo Mail** | ✅ | ✅ | Needs an app password from Account Security |
+| **Proton Mail** | ✅ | ✅ | Through [Proton Mail Bridge](https://proton.me/mail/bridge) (paid plans); use the Bridge's local host, port, and generated password with STARTTLS |
+| **Any IMAP/SMTP server** | ✅ | — | Fastmail, Zoho, Mailbox.org, self-hosted Dovecot/Postfix… enter the host, port, and TLS mode by hand |
+| **Outlook / Hotmail / Microsoft 365** | ❌ | ❌ | Microsoft requires OAuth 2.0 and has retired basic auth. Support is planned and coming soon |
+
+> **Tip:** most providers with 2FA won't accept your account password over IMAP. Generate an
+> app-specific password and use that instead.
 
 ## Installing
 
@@ -107,27 +145,53 @@ search), Python's stdlib `imaplib`/`smtplib` for networking, and libsecret for c
 
 ## AI Notice
 
-Postcard is written with the help of AI tools, and I'd rather be open about that than leave you
-guessing.
+Postcard is written with the help of AI tools. AI does the typing, the architecture, review, and the responsibility are mine. Every line was read before it shipped.
 
-The beauty of Linux is that everyone is free. You're welcome to your own opinions, and if you
-don't share someone else's, you're just as free to go and build your own alternative. Much of
-the Flathub and GNOME community is wary of AI, and I genuinely respect that view. I just happen
-to see it differently. To me, AI is a tool like fire: put to good use, it's a wonderful thing.
+I'd rather you judge that claim against the repo than take my word for it:
 
-I'm not interested in spending hours typing out code that's already fully formed in my head. So
-I let AI do the typing. But every line in this codebase comes from my own head; AI takes the
-place of my hands, never my judgment. And I would never recommend running AI on autopilot. You
-have to stay in control of what it produces.
+- **175 tests** across the pure-logic layer — threading, MIME parsing, compose, the database,
+  and the IMAP/SMTP sessions against a fake socket
+- **CI runs them on every push**, and again before every release. A failing test blocks the
+  build, not just the merge
+- **`ruff` + `pyright` gate the Flatpak itself** — a lint or type error means the app doesn't
+  build at all, so no "it typechecks later" drift
+- **A documented architecture with real invariants** ([CLAUDE.md](CLAUDE.md)): a hard
+  no-GTK-in-`core/` boundary, a strict worker-thread/`GLib.idle_add` threading model, and
+  passwords that never touch the database or a log line
+- **Zero third-party runtime dependencies.** Everything comes from the GNOME SDK; networking is
+  stdlib `imaplib` and `smtplib`. There is no dependency pile to hide sloppiness in
+- **GPL-3.0, under 7k lines** of Python and Blueprint. Small enough that you can read the whole
+  thing and decide for yourself
 
-If any of this leaves you feeling the app is "AI slop", that's completely fair, and you're
-welcome to reach for whichever client suits you best. But if you do choose to install Postcard,
-I hope you'll trust it. It's built with the same care as anything written by hand.
+<details>
+<summary>Why I use AI, and why the app isn't on Flathub</summary>
+
+<br>
+
+The beauty of Linux is that everyone is free. Much of the Flathub and GNOME community is wary
+of AI, and I genuinely respect that view — Flathub declined to list Postcard on those grounds,
+which is why it ships from its own repository. I just happen to see it differently. To me, AI
+is a tool like fire: put to good use, it's a wonderful thing.
+
+I'm not interested in spending hours typing out code that's already fully formed in my head, so
+I let AI do the typing. But I would never recommend running AI on autopilot. You have to stay
+in control of what it produces, and the checks above exist because I don't trust it any further
+than I'd trust myself at 2am.
+
+If this still leaves you feeling the app is "AI slop", that's completely fair, and you're
+welcome to reach for whichever client suits you best. But if you do install Postcard, I hope
+you'll trust it. It's built with the same care as anything written by hand.
+
+</details>
 
 ## Contributing
 
-Contributions are welcome. AI-assisted work is fine here (see the [AI Notice](#ai-notice)
-above), but please make sure you understand every line you submit.
+Contributions are welcome — bug reports especially, since Postcard is young and every real
+inbox is different. Code contributions should pass `just check` and `just test`; AI-assisted
+work is fine here (see the [AI Notice](#ai-notice) above), but please make sure you understand
+every line you submit.
+
+If Postcard is useful to you, a ⭐ genuinely helps other people find it.
 
 ## License
 

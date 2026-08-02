@@ -550,17 +550,28 @@ class Database:
         return self._email_from_row(row)
 
     def save_incoming_email(self, folder_id: int, header: MessageHeader) -> bool:
-        """Insert one fetched email; skip it if we already have it.
+        """Insert one fetched email, or update the flags of one we already have.
 
-        Returns True when the row was new, which is how a sync tells which
-        messages to notify about.
+        Every local toggle is pushed to the server, so on a message we've seen
+        before its \\Seen and \\Flagged are what another client did to it since.
+        Nothing else about a message changes. Returns True when the row was new,
+        which is how a sync tells which messages to notify about.
         """
-        cursor = self._conn.execute(
+        is_new = (
+            self._conn.execute(
+                "SELECT 1 FROM emails WHERE folder_id = ? AND server_id = ?",
+                (folder_id, header.uid),
+            ).fetchone()
+            is None
+        )
+        self._conn.execute(
             """
-            INSERT OR IGNORE INTO emails
+            INSERT INTO emails
                 (folder_id, server_id, sender, subject, preview, date, unread,
                  starred, message_id, in_reply_to, reference_ids, sender_address)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (folder_id, server_id) DO UPDATE SET
+                unread = excluded.unread, starred = excluded.starred
             """,
             (
                 folder_id,
@@ -578,7 +589,7 @@ class Database:
             ),
         )
         self._conn.commit()
-        return cursor.rowcount > 0
+        return is_new
 
     def delete_email(self, email_id: int) -> None:
         self._conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))

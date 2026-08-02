@@ -138,6 +138,22 @@ def test_save_incoming_email_reports_whether_it_was_new(db, folder):
     assert len(db.emails_in_folder(folder.id)) == 1
 
 
+def test_resyncing_a_message_takes_the_servers_flags(db, folder):
+    incoming(db, folder.id, "1", is_unread=True, is_starred=False)
+    incoming(db, folder.id, "1", is_unread=False, is_starred=True)
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.is_unread, mail.is_starred) == (False, True)
+
+
+def test_resyncing_a_message_leaves_the_rest_of_it_alone(db, folder):
+    incoming(db, folder.id, "1", subject="Lunch", preview="see you at one")
+    incoming(db, folder.id, "1", subject="", preview="", sender="")
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.subject, mail.preview) == ("Lunch", "see you at one")
+
+
 def test_the_sender_address_round_trips_separately_from_the_display_name(db, folder):
     incoming(db, folder.id, "1", sender="Ada", sender_address="ada@example.com")
     (mail,) = db.emails_in_folder(folder.id)

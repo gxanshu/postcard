@@ -5,13 +5,12 @@
 
   **Geary's three-pane email, rebuilt on GTK 4 — without twelve years of accumulated complexity.**
 
-  [![Release](https://img.shields.io/github/v/release/gxanshu/postcard?style=flat-square&color=3584e4&label=release)](https://github.com/gxanshu/postcard/releases)
+  [![Version](https://img.shields.io/badge/version-1.6.0-3584e4?style=flat-square)](#installing)
   [![Tests](https://img.shields.io/github/actions/workflow/status/gxanshu/postcard/tests.yml?style=flat-square&label=tests)](https://github.com/gxanshu/postcard/actions/workflows/tests.yml)
   [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4?style=flat-square)](COPYING)
   [![Flatpak](https://img.shields.io/badge/install-Flatpak-4a86cf?style=flat-square&logo=flatpak&logoColor=white)](#installing)
-  [![Stars](https://img.shields.io/github/stars/gxanshu/postcard?style=flat-square&color=f6d32d)](https://github.com/gxanshu/postcard/stargazers)
 
-  [**Install**](#installing) · [**Providers**](#supported-providers) · [**Features**](#features) · [**Roadmap**](#roadmap) · [**Build**](#building-from-source)
+  [**Install**](#installing) · [**Providers**](#supported-providers) · [**Features**](#features) · [**Build**](#building-from-source)
 </div>
 
 Postcard started out as Geary's three-pane layout (folders, conversations, reading pane)
@@ -28,11 +27,20 @@ your passwords live in the system keyring. Postcard talks to your mail server an
 
 <table>
   <tr>
-    <td width="33%"><img src="data/screenshots/mail-compose.png" alt="The composer at a narrow window size, with To/Cc/Bcc fields and a rich-text toolbar"><br><sub><b>Composer</b> — rich text, and the layout adapts down to a phone-width window</sub></td>
-    <td width="33%"><img src="data/screenshots/preferences.png" alt="Preferences showing notification, remote image, avatar, background and signature settings"><br><sub><b>Preferences</b> — notifications, remote images, background sync, signature</sub></td>
-    <td width="33%"><img src="data/screenshots/about.png" alt="The About dialog showing Postcard version 1.6.0"><br><sub><b>About</b> — plain libadwaita, no custom chrome</sub></td>
+    <td width="50%"><img src="data/screenshots/preferences.png" alt="Preferences showing notification, remote image, avatar, background and signature settings"></td>
+    <td width="50%"><img src="data/screenshots/about.png" alt="The About dialog showing Postcard version 1.6.0"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Preferences</b> — notifications, remote images, background sync, signature</sub></td>
+    <td align="center"><sub><b>About</b> — plain libadwaita, no custom chrome</sub></td>
   </tr>
 </table>
+
+<div align="center">
+  <img src="data/screenshots/mail-compose.png" width="340" alt="The composer at a narrow window size, with To/Cc/Bcc fields and a rich-text toolbar">
+
+  <sub><b>Composer</b> — rich text, and the layout adapts all the way down to a phone-width window</sub>
+</div>
 
 > **Heavy development.** Postcard is under active development and can have bugs or unexpected
 > behavior. If you hit one, please [report it on the GitHub issues

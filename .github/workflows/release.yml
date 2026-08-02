@@ -75,6 +75,24 @@ jobs:
           Icon=https://$DOMAIN/icon.png
           GPGKey=$(gpg --export "$GPG_KEY" | base64 -w0)
           EOF
+          # One-click install: adds the remote *and* installs the app, so users
+          # never run `flatpak remote-add` themselves. RuntimeRepo is what lets
+          # flatpak pull org.gnome.Platform//50 from Flathub on a fresh machine.
+          # Written outside site/ deliberately — it ships as a GitHub release
+          # asset only, so every install shows up in the download counter.
+          cat > postcard.flatpakref <<EOF
+          [Flatpak Ref]
+          Title=Postcard
+          Name=$APP_ID
+          Branch=master
+          Url=https://$DOMAIN/repo/
+          Homepage=https://github.com/gxanshu/postcard
+          Icon=https://$DOMAIN/icon.png
+          IsRuntime=false
+          SuggestRemoteName=postcard
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          GPGKey=$(gpg --export "$GPG_KEY" | base64 -w0)
+          EOF
 
       - name: Publish to the pages branch
         uses: peaceiris/actions-gh-pages@v4
@@ -90,3 +108,20 @@ jobs:
           git config --global --add safe.directory '*'
           git tag "v$VERSION"
           git push origin "v$VERSION"
+
+      # The .flatpakref is the whole download: it points at the signed repo on
+      # the pages branch, so there's no bundle to attach.
+      - name: Publish the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Postcard ${{ env.VERSION }}
+          files: postcard.flatpakref
+          body: |
+            Install or update:
+
+            ```bash
+            flatpak install --from https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref
+            ```
+
+            Or download `postcard.flatpakref` below and open it with your software centre.

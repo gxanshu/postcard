@@ -95,13 +95,17 @@ Postcard ships as a Flatpak from its own repository. You'll need `flatpak` insta
 system (most GNOME distributions have it already; if not, see
 [flatpak.org/setup](https://flatpak.org/setup/)).
 
-Add the repository, install the app, then launch it:
+One command installs it — the repository is added for you:
 
 ```bash
-flatpak remote-add --if-not-exists postcard https://postcard.gxanshu.in/postcard.flatpakrepo
-flatpak install postcard in.gxanshu.postcard
+flatpak install --from https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref
 flatpak run in.gxanshu.postcard
 ```
+
+Prefer clicking? Download
+[`postcard.flatpakref`](https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref)
+from the [latest release](https://github.com/gxanshu/postcard/releases/latest) and open it with your
+software centre.
 
 After the first install, Postcard shows up in your app launcher like any other application, and
 `flatpak update` keeps it current.

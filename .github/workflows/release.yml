@@ -134,70 +134,9 @@ jobs:
 
             Or download `postcard.flatpakref` below and open it with your software centre.
 
-  # Ship the same version to the AUR. Its own job because it needs an Arch
-  # container, and because the tarball it checksums only exists once `release`
-  # has uploaded it.
+  # Ship the same version to the AUR. aur.yml is also runnable by hand from the
+  # Actions tab, which is how an already-released version gets pushed.
   aur:
     needs: [check, release]
-    runs-on: ubuntu-latest
-    container: archlinux:base-devel
-    permissions: {}
-    env:
-      VERSION: ${{ needs.check.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install the packaging tools
-        run: |
-          # The keyring first and on its own: a cached base-devel image older
-          # than the last key rotation fails the full -Syu on signature checks.
-          pacman -Sy --noconfirm archlinux-keyring
-          pacman -Su --noconfirm --needed git openssh pacman-contrib
-
-      - name: Publish to the AUR
-        env:
-          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-        run: |
-          # makepkg refuses to run as root and GitHub runs container steps as
-          # root, so the whole push happens as an unprivileged user. The
-          # sudoers line is for `makepkg --syncdeps`, which shells out to pacman.
-          useradd -m builder
-          echo 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman' > /etc/sudoers.d/builder
-          install -d -m700 -o builder -g builder /home/builder/.ssh
-          printf '%s\n' "$AUR_SSH_KEY" > /home/builder/.ssh/id_ed25519
-          # ssh-keyscan exits 0 on an empty result, which would surface later as
-          # an unrelated-looking "Host key verification failed".
-          ssh-keyscan aur.archlinux.org > /home/builder/.ssh/known_hosts
-          grep -q ssh-ed25519 /home/builder/.ssh/known_hosts
-          chown builder:builder /home/builder/.ssh/id_ed25519 /home/builder/.ssh/known_hosts
-          chmod 600 /home/builder/.ssh/id_ed25519
-          install -o builder -g builder packaging/aur/PKGBUILD /home/builder/PKGBUILD
-
-          cat > /home/builder/publish.sh <<'SCRIPT'
-          cd ~
-          git config --global user.name 'Anshu'
-          git config --global user.email 'aianshume@yahoo.com'
-          git clone ssh://aur@aur.archlinux.org/postcard.git aur
-          mv PKGBUILD aur/
-          cd aur
-          sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
-          updpkgsums
-          makepkg --printsrcinfo > .SRCINFO
-          # Build it once before anyone else has to. Catches a broken source
-          # URL, a stale checksum or a missing makedepend — not a missing
-          # depends(), since nothing here imports the installed package.
-          makepkg --syncdeps --noconfirm --clean
-          git add PKGBUILD .SRCINFO
-          if git diff --cached --quiet; then
-            echo "AUR is already at $VERSION — nothing to push."
-            exit 0
-          fi
-          git commit -m "postcard $VERSION"
-          # Explicit refspec: the AUR only accepts pushes to master, and the
-          # local branch name of a freshly cloned empty repo is up to git's
-          # init.defaultBranch.
-          git push origin HEAD:master
-          SCRIPT
-          chown builder:builder /home/builder/publish.sh
-
-          runuser -u builder -- env VERSION="$VERSION" bash -euo pipefail /home/builder/publish.sh
+    uses: ./.github/workflows/aur.yml
+    secrets: inherit

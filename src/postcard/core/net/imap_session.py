@@ -168,6 +168,25 @@ class ImapSession:
             raise ImapError(f"could not open {mailbox}: {payload}")
         return int(payload[0]) if payload and payload[0] else 0
 
+    def unseen_count(self, mailbox: str) -> int:
+        """How many unread messages a mailbox holds.
+
+        STATUS rather than SELECT + SEARCH UNSEEN: one command, and it leaves
+        the currently selected mailbox alone.
+        """
+        status, payload = self._require_imap().status(
+            _quote_mailbox(mailbox), "(UNSEEN)"
+        )
+        if status != STATUS_OK:
+            raise ImapError(f"could not read the status of {mailbox}: {payload}")
+        first = payload[0] if payload else None
+        match = (
+            re.search(rb"UNSEEN\s+(\d+)", first) if isinstance(first, bytes) else None
+        )
+        if match is None:
+            raise ImapError(f"no UNSEEN in the status of {mailbox}: {payload}")
+        return int(match.group(1))
+
     def has_capability(self, name: str) -> bool:
         """Whether the server advertises a capability. imaplib upper-cases the
         ones it parsed, so the comparison has to as well."""

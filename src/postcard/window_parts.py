@@ -74,6 +74,7 @@ class MainWindowParts(_Base):
     _folder_tree_model: Gtk.TreeListModel
     _folder_selection: Gtk.SingleSelection
     _suppress_folder_refresh: bool
+    _remote_unread_counts: dict[int, int]
 
     # --- conversation list ------------------------------------------------
     _conversation_store: Gio.ListStore

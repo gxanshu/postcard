@@ -169,6 +169,9 @@ class PostcardMainWindow(
         # and whether older messages remain on the server.
         self._loaded_counts: dict[int, int] = {}
         self._folders_with_more_mail: dict[int, bool] = {}
+        # Unread counts the server last reported for the folders we don't
+        # fetch, keyed by folder id.
+        self._remote_unread_counts: dict[int, int] = {}
         self.reader_stack.set_visible_child_name(PAGE_EMPTY)
         self._set_mail_actions_enabled(False)
         self.reply_button.set_sensitive(False)

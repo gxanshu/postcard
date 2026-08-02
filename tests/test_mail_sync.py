@@ -222,6 +222,101 @@ def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_pag
     assert SyncResult().all_uids is None
 
 
+# --- unread counts for the folders this sync did not fetch ------------------
+
+
+class CountingImapSession:
+    """An IMAP server that records which mailboxes were asked for a count."""
+
+    mailboxes: list[MailboxInfo] = []
+    refused: str = ""
+    asked: list[str] = []
+
+    def __init__(self, host, port, security):
+        pass
+
+    def connect(self):
+        pass
+
+    def login(self, user, password):
+        pass
+
+    def list_folders(self):
+        return type(self).mailboxes
+
+    def select(self, mailbox):
+        return 0
+
+    def search_all_uids(self):
+        return set()
+
+    def fetch_recent_headers(self, exists, limit, offset):
+        return []
+
+    def unseen_count(self, mailbox):
+        type(self).asked.append(mailbox)
+        if mailbox == type(self).refused:
+            raise ImapError("mailbox unavailable")
+        return 7
+
+    def logout(self):
+        pass
+
+
+@pytest.fixture
+def counting_imap(monkeypatch):
+    CountingImapSession.asked = []
+    CountingImapSession.refused = ""
+    CountingImapSession.mailboxes = [
+        MailboxInfo("INBOX", "/", ""),
+        MailboxInfo("Junk", "/", ""),
+        MailboxInfo("[Gmail]", "/", "\\Noselect"),
+        MailboxInfo("Receipts", "/", ""),
+    ]
+    monkeypatch.setattr(mail_sync, "ImapSession", CountingImapSession)
+    return CountingImapSession
+
+
+def sync(offset: int = 0) -> SyncResult:
+    account = Account(
+        id=1,
+        email="ada@example.com",
+        display_name="Ada",
+        imap_host="imap.example.com",
+        imap_port=993,
+        smtp_host="",
+        smtp_port=0,
+    )
+    return mail_sync.fetch_mailbox(account, "hunter2", offset=offset)
+
+
+def test_every_role_folder_but_the_fetched_one_is_counted(counting_imap):
+    # Only the selected mailbox is fetched, so nothing else would ever refresh.
+    assert sync().unread_counts == {"Junk": 7}
+
+
+def test_containers_and_folders_without_a_role_are_not_counted(counting_imap):
+    # "[Gmail]" cannot hold mail; "Receipts" is an ordinary folder, and one
+    # STATUS per user folder would make every sync as slow as the folder list.
+    sync()
+
+    assert counting_imap.asked == ["Junk"]
+
+
+def test_a_folder_that_refuses_a_count_does_not_fail_the_sync(counting_imap):
+    counting_imap.refused = "Junk"
+    counting_imap.mailboxes.append(MailboxInfo("Archive", "/", ""))
+
+    assert sync().unread_counts == {"Archive": 7}
+
+
+def test_paging_older_mail_does_not_re_poll_the_counts(counting_imap):
+    result = sync(offset=50)
+
+    assert result.unread_counts == {}
+    assert counting_imap.asked == []
+
+
 # --- raw wire headers -> display-ready MessageHeader ------------------------
 
 

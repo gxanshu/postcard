@@ -57,7 +57,22 @@ class FolderTreeMixin(MainWindowParts):
         assert isinstance(row, FolderRow)
 
         self._folder_rows[folder.id] = row
-        row.bind(folder, self._db.unread_count_in_folder(folder.id))
+        row.bind(folder, self._unread_badge(folder))
+
+    def _unread_badge(self, folder: Folder) -> int:
+        """What the sidebar shows next to a folder.
+
+        Only the open folder's messages are synced, so its local count is the
+        accurate one -- and it drops the moment a message is read. Every other
+        folder shows what the server last reported, since local rows there are
+        whatever an earlier visit happened to leave behind.
+        """
+        if self._current_folder is not None and folder.id == self._current_folder.id:
+            return self._db.unread_count_in_folder(folder.id)
+        remote = self._remote_unread_counts.get(folder.id)
+        if remote is None:
+            return self._db.unread_count_in_folder(folder.id)
+        return remote
 
     def _on_folder_row_unbind(
         self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem
@@ -139,7 +154,7 @@ class FolderTreeMixin(MainWindowParts):
         for folder in folders:
             row = self._folder_rows.get(folder.id)
             if row is not None:
-                row.bind(folder, self._db.unread_count_in_folder(folder.id))
+                row.bind(folder, self._unread_badge(folder))
 
     def _rebuild_folder_tree(self) -> None:
         # Preserve the selection by folder id, not row index — pruning stale

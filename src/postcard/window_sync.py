@@ -282,15 +282,65 @@ class SyncMixin(MainWindowParts):
         self._loaded_counts[target.id] = loaded
         self._folders_with_more_mail[target.id] = result.exists > loaded
 
+        arrived_elsewhere = self._apply_unread_counts(account, result.unread_counts)
+
         self._set_syncing(False)
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
         self.connection_banner.set_revealed(False)
 
-        # Only nag about new mail when the user isn't already looking.
-        if new_messages and not self.is_active():
-            self._notify_new_mail(new_messages, target.id)
+        self._notify_arrivals(new_messages, target.id, arrived_elsewhere)
         return False
+
+    def _notify_arrivals(
+        self,
+        messages: list[mail_sync.MessageHeader],
+        folder_id: int,
+        arrived_elsewhere: dict[str, int],
+    ) -> None:
+        # Only nag about new mail when the user isn't already looking.
+        if self.is_active():
+            return
+        if messages:
+            self._notify_new_mail(messages, folder_id)
+        if arrived_elsewhere:
+            self._notify_unread_elsewhere(arrived_elsewhere)
+
+    def _apply_unread_counts(
+        self, account: Account, counts: dict[str, int]
+    ) -> dict[str, int]:
+        """Store the server's unread counts; return how many arrived per folder.
+
+        A folder we have no earlier count for is only recorded -- on the first
+        sync every count would otherwise read as new mail.
+        """
+        arrived: dict[str, int] = {}
+        for name, count in counts.items():
+            folder = self._db.get_folder_by_name(account.id, name)
+            if folder is None:
+                continue
+            previous = self._remote_unread_counts.get(folder.id)
+            if previous is not None and count > previous:
+                arrived[mail_sync.display_name_for_folder(name)] = count - previous
+            self._remote_unread_counts[folder.id] = count
+        return arrived
+
+    def _notify_unread_elsewhere(self, arrived: dict[str, int]) -> None:
+        """New mail in a folder we didn't fetch, so there are no headers to
+        name -- only the count and where it landed."""
+        if not self._settings.get_boolean("notifications"):
+            return
+        app = self.get_application()
+        if app is None:
+            return
+
+        total = sum(arrived.values())
+        notification = Gio.Notification.new(
+            ngettext("{n} new message", "{n} new messages", total).format(n=total)
+        )
+        notification.set_body(", ".join(arrived))
+        notification.set_default_action("app.focus-mail")
+        app.send_notification("new-mail-elsewhere", notification)
 
     def _notify_new_mail(
         self, messages: list[mail_sync.MessageHeader], folder_id: int

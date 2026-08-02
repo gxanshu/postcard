@@ -49,7 +49,7 @@ def html_to_text(html: str) -> str:
     return "\n".join(out).strip()
 
 
-def _to_html(text: str) -> str:
+def to_html(text: str) -> str:
     return escape(text).replace("\n", "<br>")
 
 
@@ -67,7 +67,7 @@ def forward_subject(subject: str) -> str:
 
 def signature_block(text: str) -> str:
     # The "-- " delimiter is the RFC 3676 convention for a signature.
-    return f'<div class="signature">-- <br>{_to_html(text)}</div>'
+    return f'<div class="signature">-- <br>{to_html(text)}</div>'
 
 
 def quote_reply_body(
@@ -77,7 +77,7 @@ def quote_reply_body(
         "<div><br></div>"
         + (signature_block(signature) if signature else "")
         + f"<div>On {escape(original_date)}, {escape(original_from)} wrote:</div>"
-        + f"<blockquote>{_to_html(original_text)}</blockquote>"
+        + f"<blockquote>{to_html(original_text)}</blockquote>"
     )
 
 
@@ -95,7 +95,7 @@ def forward_body(
         + f"From: {escape(original_from)}<br>"
         + f"Date: {escape(original_date)}<br>"
         + f"Subject: {escape(original_subject)}</div>"
-        + f"<blockquote>{_to_html(original_text)}</blockquote>"
+        + f"<blockquote>{to_html(original_text)}</blockquote>"
     )
 
 
@@ -184,7 +184,7 @@ def parse_mailto(uri: str) -> MailtoDraft:
         cc=headers.get("cc", ""),
         bcc=headers.get("bcc", ""),
         subject=headers.get("subject", ""),
-        body_html=_to_html(body) if body else "",
+        body_html=to_html(body) if body else "",
     )
 
 

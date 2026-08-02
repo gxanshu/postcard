@@ -4,11 +4,14 @@ from postcard.core.net.imap_session import FetchedHeader, ImapError, ImapSession
 
 
 class FakeImap:
-    def __init__(self, search_reply=("OK", [b"4 9 20"]), fetch_reply=None):
+    def __init__(
+        self, search_reply=("OK", [b"4 9 20"]), fetch_reply=None, status_reply=None
+    ):
         self.calls = []
         self.welcome = b"fake imap"
         self._search_reply = search_reply
         self._fetch_reply = fetch_reply
+        self._status_reply = status_reply
 
     def uid(self, *args):
         self.calls.append(args)
@@ -17,6 +20,10 @@ class FakeImap:
     def fetch(self, *args):
         self.calls.append(args)
         return self._fetch_reply
+
+    def status(self, *args):
+        self.calls.append(args)
+        return self._status_reply
 
 
 def connect(monkeypatch, imap: FakeImap) -> ImapSession:
@@ -64,6 +71,36 @@ def test_non_numeric_uids_are_listed(monkeypatch):
     session = connect(monkeypatch, FakeImap(search_reply=("OK", [b"4 bogus"])))
     with pytest.raises(ImapError, match=r"non-numeric UIDs: \['bogus'\]"):
         session.search_all_uids()
+
+
+# --- unseen_count -----------------------------------------------------------
+
+
+def test_unseen_count_asks_for_status_and_reads_the_number(monkeypatch):
+    imap = FakeImap(status_reply=("OK", [b'"[Gmail]/All Mail" (UNSEEN 12)']))
+    session = connect(monkeypatch, imap)
+
+    assert session.unseen_count("[Gmail]/All Mail") == 12
+    # Quoted, so the space stays inside one token and the server doesn't say BAD.
+    assert imap.calls == [('"[Gmail]/All Mail"', "(UNSEEN)")]
+
+
+def test_a_refused_status_names_the_mailbox(monkeypatch):
+    session = connect(monkeypatch, FakeImap(status_reply=("NO", [b"unavailable"])))
+    with pytest.raises(ImapError, match="could not read the status of Junk"):
+        session.unseen_count("Junk")
+
+
+def test_a_status_reply_without_an_unseen_field_is_an_error(monkeypatch):
+    session = connect(monkeypatch, FakeImap(status_reply=("OK", [b'"X" (MESSAGES 9)'])))
+    with pytest.raises(ImapError, match="no UNSEEN"):
+        session.unseen_count("X")
+
+
+def test_an_empty_status_reply_is_an_error(monkeypatch):
+    session = connect(monkeypatch, FakeImap(status_reply=("OK", [None])))
+    with pytest.raises(ImapError, match="no UNSEEN"):
+        session.unseen_count("X")
 
 
 # --- fetch_recent_headers ---------------------------------------------------

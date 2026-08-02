@@ -11,6 +11,7 @@ from .core.models.conversation import Conversation
 # is built. It lives in core.models so core.store can accept one directly.
 from .core.models.message_header import MessageHeader
 from .core.net.imap_session import (
+    ATTR_NOSELECT,
     GMAIL_CAPABILITY,
     FetchedHeader,
     ImapSession,
@@ -67,6 +68,7 @@ class SyncResult:
     exists: int = 0  # total messages in the selected mailbox
     offset: int = 0  # how far back from the newest this fetch reached
     all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
+    unread_counts: dict[str, int] = field(default_factory=dict)  # by mailbox name
 
 
 @dataclass
@@ -111,6 +113,7 @@ def fetch_mailbox(
         exists = session.select(target)
         all_uids = session.search_all_uids() if offset == 0 else None
         raw = session.fetch_recent_headers(exists, limit, offset)
+        counts = _unread_counts(session, mailboxes, target) if offset == 0 else {}
     finally:
         session.logout()
 
@@ -123,7 +126,32 @@ def fetch_mailbox(
         exists=exists,
         offset=offset,
         all_uids=all_uids,
+        unread_counts=counts,
     )
+
+
+def _unread_counts(
+    session: ImapSession, mailboxes: list[MailboxInfo], target: str
+) -> dict[str, int]:
+    """Server unread counts for the role folders this sync didn't fetch.
+
+    Only the target mailbox is fetched, so without this every other folder's
+    badge stays at whatever the last visit left behind. A folder that won't
+    answer is skipped rather than failing the sync -- the counts are a garnish.
+    """
+    counts: dict[str, int] = {}
+    for mailbox in mailboxes:
+        if mailbox.name == target or ATTR_NOSELECT in mailbox.flags:
+            continue
+        if role_for_folder(mailbox.name) is FolderRole.OTHER:
+            continue
+        try:
+            counts[mailbox.name] = session.unseen_count(mailbox.name)
+        except Exception:
+            logger.warning(
+                "could not read the unread count of %s", mailbox.name, exc_info=True
+            )
+    return counts
 
 
 def _to_message_header(fetched: FetchedHeader) -> MessageHeader:

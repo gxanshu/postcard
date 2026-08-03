@@ -16,6 +16,12 @@ from ..models.email import Email
 from ..models.folder import Folder
 from ..models.message_header import MessageHeader
 
+# Every column _email_from_row reads
+_EMAIL_COLUMNS = """
+    id, folder_id, server_id, sender, sender_address, subject, preview, date,
+    unread, starred, message_id, in_reply_to, reference_ids, conversation_id
+"""
+
 
 def _fts_query(text: str) -> str:
     """Turn free text into a safe FTS5 query: each word matched as a prefix."""
@@ -318,7 +324,8 @@ class Database:
 
     def emails_in_folder(self, folder_id: int) -> list[Email]:
         rows = self._conn.execute(
-            "SELECT * FROM emails WHERE folder_id = ? ORDER BY id DESC", (folder_id,)
+            f"SELECT {_EMAIL_COLUMNS} FROM emails WHERE folder_id = ? ORDER BY id DESC",
+            (folder_id,),
         ).fetchall()
         return [self._email_from_row(row) for row in rows]
 
@@ -363,7 +370,7 @@ class Database:
     def conversations_in_folder(self, folder_id: int) -> list[Conversation]:
         """Group a folder's emails into threads, newest thread first."""
         rows = self._conn.execute(
-            "SELECT * FROM emails WHERE folder_id = ?", (folder_id,)
+            f"SELECT {_EMAIL_COLUMNS} FROM emails WHERE folder_id = ?", (folder_id,)
         ).fetchall()
 
         groups: dict[int, list[Email]] = {}

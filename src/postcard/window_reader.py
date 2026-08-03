@@ -36,6 +36,9 @@ class ReaderMixin(MainWindowParts):
             self._set_mail_actions_enabled(bool(selected))
             if selected:
                 self._update_action_buttons(selected)
+            # Hiding the pane isn't enough: the views behind it keep their
+            # WebViews, and each one holds a web process open.
+            self._clear_thread()
             self.reader_stack.set_visible_child_name(PAGE_EMPTY)
             return
 
@@ -84,16 +87,21 @@ class ReaderMixin(MainWindowParts):
             self.star_button.set_icon_name("non-starred-symbolic")
             self.star_button.set_tooltip_text(_("Star"))
 
-    # Build one MessageView per email, newest first. The newest starts expanded
-    # (which loads its body); older ones load lazily when the user expands them.
-    def _render_thread(self, conversation: Conversation) -> None:
-        self.reader_subject.set_label(conversation.subject)
-
+    # Empty the reading pane, releasing each view's WebView as it goes.
+    def _clear_thread(self) -> None:
         child = self.thread_box.get_first_child()
         while child is not None:
             next_child = child.get_next_sibling()
             self.thread_box.remove(child)
+            if isinstance(child, MessageView):
+                child.release()
             child = next_child
+
+    # Build one MessageView per email, newest first. The newest starts expanded
+    # (which loads its body); older ones load lazily when the user expands them.
+    def _render_thread(self, conversation: Conversation) -> None:
+        self.reader_subject.set_label(conversation.subject)
+        self._clear_thread()
 
         should_load_remote_images = self._settings.get_boolean("load-remote-images")
         emails = list(reversed(conversation.emails))

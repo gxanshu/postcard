@@ -120,6 +120,14 @@ class PostcardMainWindow(
         )
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
+        # Load older mail when the list is scrolled to the bottom. Wired here
+        # rather than in _setup_conversation_list because the scroller outlives
+        # every account switch, and that runs once per switch.
+        self.conversation_scroller.connect("edge-reached", self._on_list_edge_reached)
+        # Presenting the window again after _on_close_request released the
+        # reading pane re-renders whatever is still selected.
+        self.connect("map", self._on_map)
+
         self.connection_banner.connect("button-clicked", self._on_banner_retry)
         self._network = Gio.NetworkMonitor.get_default()
         self._is_online = self._network.get_network_available()
@@ -234,6 +242,14 @@ class PostcardMainWindow(
         self._settings.set_boolean("window-maximized", self.is_maximized())
 
         if self._settings.get_boolean("run-in-background"):
+            # A hidden window still holds its reading pane, and that means a
+            # WebKit web process (~300 MB) plus its network process sitting in
+            # the background with nothing on screen. _on_map renders it again.
+            self._rendered_id = None
+            self._active_view = None
+            self._clear_thread()
+            self.reader_stack.set_visible_child_name(PAGE_EMPTY)
+
             self.set_visible(False)
             self._notify_background()
 
@@ -248,6 +264,11 @@ class PostcardMainWindow(
             GLib.source_remove(self._sync_timer_id)
 
         return False
+
+    def _on_map(self, _window: Gtk.Window) -> None:
+        # _update_reader guards on _account, so the first map of a window built
+        # on an empty database does nothing.
+        self._update_reader()
 
     # Open one message by IMAP UID (from a notification). Clearing _rendered_id
     # makes the reader rebuild even if the thread is already shown, so the usual

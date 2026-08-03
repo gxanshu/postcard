@@ -1,3 +1,4 @@
+import weakref
 from collections.abc import Callable
 
 import gi
@@ -29,6 +30,14 @@ BODY_HEIGHT = 800
 SIZE_UNITS = ("B", "KB", "MB", "GB")
 BYTES_PER_UNIT = 1024
 
+# WebKit gives every *unrelated* WebView its own web process, and one costs
+# ~300 MB -- a five-message thread with each message expanded would run five of
+# them. Related views share a single process, so every message body is created
+# against the last one still alive. Weak so that releasing the views actually
+# lets the process exit. The composer's WebView is deliberately not in here: it
+# runs JavaScript and must not share a process with untrusted mail HTML.
+_last_webview: weakref.ReferenceType[WebKit.WebView] | None = None
+
 
 class MessageView(Gtk.Box):
     __gtype_name__ = "PostcardMessageView"
@@ -57,6 +66,7 @@ class MessageView(Gtk.Box):
         self._should_load_remote_images = should_load_remote_images
         self._is_loaded = False
         self._is_loading = False
+        self._is_released = False
         self._placeholder: Gtk.Widget | None = None
         self._webview: WebKit.WebView | None = None
         self._html: str | None = None
@@ -122,6 +132,9 @@ class MessageView(Gtk.Box):
         self._on_load(self._email, self._on_raw)
 
     def _on_raw(self, raw: bytes | None, error: str | None) -> None:
+        if self._is_released:
+            return
+
         self._is_loading = False
         if self._placeholder is not None:
             self._body.remove(self._placeholder)
@@ -204,14 +217,31 @@ class MessageView(Gtk.Box):
             self._body.append(banner)
             self._images_banner = banner
 
-        webview = WebKit.WebView()
+        global _last_webview
+
+        # WEB_BROWSER, the default, keeps the largest memory and disk caches of
+        # the three models plus a page cache for going back. A mail body is
+        # rendered once and never navigated back to.
+        WebKit.WebContext.get_default().set_cache_model(
+            WebKit.CacheModel.DOCUMENT_VIEWER
+        )
+
+        related = _last_webview() if _last_webview is not None else None
+        webview = WebKit.WebView(related_view=related) if related else WebKit.WebView()
         webview.set_size_request(-1, BODY_HEIGHT)
         webview.connect("decide-policy", self._on_decide_policy)
         settings = webview.get_settings()
         settings.set_enable_javascript(False)
         settings.set_auto_load_images(self._should_load_remote_images)
+        # A message body needs none of these, and each one carries buffers.
+        settings.set_enable_page_cache(False)
+        settings.set_enable_media(False)
+        settings.set_enable_webaudio(False)
+        settings.set_enable_webgl(False)
+        settings.set_enable_back_forward_navigation_gestures(False)
         webview.load_html(html, None)
         self._webview = webview
+        _last_webview = weakref.ref(webview)
         self._body.append(webview)
 
     # The webview only ever renders the message body; anything the user clicks
@@ -276,6 +306,35 @@ class MessageView(Gtk.Box):
 
     def _on_save_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
         self._on_save_attachment(attachment)
+
+    def release(self) -> None:
+        """Tear the body down so its web process exits. The view is dead after this.
+
+        Only the reader calls it, and only on views it is discarding as a set: a
+        WebView left parented keeps a ~300 MB web process alive however long the
+        reading pane sits empty. `parsed` goes too -- its attachments hold every
+        decoded attachment's bytes.
+
+        Dropping the last reference ought to be enough, but measurement says
+        otherwise: the process outlives the widget, because the decide-policy
+        closure holds this view and the view's own wrapper then needs the cyclic
+        collector to notice. Terminating is deterministic instead of hoping. It
+        also kills any view sharing the process (see _last_webview), which is
+        safe only because the reader releases a whole thread at once.
+        """
+        global _last_webview
+
+        self._is_released = True
+        if self._webview is not None:
+            if _last_webview is not None and _last_webview() is self._webview:
+                _last_webview = None
+            self._webview.disconnect_by_func(self._on_decide_policy)
+            self._webview.terminate_web_process()
+            self._webview.unparent()
+            self._webview = None
+        self._html = None
+        self.raw = None
+        self.parsed = None
 
 
 def _human_size(num_bytes: int) -> str:

@@ -138,9 +138,6 @@ class ConversationListMixin(MainWindowParts):
         self.conversation_list.set_model(self._selection)
         self.conversation_list.set_factory(self._build_conversation_factory())
 
-        # Load older mail when the list is scrolled to the bottom.
-        self.conversation_scroller.connect("edge-reached", self._on_list_edge_reached)
-
     # Scrolling to the bottom pulls the next-older page for the current folder,
     # if the last sync said there's more to fetch.
     def _on_list_edge_reached(

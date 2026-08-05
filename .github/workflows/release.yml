@@ -37,8 +37,54 @@ jobs:
   test:
     uses: ./.github/workflows/tests.yml
 
-  release:
+
+  build:
     needs: [check, test]
+    if: needs.check.outputs.new == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    env:
+      GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the build environment
+        run: |
+          # A container has no machine-id (dbus won't start) and no /dev/fuse.
+          cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id
+          echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | base64 -d | gpg --import
+
+      # Commits are signed here, not at merge time: `ostree pull-local` copies
+      # commit objects verbatim, so a signature made now survives into the
+      # merged repo, and re-signing commits afterwards would mean rewriting them.
+      - name: Build and sign the repo
+        run: |
+          flatpak-builder --force-clean --user --disable-rofiles-fuse \
+            --repo=repo --gpg-sign="$GPG_KEY" build "$APP_ID.json"
+
+      # tar first: upload-artifact flattens symlinks and drops permissions, both
+      # of which an ostree object store depends on.
+      - name: Pack the repo
+        run: tar -cf "repo-${{ matrix.arch }}.tar" repo
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repo-${{ matrix.arch }}
+          path: repo-${{ matrix.arch }}.tar
+          retention-days: 1
+
+  publish:
+    needs: [check, build]
     if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     container:
@@ -52,15 +98,36 @@ jobs:
 
       - name: Set up the build environment
         run: |
-          # A container has no machine-id (dbus won't start) and no /dev/fuse.
           cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id
           echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | base64 -d | gpg --import
 
-      - name: Build and sign the repo
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: repo-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Merge the per-arch repos
         run: |
-          flatpak-builder --force-clean --user --disable-rofiles-fuse \
-            --repo=repo --gpg-sign="$GPG_KEY" build "$APP_ID.json"
+          # Each tarball holds its own top-level repo/, so they unpack into
+          # separate directories or the second would overwrite the first.
+          for tar in artifacts/repo-*.tar; do
+            name=$(basename "$tar" .tar)
+            mkdir -p "unpacked/$name"
+            tar -xf "$tar" -C "unpacked/$name"
+          done
+          ostree --repo=repo init --mode=archive-z2
+          # No --gpg-verify: it requires --remote, and these are artifacts from
+          # this same run. The signatures ride along inside the commits.
+          for dir in unpacked/*/repo; do
+            ostree --repo=repo pull-local "$dir"
+          done
           flatpak build-update-repo --gpg-sign="$GPG_KEY" repo
+          # Fail loudly rather than publish a repo that silently lost an arch.
+          for arch in x86_64 aarch64; do
+            ostree --repo=repo refs | grep -qx "app/$APP_ID/$arch/master"
+          done
+          ostree --repo=repo refs
 
       - name: Assemble the site
         run: |
@@ -134,9 +201,13 @@ jobs:
 
             Or download `postcard.flatpakref` below and open it with your software centre.
 
+            Available for x86_64 and aarch64 — `flatpak` picks the right one.
+
   # Ship the same version to the AUR. aur.yml is also runnable by hand from the
   # Actions tab, which is how an already-released version gets pushed.
+  # The PKGBUILD is arch=('any') and installs only Python sources, so the one
+  # recipe already covers aarch64; nothing arch-specific to add here.
   aur:
-    needs: [check, release]
+    needs: [check, publish]
     uses: ./.github/workflows/aur.yml
     secrets: inherit

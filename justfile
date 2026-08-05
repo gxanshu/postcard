@@ -44,7 +44,7 @@ init:
     flatpak-builder --install-deps-from=flathub --install-deps-only --user \
         "{{fp-builddir}}" "{{manifest}}"
     # --system-site-packages: PyGObject (gi) comes from apt (python3-gi), not pip.
-    python3 -m venv --system-site-packages .venv
+    python3 -m venv --clear --system-site-packages .venv
     .venv/bin/pip install -r requirements.txt
 
 # ----------------------------------------------------------------------------

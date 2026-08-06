@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in Postcard is broken
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Postcard version
+      description: Shown in the app's About dialog, or `flatpak info in.gxanshu.postcard`.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Distro and install method
+      placeholder: Fedora 43, Flathub / AUR / built from source
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Mail provider
+      description: If the bug involves an account. Never paste your password.
+      placeholder: Gmail, Fastmail, self-hosted Dovecot…
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Output of `POSTCARD_LOG=debug flatpak run in.gxanshu.postcard`.
+        Check for email addresses or server names you'd rather not share.
+      render: shell

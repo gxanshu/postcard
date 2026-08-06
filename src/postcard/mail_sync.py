@@ -346,15 +346,13 @@ def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
 
 
 def icon_for_folder(name: str) -> str:
-    """Pick a symbolic icon name for a mailbox (used in the sidebar).
+    """Pick a symbolic icon name for a mailbox (used in the sidebar)."""
 
-    Only names that ship in the GNOME runtime's Adwaita icon theme are used;
-    mail-inbox/sent/drafts-symbolic are *not* in it and render as broken images.
-    """
     return {
         FolderRole.INBOX: "mail-unread-symbolic",
         FolderRole.SENT: "mail-send-symbolic",
         FolderRole.DRAFTS: "document-edit-symbolic",
+        FolderRole.ARCHIVE: "mail-archive-symbolic",
         FolderRole.TRASH: "user-trash-symbolic",
         FolderRole.JUNK: "mail-mark-junk-symbolic",
         FolderRole.STARRED: "starred-symbolic",

@@ -301,7 +301,9 @@ class MessageView(Gtk.Box):
             row.add_prefix(Gtk.Image.new_from_icon_name("mail-attachment-symbolic"))
 
             save_button = Gtk.Button(
-                icon_name="document-save-symbolic", valign=Gtk.Align.CENTER
+                icon_name="document-save-symbolic",
+                valign=Gtk.Align.CENTER,
+                tooltip_text=_("Save Attachment"),
             )
             save_button.add_css_class("flat")
             save_button.connect("clicked", self._on_save_clicked, attachment)

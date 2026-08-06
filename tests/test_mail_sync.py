@@ -101,11 +101,11 @@ def test_icon_for_folder():
     assert icon_for_folder("Notes") == "folder-symbolic"
 
 
-def test_archive_falls_back_to_the_generic_folder_icon():
-    # Deliberate: Adwaita ships no mail-archive-symbolic, and a missing icon
-    # renders as a broken image.
-    assert icon_for_folder("Archive") == "folder-symbolic"
-    assert icon_for_folder("[Gmail]/All Mail") == "folder-symbolic"
+def test_archive_uses_the_bundled_archive_icon():
+    # Adwaita ships no mail-archive-symbolic, so we bundle one in the
+    # GResource -- the same icon the reader's Archive button uses.
+    assert icon_for_folder("Archive") == "mail-archive-symbolic"
+    assert icon_for_folder("[Gmail]/All Mail") == "mail-archive-symbolic"
 
 
 def test_display_name_strips_the_gmail_namespace():

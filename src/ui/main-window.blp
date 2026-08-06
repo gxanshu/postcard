@@ -22,7 +22,7 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
         Adw.HeaderBar {}
 
         content: Adw.StatusPage {
-          icon-name: "mail-unread-symbolic";
+          icon-name: "in.gxanshu.postcard-symbolic";
           title: _("Welcome to Postcard");
           description: _("Add a mail account to get started.");
           child: Gtk.Button add_account_button {
@@ -97,7 +97,7 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
 
                   [start]
                   Gtk.ToggleButton unread_button {
-                    icon-name: "mail-unread-symbolic";
+                    icon-name: "media-record-symbolic";
                     tooltip-text: _("Show Unread Only");
                   }
 
@@ -138,7 +138,7 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                   StackPage {
                     name: "empty";
                     child: Adw.StatusPage {
-                      icon-name: "mail-read-symbolic";
+                      icon-name: "folder-symbolic";
                       title: _("No Messages");
                       description: _("This folder is empty.");
                     };
@@ -220,7 +220,7 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                   StackPage {
                     name: "empty";
                     child: Adw.StatusPage {
-                      icon-name: "mail-unread-symbolic";
+                      icon-name: "mail-read-symbolic";
                       title: _("Select a Conversation");
                       description: _("Pick a message from the list to read it here.");
                     };

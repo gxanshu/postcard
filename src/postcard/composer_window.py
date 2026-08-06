@@ -418,7 +418,9 @@ class PostcardComposerWindow(Adw.Window):
     def _add_attachment_row(self, attachment: Attachment) -> None:
         row = Adw.ActionRow(title=attachment.filename)
         remove_button = Gtk.Button(
-            icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER
+            icon_name="window-close-symbolic",
+            valign=Gtk.Align.CENTER,
+            tooltip_text=_("Remove Attachment"),
         )
         remove_button.add_css_class("flat")
         remove_button.connect(

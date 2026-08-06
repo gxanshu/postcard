@@ -14,3 +14,29 @@
   font-weight: bold;
   color: @accent_color;
 }
+
+/* Reader: the subject sits in its own block over a plain body, so the thread
+   below reads as one document instead of a stack of cards. */
+.reader-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid @borders;
+}
+
+.reader-body {
+  background-color: @view_bg_color;
+}
+
+.message-view:not(:last-child) {
+  border-bottom: 1px solid @borders;
+}
+
+/* The whole header row is the expand/collapse button; its own padding would
+   double up on the margins the row already sets. */
+.message-header {
+  padding: 0;
+  border-radius: 0;
+}
+
+.sender-address {
+  color: @accent_color;
+}

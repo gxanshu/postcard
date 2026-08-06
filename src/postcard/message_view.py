@@ -20,7 +20,9 @@ LoadCallback = Callable[[bytes | None, str | None], None]
 # conversation rows. Adwaita's own margins are multiples of 6.
 GUTTER = 12
 SMALL_GUTTER = 6
-AVATAR_SIZE = 32
+# Content sits on the reader's own left edge, lined up with the subject above.
+EDGE = 24
+AVATAR_SIZE = 40
 
 # Tall enough that most messages need no inner scrolling; the WebView can't
 # report its content height until after layout, so this is a fixed guess.
@@ -53,11 +55,7 @@ class MessageView(Gtk.Box):
         avatars: AvatarLoader | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.add_css_class("card")
-        self.set_margin_top(SMALL_GUTTER)
-        self.set_margin_bottom(SMALL_GUTTER)
-        self.set_margin_start(GUTTER)
-        self.set_margin_end(GUTTER)
+        self.add_css_class("message-view")
 
         self._email = email
         self._on_load = on_load
@@ -74,40 +72,54 @@ class MessageView(Gtk.Box):
         self.raw: bytes | None = None
         self.parsed: message_parser.ParsedMessage | None = None
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=GUTTER)
+        header = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=GUTTER,
+            margin_top=GUTTER,
+            margin_bottom=GUTTER,
+            margin_start=EDGE,
+            margin_end=EDGE,
+        )
         avatar = Adw.Avatar(size=AVATAR_SIZE, show_initials=True, text=email.sender)
         header.append(avatar)
         if avatars is not None and email.sender_address:
             avatars.load(email.sender_address, avatar.set_custom_image)
 
-        names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        names = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER
+        )
         sender = Gtk.Label(
             label=email.sender, xalign=0, ellipsize=Pango.EllipsizeMode.END
         )
         sender.add_css_class("heading")
         names.append(sender)
 
-        self._recipients = Gtk.Label(
-            xalign=0, ellipsize=Pango.EllipsizeMode.END, visible=False
-        )
-        self._recipients.add_css_class("dim-label")
-        self._recipients.add_css_class("caption")
-        names.append(self._recipients)
+        if email.sender_address:
+            address = Gtk.Label(
+                label=email.sender_address,
+                xalign=0,
+                ellipsize=Pango.EllipsizeMode.END,
+            )
+            address.add_css_class("caption")
+            address.add_css_class("sender-address")
+            names.append(address)
         header.append(names)
 
-        date = Gtk.Label(label=email.date, xalign=1, valign=Gtk.Align.START)
+        date = Gtk.Label(label=email.date, xalign=1, valign=Gtk.Align.CENTER)
         date.add_css_class("dim-label")
+        date.add_css_class("caption")
         header.append(date)
 
         self._toggle = Gtk.Button(child=header)
         self._toggle.add_css_class("flat")
+        self._toggle.add_css_class("message-header")
         self._toggle.connect("clicked", self._on_toggle)
         self.append(self._toggle)
 
         self._body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=GUTTER)
-        self._body.set_margin_start(GUTTER)
-        self._body.set_margin_end(GUTTER)
-        self._body.set_margin_bottom(GUTTER)
+        self._body.set_margin_start(EDGE)
+        self._body.set_margin_end(EDGE)
+        self._body.set_margin_bottom(EDGE)
 
         self._revealer = Gtk.Revealer(child=self._body)
         self.append(self._revealer)
@@ -163,16 +175,9 @@ class MessageView(Gtk.Box):
         if self._on_rendered is not None:
             self._on_rendered(self)
 
-    # A one-line "to …" summary under the sender, plus a collapsed Details
-    # section with the full From/To/Cc/Bcc/Date so the header stays uncluttered.
+    # A collapsed Details section with the full From/To/Cc/Bcc/Date; the header
+    # itself shows only the sender and their address.
     def _show_details(self, parsed: message_parser.ParsedMessage) -> None:
-        recipients = parsed.to + parsed.cc
-        if recipients:
-            self._recipients.set_text(
-                _("to {names}").format(names=", ".join(recipients))
-            )
-            self._recipients.set_visible(True)
-
         grid = Gtk.Grid(row_spacing=4, column_spacing=GUTTER)
         grid.set_margin_bottom(SMALL_GUTTER)
         row = 0

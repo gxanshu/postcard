@@ -244,25 +244,27 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                     child: Gtk.Box {
                       orientation: vertical;
 
-                      Gtk.Label reader_subject {
-                        xalign: 0;
-                        wrap: true;
-                        margin-top: 24;
-                        margin-start: 24;
-                        margin-end: 24;
-                        margin-bottom: 12;
+                      Gtk.Box {
+                        orientation: vertical;
 
-                        styles ["title-2"]
+                        styles ["reader-header"]
+
+                        Gtk.Label reader_subject {
+                          xalign: 0;
+                          wrap: true;
+
+                          styles ["title-2"]
+                        }
                       }
 
                       Gtk.ScrolledWindow {
                         hscrollbar-policy: never;
                         vexpand: true;
 
+                        styles ["reader-body"]
+
                         child: Gtk.Box thread_box {
                           orientation: vertical;
-                          spacing: 6;
-                          margin-bottom: 12;
                         };
                       }
                     };

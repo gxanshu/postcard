@@ -61,6 +61,7 @@ postcard_core_sources = [
   'postcard/core/secrets.py',
   'postcard/core/avatars.py',
   'postcard/core/compose.py',
+  'postcard/core/providers.py',
   'postcard/core/threader.py',
 ]
 

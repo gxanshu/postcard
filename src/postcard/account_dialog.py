@@ -1,6 +1,6 @@
 from gi.repository import Adw, GObject, Gtk
 
-from .core import secrets
+from .core import providers, secrets
 from .core.models.account import SECURITY_OPTIONS, parse_port
 from .core.store.database import Database
 
@@ -32,6 +32,24 @@ class PostcardAccountDialog(Adw.Dialog):
         self.cancel_button.connect("clicked", lambda _b: self.close())
         self.add_button.connect("clicked", self._on_add_clicked)
 
+        # Values we put in the server fields ourselves, so a later autofill can
+        # tell its own text from something the user typed and never clobber it.
+        # Seeded with the template's defaults, which count as ours.
+        self._autofilled_text = {
+            row: row.get_text()
+            for row in (
+                self.imap_host_row,
+                self.imap_port_row,
+                self.smtp_host_row,
+                self.smtp_port_row,
+            )
+        }
+        self._autofilled_security = {
+            combo: combo.get_selected()
+            for combo in (self.imap_security_row, self.smtp_security_row)
+        }
+        self.email_row.connect("changed", self._autofill_servers)
+
         for row in (
             self.display_name_row,
             self.email_row,
@@ -42,6 +60,30 @@ class PostcardAccountDialog(Adw.Dialog):
             self.smtp_port_row,
         ):
             row.connect("changed", self._update_add_sensitivity)
+
+    def _autofill_servers(self, *_args: object) -> None:
+        settings = providers.settings_for_email(self.email_row.get_text())
+        if settings is None:
+            return
+
+        for row, value in (
+            (self.imap_host_row, settings.imap_host),
+            (self.imap_port_row, str(settings.imap_port)),
+            (self.smtp_host_row, settings.smtp_host),
+            (self.smtp_port_row, str(settings.smtp_port)),
+        ):
+            if row.get_text() == self._autofilled_text[row]:
+                row.set_text(value)
+                self._autofilled_text[row] = value
+
+        for combo, security in (
+            (self.imap_security_row, settings.imap_security),
+            (self.smtp_security_row, settings.smtp_security),
+        ):
+            selected = SECURITY_OPTIONS.index(security)
+            if combo.get_selected() == self._autofilled_security[combo]:
+                combo.set_selected(selected)
+                self._autofilled_security[combo] = selected
 
     def _update_add_sensitivity(self, *_args: object) -> None:
         required = (

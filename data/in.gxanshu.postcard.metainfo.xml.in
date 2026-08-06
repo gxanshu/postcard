@@ -59,6 +59,20 @@
   </screenshots>
 
   <releases>
+    <release version="1.7.0" date="2026-08-06">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Adding an account now fills in the IMAP and SMTP settings for you — most
+          providers need nothing but an address and a password</li>
+          <li>A modernized reading pane</li>
+          <li>Postcard is now available on the AUR, and ships aarch64 builds alongside
+          x86_64</li>
+          <li>Postcard now releases memory while it sits in the background</li>
+          <li>Fix several wrong icons around the interface</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.2" date="2026-08-02">
       <description translate="no">
         <p>New in this release:</p>

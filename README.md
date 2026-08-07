@@ -113,15 +113,6 @@ software centre.
 After the first install, Postcard shows up in your app launcher like any other application, and
 `flatpak update` keeps it current.
 
-### Arch Linux
-
-Postcard is in the [AUR](https://aur.archlinux.org/packages/postcard) as `postcard`, built from
-source against your system's GTK and libadwaita:
-
-```bash
-paru -S postcard   # or: yay -S postcard
-```
-
 ## Starting hidden at login
 
 Turn on **Keep running in the background** in Preferences, then add this command to your desktop

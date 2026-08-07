@@ -22,7 +22,7 @@ body:
     id: environment
     attributes:
       label: Distro and install method
-      placeholder: Fedora 43, Flathub / AUR / built from source
+      placeholder: Fedora 43, Flatpak / built from source
     validations:
       required: true
 

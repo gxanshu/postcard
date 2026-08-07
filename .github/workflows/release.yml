@@ -176,9 +176,9 @@ jobs:
           git tag "v$VERSION"
           git push origin "v$VERSION"
 
-      # What the AUR PKGBUILD downloads. GitHub's own tag archives are
-      # regenerated on demand and their checksums have shifted before, breaking
-      # every recipe that pinned them; a release asset is written once.
+      # A stable source archive: GitHub's own tag archives are regenerated on
+      # demand and their checksums have shifted before, breaking every recipe
+      # that pinned them; a release asset is written once.
       - name: Build the source tarball
         run: git archive --prefix="postcard-$VERSION/" -o "postcard-$VERSION.tar.gz" "v$VERSION"
 
@@ -202,12 +202,3 @@ jobs:
             Or download `postcard.flatpakref` below and open it with your software centre.
 
             Available for x86_64 and aarch64 — `flatpak` picks the right one.
-
-  # Ship the same version to the AUR. aur.yml is also runnable by hand from the
-  # Actions tab, which is how an already-released version gets pushed.
-  # The PKGBUILD is arch=('any') and installs only Python sources, so the one
-  # recipe already covers aarch64; nothing arch-specific to add here.
-  aur:
-    needs: [check, publish]
-    uses: ./.github/workflows/aur.yml
-    secrets: inherit

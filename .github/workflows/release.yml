@@ -176,12 +176,6 @@ jobs:
           git tag "v$VERSION"
           git push origin "v$VERSION"
 
-      # A stable source archive: GitHub's own tag archives are regenerated on
-      # demand and their checksums have shifted before, breaking every recipe
-      # that pinned them; a release asset is written once.
-      - name: Build the source tarball
-        run: git archive --prefix="postcard-$VERSION/" -o "postcard-$VERSION.tar.gz" "v$VERSION"
-
       # The .flatpakref is the whole Flatpak download: it points at the signed
       # repo on the pages branch, so there's no bundle to attach.
       - name: Publish the GitHub release
@@ -189,9 +183,7 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}
           name: Postcard ${{ env.VERSION }}
-          files: |
-            postcard.flatpakref
-            postcard-${{ env.VERSION }}.tar.gz
+          files: postcard.flatpakref
           body: |
             Install or update:
 

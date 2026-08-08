@@ -27,6 +27,7 @@ class MailActionsMixin(MainWindowParts):
             ("trash", self._on_trash),
             ("compose", self._on_compose_clicked),
             ("reply", self._on_reply_clicked),
+            ("reply-all", self._on_reply_all_clicked),
             ("forward", self._on_forward_clicked),
             ("refresh", self._on_refresh_clicked),
             ("search", self._on_search_action),
@@ -49,6 +50,7 @@ class MailActionsMixin(MainWindowParts):
                 ("win.trash", ["<ctrl>Delete"]),
                 ("win.compose", ["<ctrl>n"]),
                 ("win.reply", ["<ctrl>r"]),
+                ("win.reply-all", ["<ctrl><shift>r"]),
                 ("win.forward", ["<ctrl><shift>f"]),
                 ("win.refresh", ["F5"]),
                 ("win.search", ["<ctrl>f"]),
@@ -69,6 +71,8 @@ class MailActionsMixin(MainWindowParts):
 
     def _set_reply_forward_enabled(self, is_enabled: bool) -> None:
         self._set_actions_enabled(REPLY_FORWARD_ACTIONS, is_enabled)
+        for button in (self.reply_button, self.reply_all_button, self.forward_button):
+            button.set_sensitive(is_enabled)
 
     def _selected_conversations(self) -> list[Conversation]:
         # The store is built by _load_mail_view, so before an account is open

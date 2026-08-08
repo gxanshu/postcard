@@ -111,23 +111,39 @@ class AccountsMixin(MainWindowParts):
         self._open_composer(body=compose.signature_block(sig) if sig else "")
 
     def _on_reply_clicked(self, *_args: object) -> None:
+        self._open_reply(should_reply_all=False)
+
+    def _on_reply_all_clicked(self, *_args: object) -> None:
+        self._open_reply(should_reply_all=True)
+
+    def _open_reply(self, *, should_reply_all: bool) -> None:
         if (
             len(self._selected_conversations()) != 1
             or self._active_view is None
             or self._active_view.raw is None
         ):
             return
+        account = self._account
+        if account is None:
+            return
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
-        to_addr = parseaddr(str(headers["From"] or ""))[1]
-        subject = compose.reply_subject(str(headers["Subject"] or ""))
-        parsed = self._active_view.parsed
+        from_header = str(headers["From"] or "")
+        # Reply-To wins over From: it is how a sender asks for replies elsewhere.
+        to_addr = parseaddr(str(headers["Reply-To"] or "").strip() or from_header)[1]
         body = compose.quote_reply_body(
-            str(headers["From"] or ""),
+            from_header,
             str(headers["Date"] or ""),
-            _original_text(parsed),
+            _original_text(self._active_view.parsed),
             signature=self._signature_text(),
         )
-        self._open_composer(to=to_addr, subject=subject, body=body)
+        self._open_composer(
+            to=to_addr,
+            cc=compose.reply_all_cc(headers, account.email, to_addr)
+            if should_reply_all
+            else "",
+            subject=compose.reply_subject(str(headers["Subject"] or "")),
+            body=body,
+        )
 
     def _on_forward_clicked(self, *_args: object) -> None:
         if (

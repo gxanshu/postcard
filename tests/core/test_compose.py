@@ -1,3 +1,5 @@
+from email import message_from_string, policy
+
 from postcard.core.compose import (
     build_mime_message,
     extract_recipients,
@@ -7,6 +9,7 @@ from postcard.core.compose import (
     parse_mailto,
     quote_reply_body,
     replace_last_address,
+    reply_all_cc,
     reply_subject,
     signature_block,
     suggest_addresses,
@@ -35,6 +38,29 @@ def test_reply_subject_adds_a_prefix():
 def test_reply_subject_leaves_an_existing_prefix_alone():
     assert reply_subject("Re: Lunch") == "Re: Lunch"
     assert reply_subject("RE: Lunch") == "RE: Lunch"
+
+
+def cc_for(to="", cc="", own="me@example.com", to_addr="sender@example.com"):
+    headers = message_from_string(f"To: {to}\nCc: {cc}\n\nbody", policy=policy.default)
+    return reply_all_cc(headers, own, to_addr)
+
+
+def test_reply_all_cc_keeps_the_other_recipients_in_header_order():
+    assert cc_for(to="Bo <bo@example.com>", cc="ann@example.com") == (
+        "bo@example.com, ann@example.com"
+    )
+
+
+def test_reply_all_cc_drops_our_own_address_and_the_reply_target():
+    assert cc_for(to="me@example.com, ME@Example.com", cc="Sender@example.com") == ""
+
+
+def test_reply_all_cc_deduplicates_an_address_listed_twice():
+    assert cc_for(to="bo@example.com", cc="bo@example.com") == "bo@example.com"
+
+
+def test_reply_all_cc_is_empty_without_other_recipients():
+    assert cc_for() == ""
 
 
 def test_forward_subject_adds_a_prefix():

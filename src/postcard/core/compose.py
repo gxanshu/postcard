@@ -1,7 +1,7 @@
 import email
 import email.utils
 from dataclasses import dataclass
-from email.message import EmailMessage
+from email.message import EmailMessage, Message
 from html import escape
 from html.parser import HTMLParser
 from urllib.parse import unquote
@@ -57,6 +57,20 @@ def reply_subject(subject: str) -> str:
     if subject.lower().startswith("re:"):
         return subject
     return f"Re: {subject}"
+
+
+# Reply All keeps the rest of the thread in the loop: the original To and Cc,
+# minus ourselves and minus whoever the reply is already addressed to.
+def reply_all_cc(headers: Message, own_email: str, to_addr: str) -> str:
+    excluded = {own_email.lower(), to_addr.lower()}
+    recipients = email.utils.getaddresses(
+        [str(headers.get("To", "")), str(headers.get("Cc", ""))]
+    )
+    # dict keeps the header's own order; a set would shuffle the recipients.
+    unique_addrs = dict.fromkeys(
+        addr for _name, addr in recipients if addr and addr.lower() not in excluded
+    )
+    return ", ".join(unique_addrs)
 
 
 def forward_subject(subject: str) -> str:

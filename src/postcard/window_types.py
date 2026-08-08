@@ -9,7 +9,7 @@ SETTING_SYNC_INTERVAL = "sync-interval-minutes"
 
 # Window action names, grouped by what enables and disables them together.
 MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
-REPLY_FORWARD_ACTIONS = ("reply", "forward")
+REPLY_FORWARD_ACTIONS = ("reply", "reply-all", "forward")
 
 # How long an archive/trash/move stays undoable before the real IMAP MOVE runs.
 # The Undo toast is shown for this window, so the two have to agree.

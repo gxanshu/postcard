@@ -63,6 +63,7 @@ class PostcardMainWindow(
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
     unread_button: Gtk.ToggleButton = Gtk.Template.Child()
     compose_button: Gtk.Button = Gtk.Template.Child()
+    reply_all_button: Gtk.Button = Gtk.Template.Child()
     reply_button: Gtk.Button = Gtk.Template.Child()
     forward_button: Gtk.Button = Gtk.Template.Child()
     mark_read_button: Gtk.Button = Gtk.Template.Child()
@@ -110,6 +111,7 @@ class PostcardMainWindow(
         self.add_account_button.connect("clicked", self._on_add_account_clicked)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         self.compose_button.connect("clicked", self._on_compose_clicked)
+        self.reply_all_button.connect("clicked", self._on_reply_all_clicked)
         self.reply_button.connect("clicked", self._on_reply_clicked)
         self.forward_button.connect("clicked", self._on_forward_clicked)
 
@@ -182,8 +184,6 @@ class PostcardMainWindow(
         self._remote_unread_counts: dict[int, int] = {}
         self.reader_stack.set_visible_child_name(PAGE_EMPTY)
         self._set_mail_actions_enabled(False)
-        self.reply_button.set_sensitive(False)
-        self.forward_button.set_sensitive(False)
         self._set_reply_forward_enabled(False)
 
         self.main_stack.set_visible_child_name(PAGE_MAIL)

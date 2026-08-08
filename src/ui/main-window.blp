@@ -210,6 +210,13 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                   }
 
                   [end]
+                  Gtk.Button reply_all_button {
+                    icon-name: "mail-reply-all-symbolic";
+                    tooltip-text: _("Reply All");
+                    sensitive: false;
+                  }
+
+                  [end]
                   Gtk.Button reply_button {
                     icon-name: "mail-reply-sender-symbolic";
                     tooltip-text: _("Reply");

@@ -47,6 +47,7 @@ class MainWindowParts(_Base):
     search_entry: Gtk.SearchEntry
     unread_button: Gtk.ToggleButton
     compose_button: Gtk.Button
+    reply_all_button: Gtk.Button
     reply_button: Gtk.Button
     forward_button: Gtk.Button
     mark_read_button: Gtk.Button
@@ -117,6 +118,9 @@ class MainWindowParts(_Base):
         raise NotImplementedError
 
     def _on_reply_clicked(self, *_args: object) -> None:
+        raise NotImplementedError
+
+    def _on_reply_all_clicked(self, *_args: object) -> None:
         raise NotImplementedError
 
     def _on_forward_clicked(self, *_args: object) -> None:

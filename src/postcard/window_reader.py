@@ -30,8 +30,6 @@ class ReaderMixin(MainWindowParts):
         if len(selected) != 1:
             self._rendered_id = None
             self._active_view = None
-            self.reply_button.set_sensitive(False)
-            self.forward_button.set_sensitive(False)
             self._set_reply_forward_enabled(False)
             self._set_mail_actions_enabled(bool(selected))
             if selected:
@@ -48,16 +46,12 @@ class ReaderMixin(MainWindowParts):
 
         # Already showing this thread (e.g. after a flag change) — don't rebuild.
         if conversation.id == self._rendered_id:
-            ready = self._active_view is not None and self._active_view.raw is not None
-            self.reply_button.set_sensitive(ready)
-            self.forward_button.set_sensitive(ready)
-            self._set_reply_forward_enabled(ready)
+            view = self._active_view
+            self._set_reply_forward_enabled(view is not None and view.raw is not None)
             self.reader_stack.set_visible_child_name("message")
             return
 
         self._rendered_id = conversation.id
-        self.reply_button.set_sensitive(False)
-        self.forward_button.set_sensitive(False)
         self._active_view = None
         self._render_thread(conversation)
         # Opening a conversation marks it read (like most mail clients).
@@ -124,8 +118,6 @@ class ReaderMixin(MainWindowParts):
         if len(self._selected_conversations()) != 1:
             return
         self._active_view = view
-        self.reply_button.set_sensitive(True)
-        self.forward_button.set_sensitive(True)
         self._set_reply_forward_enabled(True)
 
     # Fetch one message's raw bytes for a MessageView: serve the cached copy if

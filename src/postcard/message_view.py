@@ -7,7 +7,7 @@ gi.require_version("WebKit", "6.0")
 
 from gettext import gettext as _
 
-from gi.repository import Adw, Gtk, Pango, WebKit
+from gi.repository import Adw, Gdk, Gtk, Pango, WebKit
 
 from .avatar_loader import AvatarLoader
 from .core.mime import message_parser
@@ -244,6 +244,9 @@ class MessageView(Gtk.Box):
         settings.set_enable_webaudio(False)
         settings.set_enable_webgl(False)
         settings.set_enable_back_forward_navigation_gestures(False)
+        # Transparent, so the Adwaita pane behind it supplies the background
+        # and the reader tracks the theme without hardcoding its colours.
+        webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
         webview.load_html(html, None)
         self._webview = webview
         _last_webview = weakref.ref(webview)

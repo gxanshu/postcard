@@ -2,6 +2,7 @@ import logging
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from . import message_view
 from .avatar_loader import AvatarLoader
 from .core.models.account import Account
 from .core.models.conversation import Conversation
@@ -240,11 +241,11 @@ class PostcardMainWindow(
         self._settings.set_int("window-width", width)
         self._settings.set_int("window-height", height)
         self._settings.set_boolean("window-maximized", self.is_maximized())
+        # Nothing on screen to render, so give the ~300 MB web process back.
+        message_view.release_anchor()
 
         if self._settings.get_boolean("run-in-background"):
-            # A hidden window still holds its reading pane, and that means a
-            # WebKit web process (~300 MB) plus its network process sitting in
-            # the background with nothing on screen. _on_map renders it again.
+            # _on_map renders the reading pane again when the window returns.
             self._rendered_id = None
             self._active_view = None
             self._clear_thread()

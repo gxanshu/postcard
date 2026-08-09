@@ -59,6 +59,19 @@
   </screenshots>
 
   <releases>
+    <release version="1.8.0" date="2026-08-09">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Reply-all, alongside reply and forward</li>
+          <li>Attachments now open directly in their default app</li>
+          <li>Relative dates ("2h ago", "Yesterday") in the conversation list and reader</li>
+          <li>A refreshed reader header with clearer actions</li>
+          <li>Sender addresses can now be selected and copied</li>
+          <li>Fix the composer closing the message behind it in the reader</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.7.0" date="2026-08-06">
       <description translate="no">
         <p>New in this release:</p>

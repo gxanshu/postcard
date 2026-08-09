@@ -5,7 +5,7 @@
 
   **Geary's three-pane email, rebuilt on GTK 4 without twelve years of accumulated complexity.**
 
-  [![Version](https://img.shields.io/badge/version-1.7.0-3584e4?style=flat-square)](#installing)
+  [![Version](https://img.shields.io/badge/version-1.8.0-3584e4?style=flat-square)](#installing)
   [![Tests](https://img.shields.io/github/actions/workflow/status/gxanshu/postcard/tests.yml?style=flat-square&label=tests)](https://github.com/gxanshu/postcard/actions/workflows/tests.yml)
   [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4?style=flat-square)](COPYING)
   [![Flatpak](https://img.shields.io/badge/install-Flatpak-4a86cf?style=flat-square&logo=flatpak&logoColor=white)](#installing)
@@ -61,14 +61,17 @@ your passwords live in the system keyring. Postcard talks to your mail server an
 **✍️ Composing**
 - Rich-text composer: bold, italic, underline, strikethrough, bulleted and numbered lists, and
   links. Everything goes out as HTML with a plain-text alternative
-- Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that never loses
-  a message
+- Compose, reply, reply-all, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox that
+  never loses a message
 - Recipient autocomplete drawn from the addresses already in your mail
 
 **🖥️ Desktop**
 - HTML and plain-text mail, with remote images blocked until you allow them, and links opening
   in your default browser
 - Archive, trash, move, and undo, on one conversation or a whole selection at once
+- Attachments open directly in their default app with one click
+- Relative dates ("2h ago", "Yesterday") in the conversation list and reader, with the exact
+  timestamp on hover
 - Desktop notifications when new mail arrives
 - Optional sender avatars from Gravatar, with the sender's site icon as a fallback
 - Sets itself up as your default mail client, so `mailto:` links open the composer already

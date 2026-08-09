@@ -1,8 +1,10 @@
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from enum import StrEnum
+from gettext import gettext as _
 
 from .core.models.account import Account
 from .core.models.conversation import Conversation
@@ -158,15 +160,15 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
     """Turn raw wire headers into the display-ready form.
 
     This is where the two shapes differ: the sender becomes a display name,
-    the date is shortened, and the server's \\Seen flag is inverted into
-    `is_unread`, which is how the rest of the app thinks about it.
+    the date is normalized to a timestamp, and the server's \\Seen flag is
+    inverted into `is_unread`, which is how the rest of the app thinks about it.
     """
     return MessageHeader(
         uid=fetched.uid,
         sender=_clean_sender(fetched.from_header),
         sender_address=_sender_address(fetched.from_header),
         subject=fetched.subject or NO_SUBJECT,
-        date=_format_date(fetched.date),
+        date=_iso_date(fetched.date),
         is_unread=not fetched.seen,
         is_starred=fetched.flagged,
         message_id=fetched.message_id,
@@ -370,9 +372,34 @@ def _sender_address(value: str) -> str:
     return parseaddr(value)[1].strip().lower()
 
 
-def _format_date(value: str) -> str:
-    # Turn "Wed, 16 Jul 2026 10:00:00 +0000" into a short "Jul 16".
+def _iso_date(value: str) -> str:
+    # "Wed, 16 Jul 2026 10:00:00 +0000" -> "2026-07-16T10:00:00+00:00". Stored
+    # as a timestamp rather than a label because format_date is relative to
+    # today, and the column is written once at sync time and never revisited.
     try:
-        return parsedate_to_datetime(value).strftime("%b %d")
+        return parsedate_to_datetime(value).isoformat()
     except (TypeError, ValueError):
         return value
+
+
+def format_date(value: str) -> str:
+    """Render a stored timestamp as the short label the list and reader show.
+
+    "Today 10:00" for today, "Yesterday", a weekday name within the last week,
+    and "Jul 16" beyond it. Anything unparseable is passed through untouched,
+    which covers both a message whose Date header we couldn't read and the
+    pre-formatted dates rows carried before this column held a timestamp.
+    """
+    try:
+        moment = datetime.fromisoformat(value).astimezone()
+    except (TypeError, ValueError):
+        return value
+
+    days = (date.today() - moment.date()).days
+    if days == 0:
+        return _("Today {time}").format(time=moment.strftime("%H:%M"))
+    if days == 1:
+        return _("Yesterday")
+    if 1 < days < 7:
+        return moment.strftime("%a")
+    return moment.strftime("%b %d")

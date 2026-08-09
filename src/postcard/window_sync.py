@@ -117,7 +117,7 @@ class SyncMixin(MainWindowParts):
                 sender_address=account.email,
                 subject=result.subject,
                 preview=result.subject,
-                date=datetime.now().strftime("%b %d"),
+                date=datetime.now().astimezone().isoformat(),
                 is_unread=False,
             )
             self._db.save_raw_message(row.id, result.raw)

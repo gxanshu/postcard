@@ -1,3 +1,5 @@
+from datetime import date, datetime, timedelta
+
 import pytest
 
 import postcard.mail_sync as mail_sync
@@ -17,6 +19,7 @@ from postcard.mail_sync import (
     _to_message_header,
     display_name_for_folder,
     fetch_mailbox,
+    format_date,
     icon_for_folder,
     inbox_name,
     parent_mailbox_name,
@@ -349,12 +352,56 @@ def test_a_bare_address_becomes_its_own_display_name():
     assert header.sender_address == "ada@example.com"
 
 
-def test_the_date_is_shortened_for_the_list():
-    assert _to_message_header(fetched()).date == "Jul 16"
+def test_the_date_is_stored_as_a_timestamp():
+    assert _to_message_header(fetched()).date == "2026-07-16T10:00:00+00:00"
 
 
 def test_an_unparseable_date_is_passed_through_unchanged():
     assert _to_message_header(fetched(date="whenever")).date == "whenever"
+
+
+def days_ago(days: int, hour: int = 10) -> str:
+    """An ISO timestamp `days` before today, on the hour so the label is fixed."""
+    now = datetime.now().astimezone()
+    on_the_hour = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return (on_the_hour - timedelta(days=days)).isoformat()
+
+
+def test_todays_mail_shows_the_time():
+    assert format_date(days_ago(0, hour=9)) == "Today 09:00"
+
+
+def test_yesterdays_mail_is_named_not_timed():
+    assert format_date(days_ago(1)) == "Yesterday"
+
+
+def test_mail_from_the_last_week_shows_the_weekday():
+    for days in range(2, 7):
+        expected = (date.today() - timedelta(days=days)).strftime("%a")
+        assert format_date(days_ago(days)) == expected
+
+
+def test_older_mail_falls_back_to_the_month_and_day():
+    seven_days_back = date.today() - timedelta(days=7)
+    assert format_date(days_ago(7)) == seven_days_back.strftime("%b %d")
+    assert format_date("2026-07-16T10:00:00+00:00") == "Jul 16"
+
+
+def test_a_future_date_is_not_mistaken_for_a_weekday():
+    # A skewed clock on the sending machine, or mail that arrives postdated.
+    tomorrow = date.today() + timedelta(days=1)
+    assert format_date(days_ago(-1)) == tomorrow.strftime("%b %d")
+
+
+def test_a_naive_timestamp_is_read_as_local_time():
+    naive = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+    assert format_date(naive.isoformat()) == "Today 08:00"
+
+
+def test_a_date_that_is_not_a_timestamp_is_shown_as_it_is():
+    # Rows written before this column held a timestamp, and unreadable headers.
+    assert format_date("Jul 16") == "Jul 16"
+    assert format_date("") == ""
 
 
 def test_the_seen_flag_is_inverted_into_unread():

@@ -593,7 +593,8 @@ class PostcardComposerWindow(Adw.Window):
 
 
 def _now() -> str:
-    return datetime.now().strftime("%b %d")
+
+    return datetime.now().astimezone().isoformat()
 
 
 def _gtk_font() -> tuple[str, str]:

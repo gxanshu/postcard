@@ -8,6 +8,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gtk, Pango, WebKit
 
+from . import mail_sync
 from .avatar_loader import AvatarLoader
 from .core.mime import message_parser
 from .core.models.attachment import Attachment
@@ -136,7 +137,9 @@ class MessageView(Gtk.Box):
             names.append(address)
         header.append(names)
 
-        date = Gtk.Label(label=email.date, xalign=1, valign=Gtk.Align.CENTER)
+        date = Gtk.Label(
+            label=mail_sync.format_date(email.date), xalign=1, valign=Gtk.Align.CENTER
+        )
         date.add_css_class("dim-label")
         date.add_css_class("caption")
         header.append(date)

@@ -1,5 +1,6 @@
 from gi.repository import Adw, Gdk, Gtk, Pango
 
+from . import mail_sync
 from .avatar_loader import AvatarLoader
 from .core.models.conversation import Conversation
 
@@ -70,7 +71,7 @@ class ConversationRow(Gtk.Box):
         self._load_avatar(conversation.latest.sender_address)
         self._sender_label.set_label(conversation.participants)
         self._star.set_visible(conversation.is_starred)
-        self._date_label.set_label(conversation.date)
+        self._date_label.set_label(mail_sync.format_date(conversation.date))
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)
         self._unread_dot.set_visible(conversation.is_unread)

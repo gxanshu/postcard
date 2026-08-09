@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest something Postcard should do
-labels: [enhancement]
+labels: [feature-request]
 body:
   - type: textarea
     id: problem

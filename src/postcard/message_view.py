@@ -131,6 +131,7 @@ class MessageView(Gtk.Box):
                 label=email.sender_address,
                 xalign=0,
                 ellipsize=Pango.EllipsizeMode.END,
+                selectable=True,
             )
             address.add_css_class("caption")
             address.add_css_class("sender-address")

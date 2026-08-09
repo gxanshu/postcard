@@ -1,6 +1,8 @@
 import logging
+import shutil
 import threading
 from gettext import gettext as _
+from pathlib import Path
 
 from gi.repository import Gio, GLib, Gtk
 
@@ -105,6 +107,7 @@ class ReaderMixin(MainWindowParts):
                 mail,
                 on_load=self._load_body,
                 on_save_attachment=self._save_attachment,
+                on_open_attachment=self._open_attachment,
                 on_rendered=self._on_newest_rendered if is_newest else None,
                 is_expanded=is_newest,
                 should_load_remote_images=should_load_remote_images,
@@ -226,3 +229,36 @@ class ReaderMixin(MainWindowParts):
             return
 
         self._toast(_("Saved {name}.").format(name=attachment.filename))
+
+    # Not /tmp: Flatpak gives the instance a private one, and the document
+    # portal can't hand a file from there to another app -- the launch fails.
+    def _open_attachment(self, attachment: Attachment) -> None:
+        # Server-supplied name; "../../.bashrc" would otherwise escape the dir.
+        name = Path(attachment.filename).name or "attachment"
+        directory = Path(GLib.get_user_cache_dir()) / "attachments"
+        shutil.rmtree(directory, ignore_errors=True)  # keep only the newest copy
+        path = directory / name
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(attachment.content)
+        except OSError:
+            logger.exception("could not write attachment %s to %s", name, path)
+            self._toast(_("Couldn't open {name}.").format(name=attachment.filename))
+            return
+
+        launcher = Gtk.FileLauncher(file=Gio.File.new_for_path(str(path)))
+        launcher.launch(self, None, self._on_launch_done, attachment.filename)
+
+    def _on_launch_done(
+        self,
+        launcher: Gtk.FileLauncher,
+        result: Gio.AsyncResult,
+        filename: str,
+    ) -> None:
+        try:
+            launcher.launch_finish(result)
+        except GLib.Error as error:
+            if error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                return
+            logger.warning("could not open attachment %s: %s", filename, error.message)
+            self._toast(_("Couldn't open {name}.").format(name=filename))

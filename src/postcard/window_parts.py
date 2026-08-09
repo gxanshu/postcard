@@ -221,6 +221,9 @@ class MainWindowParts(_Base):
     def _save_attachment(self, attachment: object) -> None:
         raise NotImplementedError
 
+    def _open_attachment(self, attachment: object) -> None:
+        raise NotImplementedError
+
     # window_sync.py
     def _start_sync(
         self,

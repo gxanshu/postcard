@@ -78,6 +78,7 @@ class MessageView(Gtk.Box):
         email: Email,
         on_load: Callable[[Email, LoadCallback], None],
         on_save_attachment: Callable[[Attachment], None],
+        on_open_attachment: Callable[[Attachment], None],
         on_rendered: Callable[["MessageView"], None] | None = None,
         is_expanded: bool = False,
         should_load_remote_images: bool = False,
@@ -89,6 +90,7 @@ class MessageView(Gtk.Box):
         self._email = email
         self._on_load = on_load
         self._on_save_attachment = on_save_attachment
+        self._on_open_attachment = on_open_attachment
         self._on_rendered = on_rendered
         self._should_load_remote_images = should_load_remote_images
         self._is_loaded = False
@@ -314,9 +316,13 @@ class MessageView(Gtk.Box):
 
         for attachment in attachments:
             row = Adw.ActionRow(
-                title=attachment.filename, subtitle=_human_size(attachment.size)
+                title=attachment.filename,
+                subtitle=_human_size(attachment.size),
+                activatable=True,
+                tooltip_text=_("Open with the default app"),
             )
             row.add_prefix(Gtk.Image.new_from_icon_name("mail-attachment-symbolic"))
+            row.connect("activated", self._on_open_clicked, attachment)
 
             save_button = Gtk.Button(
                 icon_name="document-save-symbolic",
@@ -331,6 +337,9 @@ class MessageView(Gtk.Box):
 
     def _on_save_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
         self._on_save_attachment(attachment)
+
+    def _on_open_clicked(self, _row: Adw.ActionRow, attachment: Attachment) -> None:
+        self._on_open_attachment(attachment)
 
     def release(self) -> None:
         """Drop the body's widgets and bytes; the view is dead after this.

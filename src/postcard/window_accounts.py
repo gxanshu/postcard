@@ -204,6 +204,8 @@ class AccountsMixin(MainWindowParts):
         composer.present()
 
     def _on_composer_finished(self, _composer: PostcardComposerWindow) -> None:
+        selected = self._selected_conversation()
+        keep_id = selected.id if selected is not None else None
         self._reload_folders()
-        self._refresh_conversations()
+        self._refresh_conversations(keep_id=keep_id)
         self._drain_outbox()

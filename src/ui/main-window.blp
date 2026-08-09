@@ -166,61 +166,78 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                 [top]
                 Adw.HeaderBar {
                   [start]
-                  Gtk.Button mark_read_button {
-                    icon-name: "mail-read-symbolic";
-                    tooltip-text: _("Mark Read");
-                    action-name: "win.toggle-read";
-                    sensitive: false;
+                  Gtk.Box {
+                    styles ["linked"]
+
+                    Gtk.Button reply_button {
+                      icon-name: "mail-reply-sender-symbolic";
+                      tooltip-text: _("Reply");
+                      sensitive: false;
+                    }
+
+                    Gtk.Button reply_all_button {
+                      icon-name: "mail-reply-all-symbolic";
+                      tooltip-text: _("Reply All");
+                      sensitive: false;
+                    }
+
+                    Gtk.Button forward_button {
+                      icon-name: "mail-forward-symbolic";
+                      tooltip-text: _("Forward");
+                      sensitive: false;
+                    }
                   }
 
                   [start]
-                  Gtk.Button star_button {
-                    icon-name: "non-starred-symbolic";
-                    tooltip-text: _("Star");
-                    action-name: "win.toggle-star";
-                    sensitive: false;
-                  }
+                  Gtk.Box {
+                    styles ["linked"]
 
-                  [start]
-                  Gtk.Button archive_button {
-                    icon-name: "mail-archive-symbolic";
-                    tooltip-text: _("Archive");
-                    action-name: "win.archive";
-                  }
+                    Gtk.Button mark_read_button {
+                      icon-name: "mail-read-symbolic";
+                      tooltip-text: _("Mark Read");
+                      action-name: "win.toggle-read";
+                      sensitive: false;
+                    }
 
-                  [start]
-                  Gtk.Button trash_button {
-                    icon-name: "user-trash-symbolic";
-                    tooltip-text: _("Delete");
-                    action-name: "win.trash";
-                  }
+                    Gtk.Button star_button {
+                      icon-name: "non-starred-symbolic";
+                      tooltip-text: _("Star");
+                      action-name: "win.toggle-star";
+                      sensitive: false;
+                    }
 
-                  [start]
-                  Gtk.MenuButton move_button {
-                    icon-name: "folder-symbolic";
-                    tooltip-text: _("Move to Folder");
-                    sensitive: false;
+                    Gtk.MenuButton move_button {
+                      icon-name: "folder-symbolic";
+                      tooltip-text: _("Move to Folder");
+                      sensitive: false;
+                    }
                   }
 
                   [end]
-                  Gtk.Button forward_button {
-                    icon-name: "mail-forward-symbolic";
-                    tooltip-text: _("Forward");
-                    sensitive: false;
+                  Gtk.ToggleButton reader_search_button {
+                    icon-name: "system-search-symbolic";
+                    tooltip-text: _("Search");
                   }
 
                   [end]
-                  Gtk.Button reply_all_button {
-                    icon-name: "mail-reply-all-symbolic";
-                    tooltip-text: _("Reply All");
-                    sensitive: false;
-                  }
+                  Gtk.Box {
+                    styles ["linked"]
 
-                  [end]
-                  Gtk.Button reply_button {
-                    icon-name: "mail-reply-sender-symbolic";
-                    tooltip-text: _("Reply");
-                    sensitive: false;
+                    Gtk.Button archive_button {
+                      tooltip-text: _("Archive");
+                      action-name: "win.archive";
+
+                      child: Adw.ButtonContent {
+                        icon-name: "mail-archive-symbolic";
+                        label: _("Archive");
+                      };
+                    }
+
+                    Gtk.Button trash_button {
+                      icon-name: "user-trash-symbolic";
+                      tooltip-text: _("Delete");
+                      action-name: "win.trash";
+                    }
                   }
                 }
                 content: Gtk.Stack reader_stack {

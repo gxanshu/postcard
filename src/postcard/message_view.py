@@ -244,9 +244,10 @@ class MessageView(Gtk.Box):
         settings.set_enable_webaudio(False)
         settings.set_enable_webgl(False)
         settings.set_enable_back_forward_navigation_gestures(False)
-        # Transparent, so the Adwaita pane behind it supplies the background
-        # and the reader tracks the theme without hardcoding its colours.
+        # Clearing the accelerated surface avoids a black frame before WebKit
+        # paints; the GTK class supplies the white canvas expected by email HTML.
         webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
+        webview.add_css_class("message-html")
         webview.load_html(html, None)
         self._webview = webview
         _last_webview = weakref.ref(webview)

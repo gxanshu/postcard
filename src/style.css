@@ -40,3 +40,7 @@
 .sender-address {
   color: @accent_color;
 }
+
+.message-html {
+  background-color: #ffffff;
+}

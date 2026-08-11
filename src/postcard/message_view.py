@@ -6,7 +6,7 @@ gi.require_version("WebKit", "6.0")
 
 from gettext import gettext as _
 
-from gi.repository import Adw, Gtk, Pango, WebKit
+from gi.repository import Adw, Gdk, Gtk, Pango, WebKit
 
 from . import mail_sync
 from .avatar_loader import AvatarLoader
@@ -269,6 +269,10 @@ class MessageView(Gtk.Box):
         settings.set_enable_webaudio(False)
         settings.set_enable_webgl(False)
         settings.set_enable_back_forward_navigation_gestures(False)
+        # Clearing the accelerated surface avoids a black frame before WebKit
+        # paints; the GTK class supplies the white canvas expected by email HTML.
+        webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
+        webview.add_css_class("message-html")
         webview.load_html(html, None)
         self._webview = webview
         self._body.append(webview)

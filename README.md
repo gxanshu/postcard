@@ -89,7 +89,7 @@ protocol is supported; **Tested** means it's been run against a real account.
 | **Gmail** | ✅ | ✅ | Needs 2-Step Verification and an [app password](https://myaccount.google.com/apppasswords); your normal password won't authenticate |
 | **Yahoo Mail** | ✅ | ✅ | Needs an app password from Account Security |
 | **Proton Mail** | ✅ | ✅ | Through [Proton Mail Bridge](https://proton.me/mail/bridge) (paid plans); use the Bridge's local host, port, and generated password with STARTTLS |
-| **Any IMAP/SMTP server** | ✅ | — | Fastmail, Zoho, Mailbox.org, self-hosted Dovecot/Postfix. Known providers are filled in from your address; for the rest, enter the host, port, and TLS mode by hand |
+| **Any IMAP/SMTP server** | ✅ | — | Fastmail, Zoho, Mailbox.org, Migadu, self-hosted Dovecot/Postfix. Known providers are filled in from your address; for the rest, enter the host, port, and TLS mode by hand |
 | **Outlook / Hotmail / Microsoft 365** | ❌ | ❌ | Microsoft requires OAuth 2.0 and has retired basic auth. Support is planned |
 
 > **Tip:** most providers with 2FA won't accept your account password over IMAP. Generate an

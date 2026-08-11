@@ -411,10 +411,12 @@ class SyncMixin(MainWindowParts):
             self._start_sync()
 
     def _notify_background(self) -> None:
-        if self._has_notified_background:
+        # Once per install, not once per close: the notice explains why the app
+        # is still around the first time it happens, and is noise after that.
+        if self._settings.get_boolean("background-notice-shown"):
             return
 
-        self._has_notified_background = True
+        self._settings.set_boolean("background-notice-shown", True)
 
         app = self.get_application()
         if app is None:

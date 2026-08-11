@@ -21,6 +21,11 @@
 			<summary>Keep running in the background</summary>
 			<description>Keep checking for new mail after the window is closed.</description>
 		</key>
+		<key name="background-notice-shown" type="b">
+			<default>false</default>
+			<summary>Background notice already shown</summary>
+			<description>Whether the notice about the app still checking for mail after the window is closed has been shown. It is only shown once.</description>
+		</key>
 		<key name="sync-interval-minutes" type="i">
 			<range min="0" max="1440"/>
 			<default>15</default>

@@ -145,9 +145,6 @@ class PostcardMainWindow(
 
         self._is_syncing = False
         self._sync_timer_id = 0
-        # Set here, not on first use: _on_close_request reaches
-        # _notify_background before any mail view has been loaded.
-        self._has_notified_background = False
         self._interval_handler = self._settings.connect(
             f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
         )

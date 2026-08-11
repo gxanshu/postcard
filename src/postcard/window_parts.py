@@ -94,7 +94,6 @@ class MainWindowParts(_Base):
     # --- sync / connection state ------------------------------------------
     _is_syncing: bool
     _is_online: bool
-    _has_notified_background: bool
     _sync_timer_id: int
 
     # --- cross-module methods ---------------------------------------------

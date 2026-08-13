@@ -209,6 +209,10 @@ inbox is different. Code contributions should pass `just check` and `just test`;
 work is fine here (see the [AI Notice](#ai-notice) above), but please make sure you understand
 every line you submit.
 
+New to the codebase? See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up a dev
+environment — either open the folder in [GNOME Builder](https://flathub.org/en/apps/org.gnome.Builder)
+and let it install the SDK it suggests, or use `just init` / `just run` from a terminal.
+
 If Postcard is useful to you, a ⭐ helps other people find it.
 
 ## License

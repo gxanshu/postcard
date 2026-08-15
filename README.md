@@ -41,6 +41,12 @@ your passwords live in the system keyring. Postcard talks to your mail server an
   <sub><b>Composer</b>: rich text, and the layout adapts down to a phone-width window</sub>
 </div>
 
+<div align="center">
+  <img src="data/screenshots/online-accounts.png" alt="The Online Accounts dialog listing a Google account from GNOME Settings, ready to add">
+
+  <sub><b>Online Accounts</b>: add a Google account with one click, no app password to generate</sub>
+</div>
+
 > **Heavy development.** Postcard is under active development and can have bugs or unexpected
 > behavior. If you hit one, please [report it on the GitHub issues
 > panel](https://github.com/gxanshu/postcard/issues). It helps a lot.
@@ -48,6 +54,9 @@ your passwords live in the system keyring. Postcard talks to your mail server an
 ## Features
 
 **📬 Mail**
+- Add a Google account straight from GNOME Online Accounts — just the account you already
+  signed in to in GNOME Settings, no app password to generate. Postcard signs in with OAuth and
+  never sees a password
 - Multiple IMAP/SMTP accounts, with passwords stored in the system keyring and a TLS/STARTTLS
   choice per server (so Proton Mail Bridge works)
 - Server settings filled in for you from your email address — type a Gmail, Yahoo, iCloud,
@@ -86,14 +95,19 @@ protocol is supported; **Tested** means it's been run against a real account.
 
 | Provider | Works | Tested | Notes |
 |---|:---:|:---:|---|
-| **Gmail** | ✅ | ✅ | Needs 2-Step Verification and an [app password](https://myaccount.google.com/apppasswords); your normal password won't authenticate |
+| **Gmail** | ✅ | ✅ | Easiest way in: add your Google account in GNOME Settings → Online Accounts, then pick it in Postcard — no app password needed. Adding it by hand still works, but needs 2-Step Verification and an [app password](https://myaccount.google.com/apppasswords) |
 | **Yahoo Mail** | ✅ | ✅ | Needs an app password from Account Security |
 | **Proton Mail** | ✅ | ✅ | Through [Proton Mail Bridge](https://proton.me/mail/bridge) (paid plans); use the Bridge's local host, port, and generated password with STARTTLS |
 | **Any IMAP/SMTP server** | ✅ | — | Fastmail, Zoho, Mailbox.org, Migadu, self-hosted Dovecot/Postfix. Known providers are filled in from your address; for the rest, enter the host, port, and TLS mode by hand |
 | **Outlook / Hotmail / Microsoft 365** | ❌ | ❌ | Microsoft requires OAuth 2.0 and has retired basic auth. Support is planned |
 
 > **Tip:** most providers with 2FA won't accept your account password over IMAP. Generate an
-> app-specific password and use that instead.
+> app-specific password and use that instead — or, for Google, add the account in GNOME Settings →
+> Online Accounts and let Postcard sign in with OAuth.
+
+Only OAuth accounts are imported from Online Accounts, which in practice means Google. A GOA
+"Email Server" account is plain IMAP/SMTP that Add Account already handles, and Microsoft 365 /
+Exchange hand out Graph-only tokens with no IMAP access.
 
 ## Installing
 

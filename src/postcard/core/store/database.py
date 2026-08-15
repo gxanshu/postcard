@@ -583,13 +583,20 @@ class Database:
         one. Returns True when the row was new, which is how a sync tells which
         messages to notify about.
         """
-        is_new = (
+        row = self._conn.execute(
+            "SELECT message_id FROM emails WHERE folder_id = ? AND server_id = ?",
+            (folder_id, header.uid),
+        ).fetchone()
+        is_new = row is None
+        if row is not None and (row["message_id"] or "") != (header.message_id or ""):
+            # Another message at the same UID (a mailbox that reset its UIDs).
+            # The upsert below never rewrites the headers, so replace the row --
+            # which also drops its cached body, now the wrong message's.
             self._conn.execute(
-                "SELECT 1 FROM emails WHERE folder_id = ? AND server_id = ?",
+                "DELETE FROM emails WHERE folder_id = ? AND server_id = ?",
                 (folder_id, header.uid),
-            ).fetchone()
-            is None
-        )
+            )
+            is_new = True
         self._conn.execute(
             """
             INSERT INTO emails

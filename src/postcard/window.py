@@ -209,6 +209,9 @@ class PostcardMainWindow(
         self.reader_stack.set_visible_child_name(PAGE_EMPTY)
         self._set_mail_actions_enabled(False)
         self._set_reply_forward_enabled(False)
+        # A sync left in flight now drops its own callback, so clear this here
+        # or the new account looks permanently busy and never syncs.
+        self._set_syncing(False)
 
         self.main_stack.set_visible_child_name(PAGE_MAIL)
         self._refresh_account_switcher()

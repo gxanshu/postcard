@@ -167,6 +167,28 @@ def test_resyncing_a_message_leaves_the_rest_of_it_alone(db, folder):
     assert (mail.subject, mail.preview) == ("Lunch", "see you at one")
 
 
+def test_a_different_message_at_the_same_uid_replaces_the_stored_one(db, folder):
+    # Otherwise the old row keeps its headers over the new message's body.
+    incoming(db, folder.id, "1", subject="Hiiiii", message_id="<a@x>")
+    (stale,) = db.emails_in_folder(folder.id)
+    db.save_raw_message(stale.id, b"From: abhay@x\n\nold body")
+
+    assert incoming(db, folder.id, "1", subject="New sign-in", message_id="<b@x>")
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert mail.subject == "New sign-in"
+    assert db.get_raw_message(mail.id) is None
+
+
+def test_resyncing_the_same_message_keeps_its_cached_body(db, folder):
+    incoming(db, folder.id, "1", message_id="<a@x>")
+    (mail,) = db.emails_in_folder(folder.id)
+    db.save_raw_message(mail.id, b"From: ada@x\n\nbody")
+
+    assert incoming(db, folder.id, "1", message_id="<a@x>") is False
+    assert db.get_raw_message(mail.id) == b"From: ada@x\n\nbody"
+
+
 def test_the_sender_address_round_trips_separately_from_the_display_name(db, folder):
     incoming(db, folder.id, "1", sender="Ada", sender_address="ada@example.com")
     (mail,) = db.emails_in_folder(folder.id)

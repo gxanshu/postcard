@@ -101,8 +101,9 @@ class MoveMixin(MainWindowParts):
     def _start_move(
         self, conversations: list[Conversation], dest: Folder, verb: str
     ) -> None:
+        account = self._account
         source = self._current_folder
-        if source is None or dest.id == source.id:
+        if account is None or source is None or dest.id == source.id:
             return
 
         self._commit_pending_move()
@@ -134,6 +135,7 @@ class MoveMixin(MainWindowParts):
         toast.connect("button-clicked", self._on_undo_move)
         self._pending_toast = toast
         self._pending_move = PendingMove(
+            account=account,
             email_ids=email_ids,
             uids=uids,
             originals=originals,
@@ -207,13 +209,9 @@ class MoveMixin(MainWindowParts):
                 self._move_tombstones.pop((tombstone_folder_id, uid), None)
 
     def _run_move_worker(self, pending: PendingMove) -> None:
-        account = self._account
-        if account is None:
-            self._restore_move(pending)
-            return
         thread = threading.Thread(
             target=self._move_worker,
-            args=(account, pending),
+            args=(pending.account, pending),
             daemon=True,
         )
         thread.start()

@@ -241,7 +241,7 @@ class MainWindowParts(_Base):
     def _drain_outbox(self) -> None:
         raise NotImplementedError
 
-    def _on_outbox_drained(self, results: list[OutboxResult]) -> bool:
+    def _on_outbox_drained(self, account: Account, results: list[OutboxResult]) -> bool:
         raise NotImplementedError
 
     def _reschedule_sync(self) -> None:

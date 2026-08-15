@@ -202,4 +202,6 @@ class ConversationListMixin(MainWindowParts):
 
     def _on_refresh_clicked(self, *_args: object) -> None:
         self._drain_outbox()
-        self._start_sync()
+        # The open folder, not the inbox: the only way past the sync cooldown.
+        folder = self._current_folder
+        self._start_sync(folder_name=folder.name if folder else None)

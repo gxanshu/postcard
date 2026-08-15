@@ -95,14 +95,12 @@ class SyncMixin(MainWindowParts):
                 results.append(OutboxResult(email_id, subject, raw, error))
             else:
                 results.append(OutboxResult(email_id, subject, raw, None))
-        GLib.idle_add(self._on_outbox_drained, results)
+        GLib.idle_add(self._on_outbox_drained, account, results)
 
-    # Back on the main thread: safe to touch the database and widgets.
-    def _on_outbox_drained(self, results: list[OutboxResult]) -> bool:
-        account = self._account
-        if account is None:
-            return False
-
+    # Back on the main thread: safe to touch the database and widgets. Files
+    # under the account that sent, not the open one; dropping a stale one would
+    # leave the mail in the Outbox to go out twice.
+    def _on_outbox_drained(self, account: Account, results: list[OutboxResult]) -> bool:
         sent: Folder | None = None
         sent_count = 0
         for result in results:
@@ -203,6 +201,7 @@ class SyncMixin(MainWindowParts):
             logger.warning("could not sign in to account %s", account.email)
             GLib.idle_add(
                 self._on_sync_error,
+                account,
                 True,
                 _("Could not sign in to this account."),
             )
@@ -221,14 +220,18 @@ class SyncMixin(MainWindowParts):
                 offset,
             )
             is_auth_failure, message = errors.classify(error, account.imap_host)
-            GLib.idle_add(self._on_sync_error, is_auth_failure, message)
+            GLib.idle_add(self._on_sync_error, account, is_auth_failure, message)
             return
-        GLib.idle_add(self._on_sync_done, result)
+        GLib.idle_add(self._on_sync_done, account, result)
+
+    # A sync that started before an account switch: filing its mail under the
+    # account open now would write one account's mail into the other's folders.
+    def _is_stale(self, account: Account) -> bool:
+        return self._account is None or self._account.id != account.id
 
     # Back on the main thread: safe to touch the database and widgets.
-    def _on_sync_done(self, result: mail_sync.SyncResult) -> bool:
-        account = self._account
-        if account is None:
+    def _on_sync_done(self, account: Account, result: mail_sync.SyncResult) -> bool:
+        if self._is_stale(account):
             return False
 
         # Remember the open conversation so a background poll doesn't yank it.
@@ -381,7 +384,11 @@ class SyncMixin(MainWindowParts):
 
         app.send_notification("new-mail", notification)
 
-    def _on_sync_error(self, is_auth_failure: bool, message: str) -> bool:
+    def _on_sync_error(
+        self, account: Account, is_auth_failure: bool, message: str
+    ) -> bool:
+        if self._is_stale(account):
+            return False
         self._set_syncing(False)
         self._show_connection_banner(message, self._retry_button_label(is_auth_failure))
         return False

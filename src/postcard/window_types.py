@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from .core.models.account import Account
 from .core.models.folder import Folder
 
 # GSettings key for the poll interval. Named here rather than in
@@ -21,9 +22,8 @@ SEARCH_DEBOUNCE_MS = 200
 # How long a folder counts as freshly synced. Opening one costs a connection,
 # a login and a header fetch, which clicking between two folders would
 # otherwise pay for on every visit.
-# ponytail: a flat window, so a folder can read up to a minute stale and the
-# refresh button syncs the inbox rather than the open folder. Point refresh at
-# the current folder if that staleness ever shows.
+# ponytail: a flat window, so a folder can read up to a minute stale; the
+# refresh button syncs the open folder, which is the way out of it.
 FOLDER_SYNC_COOLDOWN_SECONDS = 60
 
 SECONDS_PER_MINUTE = 60
@@ -82,8 +82,12 @@ class PendingMove:
 
     timeout_id is the GLib source that commits the move once the undo window
     closes; cancelling the move means removing that source.
+
+    account is carried, not read at commit time: the undo window outlives an
+    account switch, and these UIDs only mean anything on their own server.
     """
 
+    account: Account
     email_ids: list[int]
     uids: list[str]
     originals: list[tuple[int, int, str]]

@@ -15,6 +15,24 @@ from .window_types import MAIL_ACTIONS, REPLY_FORWARD_ACTIONS, FlagChange
 
 logger = logging.getLogger(__name__)
 
+# Move is the one action carrying a parameter (the destination folder name), so
+# it is registered on its own wherever these are.
+_MOVE_PARAM_TYPE = "s"
+
+
+def _register(
+    target: Gio.ActionMap,
+    name: str,
+    handler: Callable[..., None],
+    param_type: str | None = None,
+) -> None:
+    """Add one activatable action to a window or a context menu's group."""
+    action = Gio.SimpleAction.new(
+        name, GLib.VariantType.new(param_type) if param_type else None
+    )
+    action.connect("activate", handler)
+    target.add_action(action)
+
 
 class MailActionsMixin(MainWindowParts):
     """Read/unread, star, and the row context menu."""
@@ -32,13 +50,8 @@ class MailActionsMixin(MainWindowParts):
             ("refresh", self._on_refresh_clicked),
             ("search", self._on_search_action),
         ):
-            action = Gio.SimpleAction.new(name, None)
-            action.connect("activate", handler)
-            self.add_action(action)
-
-        move = Gio.SimpleAction.new("move", GLib.VariantType.new("s"))
-        move.connect("activate", self._on_move)
-        self.add_action(move)
+            _register(self, name, handler)
+        _register(self, "move", self._on_move, _MOVE_PARAM_TYPE)
 
         # Flag actions are Ctrl-modified so they don't fire while typing in search.
         app = self.get_application()
@@ -95,76 +108,64 @@ class MailActionsMixin(MainWindowParts):
 
     def _on_toggle_read(self, _action: Gio.SimpleAction, _param: object) -> None:
         conversations = self._selected_conversations()
-        if not conversations:
-            return
-        self._toggle_read_many(conversations)
-
-    def _toggle_read_many(self, conversations: list[Conversation]) -> None:
-        # A mixed selection follows the aggregate command shown in the menu:
-        # if anything is is_unread, mark the whole selection read.
-        is_unread = not any(conversation.is_unread for conversation in conversations)
-        originals = {
-            mail.id: mail.is_unread
-            for conversation in conversations
-            for mail in conversation.emails
-        }
-        for conversation in conversations:
-            for mail in conversation.emails:
-                mail.is_unread = is_unread
-                if is_unread:
-                    self._db.mark_email_unread(mail.id)
-                else:
-                    self._db.mark_email_read(mail.id)
-
-        def revert() -> None:
-            for conversation in conversations:
-                for mail in conversation.emails:
-                    old_unread = originals[mail.id]
-                    mail.is_unread = old_unread
-                    if old_unread:
-                        self._db.mark_email_unread(mail.id)
-                    else:
-                        self._db.mark_email_read(mail.id)
-            self._after_flag_change(conversations)
-
-        self._after_flag_change(conversations)
-        uids = [
-            uid
-            for conversation in conversations
-            for uid in mail_sync.server_uids(conversation)
-        ]
-        self._run_flag_worker(
-            uids, imap_session.FLAG_SEEN, should_add=not is_unread, revert=revert
-        )
+        if conversations:
+            self._toggle_read(conversations)
 
     def _on_toggle_star(self, _action: Gio.SimpleAction, _param: object) -> None:
         conversations = self._selected_conversations()
-        if not conversations:
-            return
-        self._toggle_star_many(conversations)
+        if conversations:
+            self._toggle_flag(
+                conversations,
+                "is_starred",
+                self._db.set_email_starred,
+                imap_session.FLAG_FLAGGED,
+            )
 
-    def _toggle_star_many(self, conversations: list[Conversation]) -> None:
-        # As with read state, one aggregate command gives the whole selection a
-        # deterministic state even when the conversations are mixed.
-        is_starred = not any(conversation.is_starred for conversation in conversations)
-        originals = {
-            mail.id: mail.is_starred
-            for conversation in conversations
-            for mail in conversation.emails
-        }
-        for conversation in conversations:
-            for mail in conversation.emails:
-                mail.is_starred = is_starred
-                self._db.set_email_starred(mail.id, is_starred)
+    def _toggle_read(self, conversations: list[Conversation]) -> None:
+        self._toggle_flag(
+            conversations,
+            "is_unread",
+            self._db.set_email_unread,
+            imap_session.FLAG_SEEN,
+            is_flag_inverted=True,
+        )
+
+    # Clear the is_unread flag for a whole conversation: locally, in the badges
+    # and list, and on the server. Guarded rather than routed straight through
+    # _toggle_flag, which on an already-read thread would flip it back to unread.
+    def _mark_conversation_read(self, conversation: Conversation) -> None:
+        if conversation.is_unread:
+            self._toggle_read([conversation])
+
+    def _toggle_flag(
+        self,
+        conversations: list[Conversation],
+        field: str,
+        save: Callable[[int, bool], None],
+        flag: str,
+        is_flag_inverted: bool = False,
+    ) -> None:
+        """Flip one boolean flag across a selection, locally and on the server.
+
+        A mixed selection follows the aggregate command shown in the menu: if
+        anything is unread, the whole selection is marked read. `field` names
+        the Email attribute and `save` the Database setter that records it;
+        is_flag_inverted covers \\Seen, which is the opposite of is_unread.
+        """
+        mails = [mail for conversation in conversations for mail in conversation.emails]
+        value = not any(getattr(mail, field) for mail in mails)
+        originals = {mail.id: getattr(mail, field) for mail in mails}
+
+        def write(values: dict[int, bool]) -> None:
+            for mail in mails:
+                setattr(mail, field, values[mail.id])
+                save(mail.id, values[mail.id])
 
         def revert() -> None:
-            for conversation in conversations:
-                for mail in conversation.emails:
-                    old_starred = originals[mail.id]
-                    mail.is_starred = old_starred
-                    self._db.set_email_starred(mail.id, old_starred)
+            write(originals)
             self._after_flag_change(conversations)
 
+        write(dict.fromkeys(originals, value))
         self._after_flag_change(conversations)
         uids = [
             uid
@@ -172,41 +173,16 @@ class MailActionsMixin(MainWindowParts):
             for uid in mail_sync.server_uids(conversation)
         ]
         self._run_flag_worker(
-            uids, imap_session.FLAG_FLAGGED, should_add=is_starred, revert=revert
-        )
-
-    # Clear the is_unread flag for a whole conversation: locally, in the badges
-    # and list, and on the server. A no-op if it's already read, so reopening a
-    # read thread costs nothing.
-    def _mark_conversation_read(self, conversation: Conversation) -> None:
-        if not conversation.is_unread:
-            return
-
-        for mail in conversation.emails:
-            mail.is_unread = False
-            self._db.mark_email_read(mail.id)
-
-        def revert() -> None:
-            for mail in conversation.emails:
-                mail.is_unread = True
-                self._db.mark_email_unread(mail.id)
-            self._after_flag_change(conversation)
-
-        self._after_flag_change(conversation)
-        uids = mail_sync.server_uids(conversation)
-        self._run_flag_worker(
-            uids, imap_session.FLAG_SEEN, should_add=True, revert=revert
+            uids,
+            flag,
+            should_add=not value if is_flag_inverted else value,
+            revert=revert,
         )
 
     # Update badges and the list after a flag change, keeping this
     # conversation selected (so the reader doesn't reload).
-    def _after_flag_change(
-        self, conversations: Conversation | list[Conversation]
-    ) -> None:
-        if isinstance(conversations, Conversation):
-            keep_id = conversations.id
-        else:
-            keep_id = conversations[0].id if len(conversations) == 1 else None
+    def _after_flag_change(self, conversations: list[Conversation]) -> None:
+        keep_id = conversations[0].id if len(conversations) == 1 else None
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
 
@@ -273,7 +249,7 @@ class MailActionsMixin(MainWindowParts):
         self, revert: Callable[[], None], host: str, error: Exception
     ) -> bool:
         revert()
-        _category, message = errors.classify(error, host)
+        _is_auth_failure, message = errors.classify(error, host)
         self._toast(_("Action failed: {msg}").format(msg=message))
         return False
 
@@ -311,7 +287,7 @@ class MailActionsMixin(MainWindowParts):
             return
 
         popover = Gtk.PopoverMenu()
-        popover.insert_action_group("context", self._context_actions(conversation))
+        popover.insert_action_group("context", self._context_actions())
         popover.set_parent(row_widget)
         popover.set_menu_model(self._context_menu(conversation))
         popover.set_has_arrow(False)
@@ -324,30 +300,17 @@ class MailActionsMixin(MainWindowParts):
         popover.set_pointing_to(rect)
         popover.popup()
 
-    def _context_actions(self, _conversation: Conversation) -> Gio.SimpleActionGroup:
-        """Create actions for the current selection and its context menu row."""
+    def _context_actions(self) -> Gio.SimpleActionGroup:
+        """The subset of the window's actions the row context menu offers."""
         actions = Gio.SimpleActionGroup()
-
-        toggle_read = Gio.SimpleAction.new("toggle-read", None)
-        toggle_read.connect("activate", self._on_toggle_read)
-        actions.add_action(toggle_read)
-
-        toggle_star = Gio.SimpleAction.new("toggle-star", None)
-        toggle_star.connect("activate", self._on_toggle_star)
-        actions.add_action(toggle_star)
-
-        archive = Gio.SimpleAction.new("archive", None)
-        archive.connect("activate", self._on_archive)
-        actions.add_action(archive)
-
-        trash = Gio.SimpleAction.new("trash", None)
-        trash.connect("activate", self._on_trash)
-        actions.add_action(trash)
-
-        move = Gio.SimpleAction.new("move", GLib.VariantType.new("s"))
-        move.connect("activate", self._on_move)
-        actions.add_action(move)
-
+        for name, handler in (
+            ("toggle-read", self._on_toggle_read),
+            ("toggle-star", self._on_toggle_star),
+            ("archive", self._on_archive),
+            ("trash", self._on_trash),
+        ):
+            _register(actions, name, handler)
+        _register(actions, "move", self._on_move, _MOVE_PARAM_TYPE)
         return actions
 
     def _context_menu(self, conversation: Conversation) -> Gio.Menu:

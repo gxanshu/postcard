@@ -136,14 +136,16 @@ class SyncMixin(MainWindowParts):
         # -- silently leaving it there reads as "sent" to the user.
         send_errors = [result.error for result in results if result.error is not None]
         if send_errors:
-            category, message = errors.classify(send_errors[0], account.smtp_host)
+            is_auth_failure, message = errors.classify(
+                send_errors[0], account.smtp_host
+            )
             self._show_connection_banner(
                 ngettext(
                     "Couldn't send a queued message. {reason}",
                     "Couldn't send {n} queued messages. {reason}",
                     len(send_errors),
                 ).format(n=len(send_errors), reason=message),
-                self._retry_button_label(category),
+                self._retry_button_label(is_auth_failure),
             )
         return False
 
@@ -200,7 +202,7 @@ class SyncMixin(MainWindowParts):
             logger.warning("could not sign in to account %s", account.email)
             GLib.idle_add(
                 self._on_sync_error,
-                errors.CATEGORY_AUTH,
+                True,
                 _("Could not sign in to this account."),
             )
             return
@@ -217,8 +219,8 @@ class SyncMixin(MainWindowParts):
                 folder_name or "inbox",
                 offset,
             )
-            category, message = errors.classify(error, account.imap_host)
-            GLib.idle_add(self._on_sync_error, category, message)
+            is_auth_failure, message = errors.classify(error, account.imap_host)
+            GLib.idle_add(self._on_sync_error, is_auth_failure, message)
             return
         GLib.idle_add(self._on_sync_done, result)
 
@@ -377,16 +379,16 @@ class SyncMixin(MainWindowParts):
 
         app.send_notification("new-mail", notification)
 
-    def _on_sync_error(self, category: str, message: str) -> bool:
+    def _on_sync_error(self, is_auth_failure: bool, message: str) -> bool:
         self._set_syncing(False)
-        self._show_connection_banner(message, self._retry_button_label(category))
+        self._show_connection_banner(message, self._retry_button_label(is_auth_failure))
         return False
 
     @staticmethod
-    def _retry_button_label(category: str) -> str:
+    def _retry_button_label(is_auth_failure: bool) -> str:
         # Auth failures aren't worth a Retry button (same password); everything
         # else is a transient connection problem the user can retry.
-        return "" if category == errors.CATEGORY_AUTH else _("Retry")
+        return "" if is_auth_failure else _("Retry")
 
     def _show_connection_banner(self, title: str, button_label: str = "") -> None:
         self.connection_banner.set_title(errors.linkify(title))

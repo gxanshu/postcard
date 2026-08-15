@@ -59,14 +59,8 @@ class ReaderMixin(MainWindowParts):
         # Opening a conversation marks it read (like most mail clients).
         self._mark_conversation_read(conversation)
 
-    # Reflect the selected conversation's state on the action buttons.
-    def _update_action_buttons(
-        self, conversations: Conversation | list[Conversation]
-    ) -> None:
-        if isinstance(conversations, Conversation):
-            selected = [conversations]
-        else:
-            selected = conversations
+    # Reflect the selected conversations' state on the action buttons.
+    def _update_action_buttons(self, selected: list[Conversation]) -> None:
         self._set_mail_actions_enabled(True)
 
         if any(conversation.is_unread for conversation in selected):
@@ -184,7 +178,7 @@ class ReaderMixin(MainWindowParts):
                 request.folder_name,
                 account.email,
             )
-            _category, message = errors.classify(error, account.imap_host)
+            _is_auth_failure, message = errors.classify(error, account.imap_host)
             GLib.idle_add(self._deliver_body, callback, request.email_id, None, message)
             return
         GLib.idle_add(self._deliver_body, callback, request.email_id, raw, None)

@@ -6,45 +6,38 @@ from postcard.core.net.errors import classify
 from postcard.core.net.imap_session import ImapError
 from postcard.core.net.smtp_session import SmtpError
 
-# Only the category is asserted — the messages go through gettext, so their
-# text depends on the active translation.
+# Only the "is this the password?" half is asserted — the messages go through
+# gettext, so their text depends on the active translation. Everything that is
+# not a rejected password is treated the same way by the caller: a banner with
+# a Retry button.
 
 
-def category(exc):
+def is_auth_failure(exc):
     return classify(exc, "imap.example.com")[0]
 
 
-def test_a_tls_failure():
-    assert category(ssl.SSLError("handshake failure")) == "tls"
-
-
-def test_an_unresolvable_host():
-    assert category(socket.gaierror("Name or service not known")) == "unreachable"
-
-
-def test_a_refused_connection():
-    assert category(ConnectionRefusedError()) == "unreachable"
-
-
-def test_a_timeout():
-    assert category(TimeoutError()) == "unreachable"
-
-
 def test_a_rejected_password():
-    assert category(ImapError("AUTHENTICATIONFAILED: invalid")) == "auth"
-    assert category(SmtpError("5.7.8 Username and Password not accepted")) == "auth"
+    assert is_auth_failure(ImapError("AUTHENTICATIONFAILED: invalid"))
+    assert is_auth_failure(SmtpError("5.7.8 Username and Password not accepted"))
 
 
-def test_any_other_protocol_error_is_the_server_s_fault():
-    assert classify(ImapError("BAD command"), "imap.x") == ("server", "BAD command")
+def test_a_tls_failure_is_not_a_password_problem():
+    assert not is_auth_failure(ssl.SSLError("handshake failure"))
 
 
-def test_a_generic_socket_error_is_treated_as_unreachable():
-    assert category(OSError("network is down")) == "unreachable"
+def test_an_unreachable_server_is_not_a_password_problem():
+    assert not is_auth_failure(socket.gaierror("Name or service not known"))
+    assert not is_auth_failure(ConnectionRefusedError())
+    assert not is_auth_failure(TimeoutError())
+    assert not is_auth_failure(OSError("network is down"))
 
 
-def test_an_unrecognised_exception_falls_back_to_server():
-    assert classify(ValueError("boom"), "imap.x") == ("server", "boom")
+def test_any_other_protocol_error_is_passed_through_verbatim():
+    assert classify(ImapError("BAD command"), "imap.x") == (False, "BAD command")
+
+
+def test_an_unrecognised_exception_is_passed_through_verbatim():
+    assert classify(ValueError("boom"), "imap.x") == (False, "boom")
 
 
 def test_a_help_url_becomes_a_link():

@@ -65,13 +65,10 @@ def favicon(address: str) -> GdkPixbuf.Pixbuf | None:
     return best
 
 
-# Tried in order, first hit wins. A Gmail OAuth lookup would slot in here.
-PROVIDERS = (gravatar, favicon)
-
-
 def fetch(address: str) -> GdkPixbuf.Pixbuf | None:
+    """The first picture any lookup has for this address, or None."""
     address = address.strip().lower()
-    for provider in PROVIDERS:
+    for provider in (gravatar, favicon):
         image = provider(address)
         if image:
             return image

@@ -274,10 +274,10 @@ def test_read_and_unread(db, folder):
     (email,) = db.emails_in_folder(folder.id)
     assert db.unread_count_in_folder(folder.id) == 1
 
-    db.mark_email_read(email.id)
+    db.set_email_unread(email.id, False)
     assert db.unread_count_in_folder(folder.id) == 0
 
-    db.mark_email_unread(email.id)
+    db.set_email_unread(email.id, True)
     assert db.unread_count_in_folder(folder.id) == 1
 
 
@@ -295,10 +295,66 @@ def test_moving_an_email_between_folders(db, folder):
     incoming(db, folder.id, "1")
     (email,) = db.emails_in_folder(folder.id)
 
-    db.move_email(email.id, trash.id)
+    db.move_emails([email.id], trash.id)
 
     assert db.emails_in_folder(folder.id) == []
     assert [e.id for e in db.emails_in_folder(trash.id)] == [email.id]
+
+
+# restore_emails and reconcile_moved_emails are the same reconciliation, so
+# both halves of it are pinned here: the undo path and the commit path.
+
+
+def test_undoing_a_move_puts_the_email_back_with_its_original_uid(db, folder):
+    trash = db.get_or_create_folder(folder.account_id, "Trash")
+    incoming(db, folder.id, "7")
+    (email,) = db.emails_in_folder(folder.id)
+    db.move_emails([email.id], trash.id)
+
+    db.restore_emails([(email.id, folder.id, "7")])
+
+    (restored,) = db.emails_in_folder(folder.id)
+    assert (restored.id, restored.server_id) == (email.id, "7")
+    assert db.emails_in_folder(trash.id) == []
+
+
+def test_undoing_a_move_drops_the_placeholder_when_a_sync_beat_it_back(db, folder):
+    trash = db.get_or_create_folder(folder.account_id, "Trash")
+    incoming(db, folder.id, "7")
+    (email,) = db.emails_in_folder(folder.id)
+    db.move_emails([email.id], trash.id)
+    # A sync reinserted the source UID while the move was pending.
+    incoming(db, folder.id, "7")
+
+    db.restore_emails([(email.id, folder.id, "7")])
+
+    (kept,) = db.emails_in_folder(folder.id)
+    assert kept.id != email.id  # the authoritative row survived, not ours
+    assert db.emails_in_folder(trash.id) == []
+
+
+def test_a_completed_move_takes_the_destination_uid(db, folder):
+    trash = db.get_or_create_folder(folder.account_id, "Trash")
+    incoming(db, folder.id, "7")
+    (email,) = db.emails_in_folder(folder.id)
+    db.move_emails([email.id], trash.id)
+
+    db.reconcile_moved_emails([(email.id, trash.id, "42")])
+
+    (moved,) = db.emails_in_folder(trash.id)
+    assert (moved.id, moved.server_id) == (email.id, "42")
+
+
+def test_a_completed_move_without_a_uid_drops_the_placeholder(db, folder):
+    trash = db.get_or_create_folder(folder.account_id, "Trash")
+    incoming(db, folder.id, "7")
+    (email,) = db.emails_in_folder(folder.id)
+    db.move_emails([email.id], trash.id)
+
+    db.reconcile_moved_emails([(email.id, trash.id, None)])
+
+    assert db.emails_in_folder(trash.id) == []
+    assert db.emails_in_folder(folder.id) == []
 
 
 def test_deleting_an_email(db, folder):

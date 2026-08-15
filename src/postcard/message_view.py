@@ -6,7 +6,7 @@ gi.require_version("WebKit", "6.0")
 
 from gettext import gettext as _
 
-from gi.repository import Adw, Gdk, Gtk, Pango, WebKit
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango, WebKit
 
 from . import mail_sync
 from .avatar_loader import AvatarLoader
@@ -27,10 +27,6 @@ AVATAR_SIZE = 40
 # Tall enough that most messages need no inner scrolling; the WebView can't
 # report its content height until after layout, so this is a fixed guess.
 BODY_HEIGHT = 800
-
-# Attachment sizes. The last unit absorbs everything above it.
-SIZE_UNITS = ("B", "KB", "MB", "GB")
-BYTES_PER_UNIT = 1024
 
 # An unrelated WebView costs its own web process: ~300 MB and up to 1.5 s to
 # start. Related views share one, so every message body hangs off this anchor,
@@ -325,7 +321,7 @@ class MessageView(Gtk.Box):
         for attachment in attachments:
             row = Adw.ActionRow(
                 title=attachment.filename,
-                subtitle=_human_size(attachment.size),
+                subtitle=GLib.format_size(attachment.size),
                 activatable=True,
                 tooltip_text=_("Open with the default app"),
             )
@@ -365,16 +361,3 @@ class MessageView(Gtk.Box):
         self._html = None
         self.raw = None
         self.parsed = None
-
-
-def _human_size(num_bytes: int) -> str:
-    # The last unit has no larger one to promote to, so it absorbs whatever is
-    # left rather than needing a separate fall-through branch to stay in sync.
-    size = float(num_bytes)
-    for unit in SIZE_UNITS[:-1]:
-        if size < BYTES_PER_UNIT:
-            return (
-                f"{size:.0f} {unit}" if unit == SIZE_UNITS[0] else f"{size:.1f} {unit}"
-            )
-        size /= BYTES_PER_UNIT
-    return f"{size:.1f} {SIZE_UNITS[-1]}"

@@ -290,10 +290,11 @@ class PostcardComposerWindow(Adw.Window):
         # Transparent, so the Adwaita "card" behind it supplies the background
         # and the editor tracks the theme without hardcoding its colours.
         self._webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
+        family, size = _gtk_font()
         self._webview.load_html(
             _EDITOR_PAGE.format(
-                family=_gtk_font_family(),
-                size=_gtk_font_size(),
+                family=family,
+                size=size,
                 body=self._body_html,
                 commands=json.dumps(list(self._format_buttons)),
             ),
@@ -550,7 +551,7 @@ class PostcardComposerWindow(Adw.Window):
                 account.smtp_host,
                 account.email,
             )
-            _category, message = errors.classify(error, account.smtp_host)
+            _is_auth_failure, message = errors.classify(error, account.smtp_host)
             GLib.idle_add(self._on_send_failed, message)
             return
         GLib.idle_add(self._on_send_done, email_id, subject, raw)
@@ -597,7 +598,6 @@ class PostcardComposerWindow(Adw.Window):
 
 
 def _now() -> str:
-
     return datetime.now().astimezone().isoformat()
 
 
@@ -609,11 +609,3 @@ def _gtk_font() -> tuple[str, str]:
     if not size.isdigit():
         return description, "11"
     return family, size
-
-
-def _gtk_font_family() -> str:
-    return _gtk_font()[0]
-
-
-def _gtk_font_size() -> str:
-    return _gtk_font()[1]

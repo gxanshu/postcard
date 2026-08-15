@@ -1,4 +1,5 @@
 import email
+from collections.abc import Callable
 from email import policy
 from email.utils import parseaddr
 from gettext import gettext as _
@@ -38,9 +39,14 @@ class AccountsMixin(MainWindowParts):
         self.account_switcher.set_popover(self._build_account_popover())
 
     def _build_account_popover(self) -> Gtk.Popover:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        for margin in ("top", "bottom", "start", "end"):
-            getattr(box, f"set_margin_{margin}")(6)
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            margin_top=6,
+            margin_bottom=6,
+            margin_start=6,
+            margin_end=6,
+        )
 
         accounts_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         accounts_list.add_css_class("boxed-list")
@@ -55,14 +61,16 @@ class AccountsMixin(MainWindowParts):
         box.append(accounts_list)
 
         box.append(Gtk.Separator())
+        # Every one of these opens something over the popover, so each closes it
+        # first rather than each handler remembering to.
         for label, handler in (
-            (_("Add Account"), self._on_switcher_add),
-            (_("Online Accounts"), self._on_switcher_online_accounts),
+            (_("Add Account"), self._on_add_account_clicked),
+            (_("Online Accounts"), self._on_online_accounts_clicked),
             (_("Manage Accounts"), self._on_switcher_manage),
         ):
             button = Gtk.Button(label=label)
             button.add_css_class("flat")
-            button.connect("clicked", handler)
+            button.connect("clicked", self._popdown_then, handler)
             box.append(button)
 
         popover = Gtk.Popover()
@@ -74,16 +82,13 @@ class AccountsMixin(MainWindowParts):
         if self._account is None or account.id != self._account.id:
             self._load_mail_view(account)
 
-    def _on_switcher_add(self, button: Gtk.Button) -> None:
+    def _popdown_then(
+        self, button: Gtk.Button, handler: Callable[[Gtk.Button], None]
+    ) -> None:
         self.account_switcher.popdown()
-        self._on_add_account_clicked(button)
-
-    def _on_switcher_online_accounts(self, button: Gtk.Button) -> None:
-        self.account_switcher.popdown()
-        self._on_online_accounts_clicked(button)
+        handler(button)
 
     def _on_switcher_manage(self, _button: Gtk.Button) -> None:
-        self.account_switcher.popdown()
         dialog = PostcardAccountsDialog(self._db)
         dialog.connect("closed", lambda *_: self.reload_accounts())
         dialog.present(self)

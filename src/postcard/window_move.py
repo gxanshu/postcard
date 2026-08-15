@@ -290,7 +290,7 @@ class MoveMixin(MainWindowParts):
         self, pending: PendingMove, host: str, error: Exception
     ) -> bool:
         self._restore_move(pending)
-        _category, message = errors.classify(error, host)
+        _is_auth_failure, message = errors.classify(error, host)
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 

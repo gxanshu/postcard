@@ -26,8 +26,9 @@ _EMAIL_COLUMNS = """
 
 def _fts_query(text: str) -> str:
     """Turn free text into a safe FTS5 query: each word matched as a prefix."""
-    terms = [f'"{word.replace(chr(34), chr(34) * 2)}"*' for word in text.split()]
-    return " ".join(terms)
+    # A literal quote inside an FTS5 string is escaped by doubling it.
+    words = [word.replace('"', '""') for word in text.split()]
+    return " ".join(f'"{word}"*' for word in words)
 
 
 def _arrival_key(mail: Email) -> int:
@@ -277,12 +278,9 @@ class Database:
     def get_or_create_folder(
         self, account_id: int, name: str, icon_name: str = "folder-symbolic"
     ) -> Folder:
-        row = self._conn.execute(
-            "SELECT * FROM folders WHERE account_id = ? AND name = ?",
-            (account_id, name),
-        ).fetchone()
-        if row is not None:
-            return self._folder_from_row(row)
+        existing = self.get_folder_by_name(account_id, name)
+        if existing is not None:
+            return existing
 
         cursor = self._conn.execute(
             "INSERT INTO folders (account_id, name, icon_name) VALUES (?, ?, ?)",
@@ -423,12 +421,10 @@ class Database:
         ).fetchone()
         return row["n"]
 
-    def mark_email_read(self, email_id: int) -> None:
-        self._conn.execute("UPDATE emails SET unread = 0 WHERE id = ?", (email_id,))
-        self._conn.commit()
-
-    def mark_email_unread(self, email_id: int) -> None:
-        self._conn.execute("UPDATE emails SET unread = 1 WHERE id = ?", (email_id,))
+    def set_email_unread(self, email_id: int, is_unread: bool) -> None:
+        self._conn.execute(
+            "UPDATE emails SET unread = ? WHERE id = ?", (int(is_unread), email_id)
+        )
         self._conn.commit()
 
     def set_email_starred(self, email_id: int, is_starred: bool) -> None:
@@ -437,17 +433,13 @@ class Database:
         )
         self._conn.commit()
 
-    def move_email(self, email_id: int, folder_id: int) -> None:
-        """Move one email into a temporary destination placeholder.
+    def move_emails(self, email_ids: list[int], folder_id: int) -> None:
+        """Atomically move emails as UID-less destination placeholders.
 
-        UIDs are only unique within an IMAP mailbox.  Clear the UID while the
+        UIDs are only unique within an IMAP mailbox. Clear the UID while the
         move is pending so changing mailboxes cannot collide with a cached
         destination row.
         """
-        self.move_emails([email_id], folder_id)
-
-    def move_emails(self, email_ids: list[int], folder_id: int) -> None:
-        """Atomically move emails as UID-less destination placeholders."""
         with self._conn:
             self._conn.executemany(
                 "UPDATE emails SET folder_id = ?, server_id = NULL WHERE id = ?",
@@ -455,38 +447,19 @@ class Database:
             )
 
     def restore_emails(self, emails: Sequence[tuple[int, int, str]]) -> None:
-        """Atomically restore pending moves and their original mailbox UIDs.
+        """Atomically put pending moves back in their original mailbox and UID.
 
-        The UID is never None: only messages the server already knows about can
-        be moved, so only those can need restoring. (A NULL wouldn't match the
-        `server_id = ?` lookup below anyway.)
+        The UID is never None here: only messages the server already knows
+        about can be moved, so only those can need restoring. Otherwise this is
+        the same reconciliation as a completed move -- same triples, same
+        "an authoritative row already exists" rule.
         """
-        with self._conn:
-            for email_id, folder_id, server_id in emails:
-                existing = self._conn.execute(
-                    """
-                    SELECT id FROM emails
-                    WHERE folder_id = ? AND server_id = ? AND id != ?
-                    """,
-                    (folder_id, server_id, email_id),
-                ).fetchone()
-                if existing is not None:
-                    # A sync may have reinserted this source UID while the
-                    # move was pending. Keep that authoritative row and drop
-                    # only our placeholder.
-                    self._conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))
-                else:
-                    self._conn.execute(
-                        """
-                        UPDATE emails
-                        SET folder_id = ?, server_id = ?
-                        WHERE id = ?
-                        """,
-                        (folder_id, server_id, email_id),
-                    )
+        self.reconcile_moved_emails(emails)
 
-    def reconcile_moved_emails(self, moves: list[tuple[int, int, str | None]]) -> None:
-        """Commit server-assigned destination UIDs for completed moves.
+    def reconcile_moved_emails(
+        self, moves: Sequence[tuple[int, int, str | None]]
+    ) -> None:
+        """Atomically place each moved email at a (folder, UID) the server gave.
 
         A missing UID means the server has accepted the move but did not tell
         us how to identify its new row. Remove that placeholder so a later

@@ -8,11 +8,14 @@ class FolderRow(Gtk.Box):
     __gtype_name__ = "PostcardFolderRow"
 
     def __init__(self) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.set_margin_top(6)
-        self.set_margin_bottom(6)
-        self.set_margin_start(6)
-        self.set_margin_end(6)
+        super().__init__(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=12,
+            margin_top=6,
+            margin_bottom=6,
+            margin_start=6,
+            margin_end=6,
+        )
 
         self._icon = Gtk.Image()
         self.append(self._icon)

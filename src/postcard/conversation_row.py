@@ -9,11 +9,14 @@ class ConversationRow(Gtk.Box):
     __gtype_name__ = "PostcardConversationRow"
 
     def __init__(self, avatars: AvatarLoader | None = None) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.set_margin_top(8)
-        self.set_margin_bottom(8)
-        self.set_margin_start(12)
-        self.set_margin_end(12)
+        super().__init__(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=12,
+            margin_top=8,
+            margin_bottom=8,
+            margin_start=12,
+            margin_end=12,
+        )
 
         self._avatars = avatars
         self._address = ""

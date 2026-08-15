@@ -111,23 +111,30 @@ def test_fetch_returns_the_first_provider_with_an_image(monkeypatch) -> None:
     def never(address: str) -> None:
         raise AssertionError("providers after a hit must not run")
 
-    monkeypatch.setattr(
-        avatars, "PROVIDERS", (lambda a: None, lambda a: "picture", never)
-    )
+    monkeypatch.setattr(avatars, "gravatar", lambda a: "picture")
+    monkeypatch.setattr(avatars, "favicon", never)
     assert fetch("ada@example.com") == "picture"
 
 
+def test_fetch_falls_through_to_the_next_provider(monkeypatch) -> None:
+    monkeypatch.setattr(avatars, "gravatar", lambda a: None)
+    monkeypatch.setattr(avatars, "favicon", lambda a: "logo")
+    assert fetch("ada@example.com") == "logo"
+
+
 def test_fetch_returns_none_when_every_provider_misses(monkeypatch) -> None:
-    monkeypatch.setattr(avatars, "PROVIDERS", (lambda a: None,))
+    monkeypatch.setattr(avatars, "gravatar", lambda a: None)
+    monkeypatch.setattr(avatars, "favicon", lambda a: None)
     assert fetch("ada@example.com") is None
 
 
 def test_fetch_normalises_the_address_before_looking_it_up(monkeypatch) -> None:
     # Gravatar only matches on a trimmed, lowercased address.
     seen: list[str] = []
-    monkeypatch.setattr(avatars, "PROVIDERS", (seen.append,))
+    monkeypatch.setattr(avatars, "gravatar", seen.append)
+    monkeypatch.setattr(avatars, "favicon", seen.append)
     fetch("  Ada@Example.COM  ")
-    assert seen == ["ada@example.com"]
+    assert seen == ["ada@example.com", "ada@example.com"]
 
 
 # --- _load ---

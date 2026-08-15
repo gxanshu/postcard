@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from datetime import datetime
 from gettext import gettext as _
 from gettext import ngettext
@@ -292,6 +293,7 @@ class SyncMixin(MainWindowParts):
         loaded = min(result.exists, max(self._loaded_counts.get(target.id, 0), reached))
         self._loaded_counts[target.id] = loaded
         self._folders_with_more_mail[target.id] = result.exists > loaded
+        self._folder_sync_times[target.id] = time.monotonic()
 
         arrived_elsewhere = self._apply_unread_counts(account, result.unread_counts)
 

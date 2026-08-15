@@ -232,14 +232,21 @@ def set_flag(
     flag: str,
     should_add: bool,
 ) -> None:
-    """Add or remove an IMAP flag on every message in a conversation."""
+    """Add or remove an IMAP flag on every message in a conversation.
+
+    One STORE for the whole UID set rather than one per message, which made
+    reading a long thread a round trip per message in it. An empty set is not
+    an empty command but a malformed one, and a conversation can be entirely
+    locally saved copies that have no UID yet -- see server_uids.
+    """
+    if not uids:
+        return
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
         session.sign_in(credential)
         session.select(folder_name, is_readonly=False)
-        for uid in uids:
-            session.store_flags(uid, flag, should_add)
+        session.store_flags(",".join(uids), flag, should_add)
     finally:
         session.logout()
 

@@ -93,11 +93,13 @@ class MailActionsMixin(MainWindowParts):
         # funnels through here, which is why the guard belongs here.
         if self._account is None:
             return []
+        # Ask the selection which positions are set rather than asking every
+        # position whether it is selected: this runs several times per
+        # selection change and per sync, over the whole folder.
+        positions = self._selection.get_selection()
         selected = []
-        for position in range(self._conversation_store.get_n_items()):
-            if not self._selection.is_selected(position):
-                continue
-            conversation = self._conversation_store.get_item(position)
+        for index in range(positions.get_size()):
+            conversation = self._conversation_store.get_item(positions.get_nth(index))
             if isinstance(conversation, Conversation):
                 selected.append(conversation)
         return selected

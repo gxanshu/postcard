@@ -66,6 +66,10 @@ MIGRATIONS = [
     ALTER TABLE emails ADD COLUMN recipient_address TEXT NOT NULL DEFAULT '';
     """,
     "ALTER TABLE accounts ADD COLUMN goa_id TEXT NOT NULL DEFAULT ''",
+    # Re-index rows that predate emails_fts. A migration rather than part of
+    # _create_tables, which runs on every launch: no indexed column is ever
+    # updated, so once is enough and a rebuild costs the whole table.
+    "INSERT INTO emails_fts(emails_fts) VALUES ('rebuild')",
 ]
 
 
@@ -78,6 +82,12 @@ class Database:
 
         self._conn = sqlite3.connect(path)
         self._conn.row_factory = sqlite3.Row
+        # A sync commits once per message it stores, and the default journal
+        # fsyncs on every one of those. Under WAL a commit is an append, and
+        # NORMAL leaves the fsync to the checkpoint -- the durability given up
+        # is the last few seconds of a mailbox the server still has.
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
         self._conn.execute("PRAGMA foreign_keys = ON")
 
         self._create_tables()
@@ -130,6 +140,11 @@ class Database:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid
                 ON emails (folder_id, server_id);
 
+            -- Every sidebar badge is a COUNT over one folder's unread mail;
+            -- with only idx_emails_uid that reads every row of the folder.
+            CREATE INDEX IF NOT EXISTS idx_emails_unread
+                ON emails (folder_id, unread);
+
             -- Every address we've seen, for composer autocomplete.
             CREATE TABLE IF NOT EXISTS contacts (
                 address TEXT PRIMARY KEY,
@@ -152,10 +167,6 @@ class Database:
                 INSERT INTO emails_fts(emails_fts, rowid, sender, subject, preview)
                 VALUES ('delete', old.id, old.sender, old.subject, old.preview);
             END;
-
-            -- Re-index any rows that predate the FTS table (cheap for a
-            -- personal mailbox, and saves deleting the database by hand).
-            INSERT INTO emails_fts(emails_fts) VALUES ('rebuild');
             """
         )
 
@@ -367,21 +378,58 @@ class Database:
                 self._conn.execute("DROP TABLE prune_active_uids")
 
     def reassign_conversations(self, folder_id: int) -> None:
-        """Recompute the thread grouping for a folder and store it on each row."""
+        """Recompute the thread grouping for a folder and store it on each row.
+
+        This runs after every sync, where almost nothing has moved thread, so
+        rows that already hold the right id are left alone.
+        """
         emails = self.emails_in_folder(folder_id)
-        for email_id, conversation_id in threader.group(emails).items():
-            self._conn.execute(
+        groups = threader.group(emails)
+        with self._conn:
+            self._conn.executemany(
                 "UPDATE emails SET conversation_id = ? WHERE id = ?",
-                (conversation_id, email_id),
+                [
+                    (groups[mail.id], mail.id)
+                    for mail in emails
+                    if groups[mail.id] != mail.conversation_id
+                ],
             )
-        self._conn.commit()
 
     def conversations_in_folder(self, folder_id: int) -> list[Conversation]:
         """Group a folder's emails into threads, newest thread first."""
         rows = self._conn.execute(
             f"SELECT {_EMAIL_COLUMNS} FROM emails WHERE folder_id = ?", (folder_id,)
         ).fetchall()
+        return self._conversations_from_rows(rows)
 
+    def search_conversations(self, folder_id: int, query: str) -> list[Conversation]:
+        """Full-text search a folder; return each matching conversation whole.
+
+        The subquery narrows to the threads a message matched in, so a search
+        builds only those. Selecting the folder and filtering afterwards made
+        every keystroke cost the same as opening the folder.
+        """
+        match = _fts_query(query)
+        if not match:
+            return self.conversations_in_folder(folder_id)
+
+        rows = self._conn.execute(
+            f"""
+            SELECT {_EMAIL_COLUMNS} FROM emails
+            WHERE folder_id = ? AND COALESCE(conversation_id, id) IN (
+                SELECT COALESCE(e.conversation_id, e.id)
+                FROM emails_fts f
+                JOIN emails e ON e.id = f.rowid
+                WHERE e.folder_id = ? AND emails_fts MATCH ?
+            )
+            """,
+            (folder_id, folder_id, match),
+        ).fetchall()
+        return self._conversations_from_rows(rows)
+
+    def _conversations_from_rows(
+        self, rows: Sequence[sqlite3.Row]
+    ) -> list[Conversation]:
         groups: dict[int, list[Email]] = {}
         for row in rows:
             email = self._email_from_row(row)
@@ -394,25 +442,6 @@ class Database:
             conversations.append(Conversation(mails))
         conversations.sort(key=lambda c: _arrival_key(c.latest), reverse=True)
         return conversations
-
-    def search_conversations(self, folder_id: int, query: str) -> list[Conversation]:
-        """Full-text search a folder; return the matching conversations."""
-        match = _fts_query(query)
-        if not match:
-            return self.conversations_in_folder(folder_id)
-
-        rows = self._conn.execute(
-            """
-            SELECT e.id, e.conversation_id
-            FROM emails_fts f
-            JOIN emails e ON e.id = f.rowid
-            WHERE e.folder_id = ? AND emails_fts MATCH ?
-            """,
-            (folder_id, match),
-        ).fetchall()
-
-        keys = {row["conversation_id"] or row["id"] for row in rows}
-        return [c for c in self.conversations_in_folder(folder_id) if c.id in keys]
 
     def unread_count_in_folder(self, folder_id: int) -> int:
         row = self._conn.execute(

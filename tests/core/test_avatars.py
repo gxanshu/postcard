@@ -1,4 +1,6 @@
 import hashlib
+import os
+import time
 
 import gi
 import pytest
@@ -107,19 +109,32 @@ def test_favicon_returns_none_when_no_source_has_anything(monkeypatch) -> None:
 # --- fetch ---
 
 
-def test_fetch_returns_the_first_provider_with_an_image(monkeypatch) -> None:
-    def never(address: str) -> None:
-        raise AssertionError("providers after a hit must not run")
+@pytest.fixture(autouse=True)
+def cache_dir(monkeypatch, tmp_path):
+    """Cache into a fresh directory per test.
 
-    monkeypatch.setattr(avatars, "gravatar", lambda a: "picture")
+    Every test here looks the same address up, so the real cache directory
+    would answer them from whatever the previous run wrote.
+    """
+    monkeypatch.setattr(avatars, "_cache_path", lambda address: tmp_path / address)
+
+
+def never(address: str) -> None:
+    raise AssertionError(f"{address} should not have been looked up")
+
+
+def test_fetch_returns_the_first_provider_with_an_image(monkeypatch) -> None:
+    picture = image(128)
+    monkeypatch.setattr(avatars, "gravatar", lambda a: picture)
     monkeypatch.setattr(avatars, "favicon", never)
-    assert fetch("ada@example.com") == "picture"
+    assert fetch("ada@example.com") is picture
 
 
 def test_fetch_falls_through_to_the_next_provider(monkeypatch) -> None:
+    logo = image(64)
     monkeypatch.setattr(avatars, "gravatar", lambda a: None)
-    monkeypatch.setattr(avatars, "favicon", lambda a: "logo")
-    assert fetch("ada@example.com") == "logo"
+    monkeypatch.setattr(avatars, "favicon", lambda a: logo)
+    assert fetch("ada@example.com") is logo
 
 
 def test_fetch_returns_none_when_every_provider_misses(monkeypatch) -> None:
@@ -135,6 +150,41 @@ def test_fetch_normalises_the_address_before_looking_it_up(monkeypatch) -> None:
     monkeypatch.setattr(avatars, "favicon", seen.append)
     fetch("  Ada@Example.COM  ")
     assert seen == ["ada@example.com", "ada@example.com"]
+
+
+def test_fetch_serves_a_later_lookup_from_the_cache(monkeypatch) -> None:
+    monkeypatch.setattr(avatars, "gravatar", lambda a: image(128))
+    monkeypatch.setattr(avatars, "favicon", never)
+    fetch("ada@example.com")
+
+    monkeypatch.setattr(avatars, "gravatar", never)
+    cached = fetch("ada@example.com")
+
+    assert cached is not None
+    assert cached.get_width() == 128
+
+
+def test_fetch_caches_the_absence_of_a_picture(monkeypatch) -> None:
+    # The common case: without this, every launch pays three HTTP requests per
+    # sender to be told again that there is no avatar.
+    monkeypatch.setattr(avatars, "gravatar", lambda a: None)
+    monkeypatch.setattr(avatars, "favicon", lambda a: None)
+    fetch("ada@example.com")
+
+    monkeypatch.setattr(avatars, "gravatar", never)
+    monkeypatch.setattr(avatars, "favicon", never)
+    assert fetch("ada@example.com") is None
+
+
+def test_fetch_looks_an_expired_entry_up_again(monkeypatch) -> None:
+    monkeypatch.setattr(avatars, "gravatar", lambda a: None)
+    monkeypatch.setattr(avatars, "favicon", lambda a: None)
+    fetch("ada@example.com")
+    expired = time.time() - avatars.CACHE_TTL_SECONDS - 1
+    os.utime(avatars._cache_path("ada@example.com"), (expired, expired))
+
+    monkeypatch.setattr(avatars, "gravatar", lambda a: image(128))
+    assert fetch("ada@example.com") is not None
 
 
 # --- _load ---

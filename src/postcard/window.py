@@ -201,6 +201,8 @@ class PostcardMainWindow(
         # and whether older messages remain on the server.
         self._loaded_counts: dict[int, int] = {}
         self._folders_with_more_mail: dict[int, bool] = {}
+        # When each folder was last synced, so revisiting one doesn't refetch.
+        self._folder_sync_times: dict[int, float] = {}
         # Unread counts the server last reported for the folders we don't
         # fetch, keyed by folder id.
         self._remote_unread_counts: dict[int, int] = {}

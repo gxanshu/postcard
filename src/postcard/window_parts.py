@@ -86,6 +86,8 @@ class MainWindowParts(_Base):
     # Load-on-scroll paging state, keyed by folder id.
     _loaded_counts: dict[int, int]
     _folders_with_more_mail: dict[int, bool]
+    # time.monotonic() of each folder's last sync, keyed by folder id.
+    _folder_sync_times: dict[int, float]
 
     # --- pending move (see PendingMove) -----------------------------------
     _pending_move: PendingMove | None

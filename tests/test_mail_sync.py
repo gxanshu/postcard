@@ -8,6 +8,7 @@ from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
 from postcard.core.net.auth import Credential
 from postcard.core.net.imap_session import (
+    FLAG_SEEN,
     GMAIL_CAPABILITY,
     FetchedHeader,
     ImapError,
@@ -653,3 +654,65 @@ def test_the_send_still_counts_as_done_when_the_append_fails(imap, monkeypatch):
     monkeypatch.setattr(imap, "append", refuse)
 
     send()
+
+
+# --- flags ------------------------------------------------------------------
+
+
+class StoringImapSession:
+    """An IMAP server that records every STORE it was asked to run."""
+
+    stores: list[tuple[str, str, bool]] = []
+
+    def __init__(self, host, port, security):
+        pass
+
+    def connect(self):
+        pass
+
+    def sign_in(self, credential):
+        pass
+
+    def select(self, mailbox, is_readonly=True):
+        return 0
+
+    def store_flags(self, uids, flags, should_add):
+        type(self).stores.append((uids, flags, should_add))
+
+    def logout(self):
+        pass
+
+
+@pytest.fixture
+def storing_imap(monkeypatch):
+    StoringImapSession.stores = []
+    monkeypatch.setattr(mail_sync, "ImapSession", StoringImapSession)
+    return StoringImapSession
+
+
+def set_flag(*uids: str) -> None:
+    account = Account(
+        id=1,
+        email="ada@example.com",
+        display_name="Ada",
+        imap_host="imap.example.com",
+        imap_port=993,
+        smtp_host="",
+        smtp_port=0,
+    )
+    mail_sync.set_flag(account, CREDENTIAL, "INBOX", uids, FLAG_SEEN, should_add=True)
+
+
+def test_a_whole_thread_is_flagged_in_one_store(storing_imap):
+    # One STORE per message made reading a long thread a round trip per message.
+    set_flag("4", "9", "20")
+
+    assert storing_imap.stores == [("4,9,20", FLAG_SEEN, True)]
+
+
+def test_flagging_nothing_sends_no_command(storing_imap):
+    # A conversation of locally saved copies has no UID yet, and an empty UID
+    # set is a malformed command rather than an empty one.
+    set_flag()
+
+    assert storing_imap.stores == []

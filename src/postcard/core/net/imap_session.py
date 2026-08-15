@@ -219,12 +219,12 @@ class ImapSession:
         if status != STATUS_OK:
             raise ImapError(f"could not append to {mailbox}: {payload}")
 
-    def store_flags(self, uid: str, flags: str, should_add: bool) -> None:
-        """Add or remove flags (e.g. "\\Seen") on one message by UID."""
+    def store_flags(self, uids: str, flags: str, should_add: bool) -> None:
+        """Add or remove flags (e.g. "\\Seen") on a UID set: "7" or "7,9,20"."""
         command = "+FLAGS" if should_add else "-FLAGS"
-        status, payload = self._require_imap().uid("STORE", uid, command, f"({flags})")
+        status, payload = self._require_imap().uid("STORE", uids, command, f"({flags})")
         if status != STATUS_OK:
-            raise ImapError(f"could not update flags on {uid}: {payload}")
+            raise ImapError(f"could not update flags on {uids}: {payload}")
 
     def search_all_uids(self) -> set[str]:
         """Return every UID in the currently selected mailbox."""

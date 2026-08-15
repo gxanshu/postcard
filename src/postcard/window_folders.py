@@ -1,9 +1,12 @@
+import time
+
 from gi.repository import Gio, GObject, Gtk
 
 from . import mail_sync
 from .core.models.folder import Folder
 from .folder_row import FolderRow
 from .window_parts import MainWindowParts
+from .window_types import FOLDER_SYNC_COOLDOWN_SECONDS
 
 
 class FolderTreeMixin(MainWindowParts):
@@ -129,9 +132,12 @@ class FolderTreeMixin(MainWindowParts):
             return
         self._refresh_conversations()
         # Only sync on a real folder change — rebuilding the sidebar re-emits
-        # selection-changed for the same folder, which would loop.
+        # selection-changed for the same folder, which would loop. A folder
+        # synced moments ago is left alone: clicking back and forth between two
+        # of them otherwise refetches both every time.
         changed = previous is None or previous.id != folder.id
-        if changed and self._is_online:
+        age = time.monotonic() - self._folder_sync_times.get(folder.id, 0.0)
+        if changed and self._is_online and age >= FOLDER_SYNC_COOLDOWN_SECONDS:
             self._start_sync(in_background=True, folder_name=folder.name)
 
     # Rebuilding the tree destroys every row, which resets the user's

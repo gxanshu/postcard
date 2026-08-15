@@ -62,14 +62,25 @@ class ConversationRow(Gtk.Box):
         bottom.append(self._unread_dot)
 
     # Fill this row from a conversation. Called every time the row is (re)used.
-    def bind(self, conversation: Conversation) -> None:
+    # In an outgoing folder the sender of every message is the account itself,
+    # so the row names the recipient instead -- and falls back to the sender for
+    # mail that predates the recipient columns.
+    def bind(self, conversation: Conversation, is_outgoing: bool) -> None:
         subject = conversation.subject
         if conversation.count > 1:
             subject = f"{subject}  ({conversation.count})"
 
-        self._avatar.set_text(conversation.latest.sender)
-        self._load_avatar(conversation.latest.sender_address)
-        self._sender_label.set_label(conversation.participants)
+        latest = conversation.latest
+        if is_outgoing and latest.recipient:
+            name, address = latest.recipient, latest.recipient_address
+            participants = latest.recipient
+        else:
+            name, address = latest.sender, latest.sender_address
+            participants = conversation.participants
+
+        self._avatar.set_text(name)
+        self._load_avatar(address)
+        self._sender_label.set_label(participants)
         self._star.set_visible(conversation.is_starred)
         self._date_label.set_label(mail_sync.format_date(conversation.date))
         self._subject_label.set_label(subject)

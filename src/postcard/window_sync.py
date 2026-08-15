@@ -107,10 +107,15 @@ class SyncMixin(MainWindowParts):
                 continue
             if sent is None:
                 sent = mail_sync.sent_folder(self._db, account.id)
+            # extract_recipients keeps only the addresses, so this row's initials
+            # come from the address where a freshly composed one has a name.
+            recipient = next(iter(compose.extract_recipients(result.raw)), "")
             row = self._db.save_email(
                 sent.id,
                 sender=account.email,
                 sender_address=account.email,
+                recipient=recipient,
+                recipient_address=recipient,
                 subject=result.subject,
                 preview=result.subject,
                 date=datetime.now().astimezone().isoformat(),

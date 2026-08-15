@@ -452,9 +452,14 @@ class PostcardComposerWindow(Adw.Window):
                 self._body_html,
                 self._attachments,
             )
+            recipient, recipient_address = mail_sync.first_recipient(
+                self.to_row.get_text()
+            )
             row = self._db.save_email(
                 folder.id,
                 sender=self._recipients_display(),
+                recipient=recipient,
+                recipient_address=recipient_address,
                 subject=self.subject_row.get_text().strip() or NO_SUBJECT,
                 preview=self._preview_text()[:100],
                 date=_now(),
@@ -499,9 +504,12 @@ class PostcardComposerWindow(Adw.Window):
             mail_sync.OUTBOX_FOLDER,
             mail_sync.icon_for_folder(mail_sync.OUTBOX_FOLDER),
         )
+        recipient, recipient_address = mail_sync.first_recipient(self.to_row.get_text())
         row = self._db.save_email(
             outbox.id,
             sender=self._recipients_display(),
+            recipient=recipient,
+            recipient_address=recipient_address,
             subject=subject,
             preview=self._preview_text()[:100],
             date=_now(),
@@ -554,9 +562,12 @@ class PostcardComposerWindow(Adw.Window):
     def _on_send_done(self, email_id: int, subject: str, raw: bytes) -> bool:
         self._db.delete_email(email_id)
         sent = mail_sync.sent_folder(self._db, self._account.id)
+        recipient, recipient_address = mail_sync.first_recipient(self.to_row.get_text())
         row = self._db.save_email(
             sent.id,
             sender=self._account.email,
+            recipient=recipient,
+            recipient_address=recipient_address,
             subject=subject,
             preview=subject,
             date=_now(),

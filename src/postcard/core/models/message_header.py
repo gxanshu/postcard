@@ -13,6 +13,8 @@ class MessageHeader:
     uid: str
     sender: str
     sender_address: str
+    recipient: str
+    recipient_address: str
     subject: str
     date: str
     is_unread: bool

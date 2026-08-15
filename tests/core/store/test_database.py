@@ -38,6 +38,8 @@ def _email(*, server_id: str | None) -> Email:
 def incoming(db, folder_id, uid, subject="Lunch", **kwargs):
     kwargs.setdefault("sender", "Ada <ada@example.com>")
     kwargs.setdefault("sender_address", "")
+    kwargs.setdefault("recipient", "")
+    kwargs.setdefault("recipient_address", "")
     kwargs.setdefault("preview", "see you at one")
     kwargs.setdefault("date", "Jul 16")
     kwargs.setdefault("is_unread", True)
@@ -208,6 +210,38 @@ def test_prune_stale_emails_accepts_an_authoritative_set_over_sqlite_variable_li
     assert db.prune_stale_emails(folder.id, active_server_uids) == 1
 
     assert [mail.server_id for mail in db.emails_in_folder(folder.id)] == ["active"]
+
+
+def test_the_recipient_of_a_synced_message_round_trips(db, folder):
+    incoming(db, folder.id, "1", recipient="Bob", recipient_address="bob@example.com")
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.recipient, mail.recipient_address) == ("Bob", "bob@example.com")
+
+
+def test_re_syncing_fills_in_a_recipient_the_stored_row_never_had(db, folder):
+    incoming(db, folder.id, "1", recipient="", recipient_address="")
+
+    incoming(db, folder.id, "1", recipient="Bob", recipient_address="bob@example.com")
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.recipient, mail.recipient_address) == ("Bob", "bob@example.com")
+
+
+def test_a_locally_saved_message_keeps_its_recipient(db, folder):
+    db.save_email(
+        folder.id,
+        sender="me@example.com",
+        recipient="Bob",
+        recipient_address="bob@example.com",
+        subject="Lunch",
+        preview="",
+        date="",
+        is_unread=False,
+    )
+
+    (mail,) = db.emails_in_folder(folder.id)
+    assert (mail.recipient, mail.recipient_address) == ("Bob", "bob@example.com")
 
 
 def test_the_python_flags_map_onto_the_original_column_names(db, folder):

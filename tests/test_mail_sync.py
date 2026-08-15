@@ -20,9 +20,11 @@ from postcard.mail_sync import (
     _to_message_header,
     display_name_for_folder,
     fetch_mailbox,
+    first_recipient,
     format_date,
     icon_for_folder,
     inbox_name,
+    is_outgoing_folder,
     mailbox_with_role,
     parent_mailbox_name,
     role_for_folder,
@@ -410,6 +412,39 @@ def test_a_bare_address_becomes_its_own_display_name():
     header = _to_message_header(fetched(from_header="ada@example.com"))
     assert header.sender == "ada@example.com"
     assert header.sender_address == "ada@example.com"
+
+
+def test_the_first_recipient_is_kept_for_outgoing_folders():
+    header = _to_message_header(
+        fetched(to_header="Bob <BOB@example.com>, Cleo <cleo@example.com>")
+    )
+    assert header.recipient == "Bob"
+    assert header.recipient_address == "bob@example.com"
+
+
+@pytest.mark.parametrize("to_header", ["", "undisclosed-recipients:;"])
+def test_a_message_addressed_to_nobody_has_no_recipient(to_header):
+    header = _to_message_header(fetched(to_header=to_header))
+    assert (header.recipient, header.recipient_address) == ("", "")
+
+
+def test_a_bare_recipient_address_becomes_its_own_display_name():
+    assert first_recipient("bob@example.com") == ("bob@example.com", "bob@example.com")
+
+
+@pytest.mark.parametrize(
+    ("name", "is_outgoing"),
+    [
+        ("Sent", True),
+        ("[Gmail]/Sent Mail", True),
+        ("Drafts", True),
+        ("Outbox", True),
+        ("INBOX", False),
+        ("Archive", False),
+    ],
+)
+def test_is_outgoing_folder(name, is_outgoing):
+    assert is_outgoing_folder(name) is is_outgoing
 
 
 def test_the_date_is_stored_as_a_timestamp():

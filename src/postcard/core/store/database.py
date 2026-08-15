@@ -18,8 +18,9 @@ from ..models.message_header import MessageHeader
 
 # Every column _email_from_row reads
 _EMAIL_COLUMNS = """
-    id, folder_id, server_id, sender, sender_address, subject, preview, date,
-    unread, starred, message_id, in_reply_to, reference_ids, conversation_id
+    id, folder_id, server_id, sender, sender_address, recipient,
+    recipient_address, subject, preview, date, unread, starred, message_id,
+    in_reply_to, reference_ids, conversation_id
 """
 
 
@@ -56,6 +57,12 @@ MIGRATIONS = [
     ALTER TABLE emails ADD COLUMN sender_address TEXT NOT NULL DEFAULT '';
     UPDATE emails SET sender_address = COALESCE(
         (SELECT address FROM contacts WHERE contacts.name = emails.sender), '');
+    """,
+    # No backfill: the To header of mail synced before this is not stored
+    # anywhere, so old sent mail keeps showing the sender until it re-syncs.
+    """
+    ALTER TABLE emails ADD COLUMN recipient TEXT NOT NULL DEFAULT '';
+    ALTER TABLE emails ADD COLUMN recipient_address TEXT NOT NULL DEFAULT '';
     """,
 ]
 
@@ -531,13 +538,15 @@ class Database:
         is_unread: bool,
         server_id: str | None = None,
         sender_address: str = "",
+        recipient: str = "",
+        recipient_address: str = "",
     ) -> Email:
         cursor = self._conn.execute(
             """
             INSERT INTO emails
                 (folder_id, server_id, sender, subject, preview, date, unread,
-                 sender_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 sender_address, recipient, recipient_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 folder_id,
@@ -548,6 +557,8 @@ class Database:
                 date,
                 int(is_unread),
                 sender_address,
+                recipient,
+                recipient_address,
             ),
         )
         self._conn.commit()
@@ -561,8 +572,10 @@ class Database:
 
         Every local toggle is pushed to the server, so on a message we've seen
         before its \\Seen and \\Flagged are what another client did to it since.
-        Nothing else about a message changes. Returns True when the row was new,
-        which is how a sync tells which messages to notify about.
+        The recipient is rewritten too, not because it can change but because a
+        row stored before those columns existed has none and would never get
+        one. Returns True when the row was new, which is how a sync tells which
+        messages to notify about.
         """
         is_new = (
             self._conn.execute(
@@ -575,10 +588,13 @@ class Database:
             """
             INSERT INTO emails
                 (folder_id, server_id, sender, subject, preview, date, unread,
-                 starred, message_id, in_reply_to, reference_ids, sender_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 starred, message_id, in_reply_to, reference_ids, sender_address,
+                 recipient, recipient_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (folder_id, server_id) DO UPDATE SET
-                unread = excluded.unread, starred = excluded.starred
+                unread = excluded.unread, starred = excluded.starred,
+                recipient = excluded.recipient,
+                recipient_address = excluded.recipient_address
             """,
             (
                 folder_id,
@@ -593,6 +609,8 @@ class Database:
                 header.in_reply_to,
                 header.references,
                 header.sender_address,
+                header.recipient,
+                header.recipient_address,
             ),
         )
         self._conn.commit()
@@ -609,6 +627,8 @@ class Database:
             server_id=row["server_id"],
             sender=row["sender"],
             sender_address=row["sender_address"] or "",
+            recipient=row["recipient"] or "",
+            recipient_address=row["recipient_address"] or "",
             subject=row["subject"],
             preview=row["preview"],
             date=row["date"],

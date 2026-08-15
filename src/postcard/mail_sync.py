@@ -177,10 +177,13 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
     the date is normalized to a timestamp, and the server's \\Seen flag is
     inverted into `is_unread`, which is how the rest of the app thinks about it.
     """
+    recipient_name, recipient_address = first_recipient(fetched.to_header)
     return MessageHeader(
         uid=fetched.uid,
         sender=_clean_sender(fetched.from_header),
         sender_address=_sender_address(fetched.from_header),
+        recipient=recipient_name,
+        recipient_address=recipient_address,
         subject=fetched.subject or NO_SUBJECT,
         date=_iso_date(fetched.date),
         is_unread=not fetched.seen,
@@ -323,6 +326,30 @@ def role_for_folder(name: str) -> FolderRole:
         if pattern.search(name):
             return role
     return FolderRole.OTHER
+
+
+def is_outgoing_folder(name: str) -> bool:
+    """Whether a folder holds mail this account sent.
+
+    The sender of everything in one is the account itself, so the list shows
+    the recipient instead. Outbox is local-only and role_for_folder, which
+    classifies what the server offers, doesn't know it.
+    """
+    return name == OUTBOX_FOLDER or role_for_folder(name) in (
+        FolderRole.SENT,
+        FolderRole.DRAFTS,
+    )
+
+
+def first_recipient(to_header: str) -> tuple[str, str]:
+    """A To header as (display name, address), both empty if it names nobody.
+
+    parseaddr, which the sender helpers use, returns empty strings for a header
+    listing more than one address -- and a sent message usually does.
+    """
+    name, address = next(iter(getaddresses([to_header])), ("", ""))
+    address = address.strip().lower()
+    return name or address, address
 
 
 def mailbox_with_role(names: Iterable[str], role: FolderRole) -> str | None:

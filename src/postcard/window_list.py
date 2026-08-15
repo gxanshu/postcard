@@ -1,5 +1,6 @@
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
+from . import mail_sync
 from .conversation_row import ConversationRow
 from .core.models.conversation import Conversation
 from .core.models.folder import Folder
@@ -185,7 +186,12 @@ class ConversationListMixin(MainWindowParts):
             conversation = item.get_item()
             assert isinstance(row, ConversationRow)
             assert isinstance(conversation, Conversation)
-            row.bind(conversation)
+            folder = self._current_folder
+            row.bind(
+                conversation,
+                is_outgoing=folder is not None
+                and mail_sync.is_outgoing_folder(folder.name),
+            )
 
         factory.connect("setup", on_setup)
         factory.connect("bind", on_bind)

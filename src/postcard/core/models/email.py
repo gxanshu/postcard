@@ -23,6 +23,10 @@ class Email(GObject.Object):
         references: str = "",
         conversation_id: int | None = None,
         sender_address: str = "",
+        # Who the message went to. Only outgoing folders show it, where every
+        # message was sent by the account itself.
+        recipient: str = "",
+        recipient_address: str = "",
     ) -> None:
         super().__init__()
         self.id: int = id
@@ -30,6 +34,8 @@ class Email(GObject.Object):
         self.server_id: str | None = server_id
         self.sender: str = sender
         self.sender_address: str = sender_address
+        self.recipient: str = recipient
+        self.recipient_address: str = recipient_address
         self.subject: str = subject
         self.preview: str = preview
         self.date: str = date

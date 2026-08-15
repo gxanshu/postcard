@@ -52,40 +52,59 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
     StackPage {
       name: "mail";
       child: Adw.NavigationSplitView outer_split {
+        // px, not the default sp: the drag gesture reports pixel offsets.
+        // The widths themselves are pinned from GSettings in window.py.
+        sidebar-width-unit: px;
+
         sidebar: Adw.NavigationPage {
           title: _("Folders");
-          child: Adw.ToolbarView {
-            [top]
-            Adw.HeaderBar {
-              [start]
-              Gtk.Button compose_button {
-                icon-name: "mail-message-new-symbolic";
-                tooltip-text: _("New Message");
+          child: Gtk.Overlay {
+            [overlay]
+            Gtk.Box folder_resize_handle {
+              halign: end;
+              width-request: 5;
 
-                styles ["suggested-action"]
-              }
-
-              title-widget: Gtk.MenuButton account_switcher {
-                always-show-arrow: true;
-                tooltip-text: _("Switch Account");
-
-                styles ["flat"]
-              };
-
-              [end]
-              Gtk.MenuButton {
-                primary: true;
-                icon-name: "open-menu-symbolic";
-                tooltip-text: _("Main Menu");
-                menu-model: primary_menu;
+              accessibility {
+                label: _("Resize folder sidebar");
               }
             }
 
-            content: Gtk.ScrolledWindow {
-              hscrollbar-policy: never;
+            child: Adw.ToolbarView {
+              [top]
+              Adw.HeaderBar {
+                [start]
+                Gtk.Button compose_button {
+                  icon-name: "mail-message-new-symbolic";
+                  tooltip-text: _("New Message");
 
-              child: Gtk.ListView folder_list {
-                styles ["navigation-sidebar"]
+                  styles ["suggested-action"]
+                }
+
+                title-widget: Gtk.MenuButton account_switcher {
+                  always-show-arrow: true;
+                  tooltip-text: _("Switch Account");
+                  // The label is the full address; without this its natural
+                  // width becomes the sidebar's floor and the drag stops early.
+                  can-shrink: true;
+
+                  styles ["flat"]
+                };
+
+                [end]
+                Gtk.MenuButton {
+                  primary: true;
+                  icon-name: "open-menu-symbolic";
+                  tooltip-text: _("Main Menu");
+                  menu-model: primary_menu;
+                }
+              }
+
+              content: Gtk.ScrolledWindow {
+                hscrollbar-policy: never;
+
+                child: Gtk.ListView folder_list {
+                  styles ["navigation-sidebar"]
+                };
               };
             };
           };
@@ -94,82 +113,92 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
         content: Adw.NavigationPage {
           title: _("Postcard");
           child: Adw.NavigationSplitView inner_split {
-            sidebar-width-fraction: 0.38;
-            min-sidebar-width: 180;
-            max-sidebar-width: 380;
+            sidebar-width-unit: px;
 
             sidebar: Adw.NavigationPage {
               title: _("Conversations");
-              child: Adw.ToolbarView {
-                [top]
-                Adw.HeaderBar {
-                  [start]
-                  Gtk.Button refresh_button {
-                    icon-name: "view-refresh-symbolic";
-                    tooltip-text: _("Refresh Inbox");
-                  }
+              child: Gtk.Overlay {
+                [overlay]
+                Gtk.Box conversation_resize_handle {
+                  halign: end;
+                  width-request: 5;
 
-                  [start]
-                  Gtk.ToggleButton unread_button {
-                    icon-name: "media-record-symbolic";
-                    tooltip-text: _("Show Unread Only");
-                  }
-
-                  [end]
-                  Gtk.ToggleButton search_button {
-                    icon-name: "system-search-symbolic";
-                    tooltip-text: _("Search");
-                  }
-
-                  [end]
-                  Gtk.Spinner sync_spinner {
-                    visible: false;
+                  accessibility {
+                    label: _("Resize conversation list");
                   }
                 }
 
-                [top]
-                Gtk.SearchBar search_bar {
-                  search-mode-enabled: bind search_button.active bidirectional;
+                child: Adw.ToolbarView {
+                  [top]
+                  Adw.HeaderBar {
+                    [start]
+                    Gtk.Button refresh_button {
+                      icon-name: "view-refresh-symbolic";
+                      tooltip-text: _("Refresh Inbox");
+                    }
 
-                  child: Gtk.SearchEntry search_entry {
-                    hexpand: true;
-                    placeholder-text: _("Search mail");
+                    [start]
+                    Gtk.ToggleButton unread_button {
+                      icon-name: "media-record-symbolic";
+                      tooltip-text: _("Show Unread Only");
+                    }
+
+                    [end]
+                    Gtk.ToggleButton search_button {
+                      icon-name: "system-search-symbolic";
+                      tooltip-text: _("Search");
+                    }
+
+                    [end]
+                    Gtk.Spinner sync_spinner {
+                      visible: false;
+                    }
+                  }
+
+                  [top]
+                  Gtk.SearchBar search_bar {
+                    search-mode-enabled: bind search_button.active bidirectional;
+
+                    child: Gtk.SearchEntry search_entry {
+                      hexpand: true;
+                      placeholder-text: _("Search mail");
+                    };
+                  }
+
+                  content: Gtk.Stack conversation_stack {
+                    StackPage {
+                      name: "list";
+                      child: Gtk.ScrolledWindow conversation_scroller {
+                        hscrollbar-policy: never;
+
+                        child: Gtk.ListView conversation_list {
+                          styles ["navigation-sidebar"]
+                        };
+                      };
+                    }
+
+                    StackPage {
+                      name: "empty";
+                      child: Adw.StatusPage {
+                        icon-name: "folder-symbolic";
+                        title: _("No Messages");
+                        description: _("This folder is empty.");
+                      };
+                    }
+
+                    StackPage {
+                      name: "loading";
+                      child: Adw.StatusPage {
+                        title: _("Checking for Mail…");
+                        child: Gtk.Spinner {
+                          spinning: true;
+                          width-request: 32;
+                          height-request: 32;
+                          halign: center;
+                        };
+                      };
+                    }
                   };
-                }
-
-                content: Gtk.Stack conversation_stack {
-                  StackPage {
-                    name: "list";
-                    child: Gtk.ScrolledWindow conversation_scroller {
-                      hscrollbar-policy: never;
-
-                      child: Gtk.ListView conversation_list {
-                        styles ["navigation-sidebar"]
-                      };
-                    };
-                  }
-
-                  StackPage {
-                    name: "empty";
-                    child: Adw.StatusPage {
-                      icon-name: "folder-symbolic";
-                      title: _("No Messages");
-                      description: _("This folder is empty.");
-                    };
-                  }
-
-                  StackPage {
-                    name: "loading";
-                    child: Adw.StatusPage {
-                      title: _("Checking for Mail…");
-                      child: Gtk.Spinner {
-                        spinning: true;
-                        width-request: 32;
-                        height-request: 32;
-                        halign: center;
-                      };
-                    };
-                  }
                 };
               };
             };

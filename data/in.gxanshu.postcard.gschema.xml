@@ -54,5 +54,15 @@
 			<default>false</default>
 			<summary>Main window maximized</summary>
 		</key>
+		<key name="folder-sidebar-width" type="i">
+			<range min="180" max="500"/>
+			<default>280</default>
+			<summary>Folder sidebar width</summary>
+		</key>
+		<key name="conversation-sidebar-width" type="i">
+			<range min="220" max="600"/>
+			<default>380</default>
+			<summary>Conversation list width</summary>
+		</key>
 	</schema>
 </schemalist>

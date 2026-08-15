@@ -1,6 +1,6 @@
 import logging
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import message_view
 from .avatar_loader import AvatarLoader
@@ -26,6 +26,9 @@ from .window_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+SETTING_FOLDER_WIDTH = "folder-sidebar-width"
+SETTING_CONVERSATION_WIDTH = "conversation-sidebar-width"
 
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/main-window.ui")
@@ -73,6 +76,10 @@ class PostcardMainWindow(
     move_button: Gtk.MenuButton = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
     connection_banner: Adw.Banner = Gtk.Template.Child()
+    outer_split: Adw.NavigationSplitView = Gtk.Template.Child()
+    inner_split: Adw.NavigationSplitView = Gtk.Template.Child()
+    folder_resize_handle: Gtk.Box = Gtk.Template.Child()
+    conversation_resize_handle: Gtk.Box = Gtk.Template.Child()
 
     def __init__(
         self, app: Gtk.Application, db: Database, settings: Gio.Settings
@@ -87,6 +94,21 @@ class PostcardMainWindow(
         )
         if settings.get_boolean("window-maximized"):
             self.maximize()
+
+        # Drag limits mirror the <range> in the gschema: the schema stops a bad
+        # stored value, these stop a drag from producing one.
+        # ponytail: pointer-only resize, add a key-pressed controller on the
+        # handles if keyboard resizing turns out to matter.
+        self._setup_sidebar_resize(
+            self.folder_resize_handle, self.outer_split, SETTING_FOLDER_WIDTH, 180, 500
+        )
+        self._setup_sidebar_resize(
+            self.conversation_resize_handle,
+            self.inner_split,
+            SETTING_CONVERSATION_WIDTH,
+            220,
+            600,
+        )
 
         # None until _load_mail_view runs, which __init__ skips entirely when
         # there are no accounts yet. Read it through a guard clause, never
@@ -235,11 +257,80 @@ class PostcardMainWindow(
         if self._is_online:
             self._start_sync(in_background=True)
 
+    def _setup_sidebar_resize(
+        self,
+        handle: Gtk.Box,
+        split: Adw.NavigationSplitView,
+        key: str,
+        lower: int,
+        upper: int,
+    ) -> None:
+        """Let `handle` drag `split`'s sidebar, remembering the width under `key`.
+
+        libadwaita has no resizable split view, so the width is pinned by
+        setting the sidebar's minimum and maximum to the same value.
+        """
+        self._pin_sidebar_width(
+            split, min(max(self._settings.get_int(key), lower), upper)
+        )
+        handle.set_cursor(Gdk.Cursor.new_from_name("col-resize", None))
+        # A collapsed sidebar fills the window, which would leave the handle
+        # stranded over the middle of the content.
+        split.bind_property(
+            "collapsed",
+            handle,
+            "visible",
+            GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN,
+        )
+
+        start_width = 0.0
+        start_x = 0.0
+        gesture = Gtk.GestureDrag()
+
+        def on_begin(gesture: Gtk.GestureDrag, _x: float, _y: float) -> None:
+            nonlocal start_width, start_x
+            start_width = split.get_min_sidebar_width()
+            start_x = self._pointer_x(gesture)
+
+        def on_update(gesture: Gtk.GestureDrag, _x: float, _y: float) -> None:
+            width = start_width + self._pointer_x(gesture) - start_x
+            self._pin_sidebar_width(split, min(max(int(width), lower), upper))
+
+        gesture.connect("drag-begin", on_begin)
+        gesture.connect("drag-update", on_update)
+        handle.add_controller(gesture)
+
+    @staticmethod
+    def _pointer_x(gesture: Gtk.GestureDrag) -> float:
+        """The pointer's x within the window, not within the handle.
+
+        GestureDrag reports offsets in the handle's own coordinates, and the
+        handle rides the trailing edge of the sidebar it resizes: widening
+        moves it right, which shrinks the reported offset, which narrows the
+        sidebar again. Surface coordinates don't move underneath the drag.
+        """
+        event = gesture.get_last_event(gesture.get_current_sequence())
+        if event is None:
+            return 0.0
+        _found, x, _y = event.get_position()
+        return x
+
+    @staticmethod
+    def _pin_sidebar_width(split: Adw.NavigationSplitView, width: int) -> None:
+        split.set_max_sidebar_width(width)
+        split.set_min_sidebar_width(width)
+
     def _on_close_request(self, _window: Gtk.Window) -> bool:
         width, height = self.get_default_size()
         self._settings.set_int("window-width", width)
         self._settings.set_int("window-height", height)
         self._settings.set_boolean("window-maximized", self.is_maximized())
+        self._settings.set_int(
+            SETTING_FOLDER_WIDTH, int(self.outer_split.get_min_sidebar_width())
+        )
+        self._settings.set_int(
+            SETTING_CONVERSATION_WIDTH, int(self.inner_split.get_min_sidebar_width())
+        )
         # Nothing on screen to render, so give the ~300 MB web process back.
         message_view.release_anchor()
 

@@ -32,6 +32,9 @@ class AccountsMixin(MainWindowParts):
         if account is None:
             return
         self.account_switcher.set_label(account.email)
+        # The label ellipsizes on a narrow sidebar, so the tooltip carries the
+        # full address rather than repeating what the arrow already says.
+        self.account_switcher.set_tooltip_text(account.email)
         self.account_switcher.set_popover(self._build_account_popover())
 
     def _build_account_popover(self) -> Gtk.Popover:

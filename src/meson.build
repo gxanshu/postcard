@@ -9,6 +9,7 @@ blueprints = custom_target('blueprints',
     'ui/shortcuts-dialog.blp',
     'ui/account-dialog.blp',
     'ui/accounts-dialog.blp',
+    'ui/online-accounts-dialog.blp',
     'ui/composer-window.blp',
     'ui/preferences-dialog.blp',
   ),
@@ -49,6 +50,7 @@ postcard_sources = [
   'postcard/message_view.py',
   'postcard/account_dialog.py',
   'postcard/accounts_dialog.py',
+  'postcard/online_accounts_dialog.py',
   'postcard/composer_window.py',
   'postcard/preferences_dialog.py',
   'postcard/mail_sync.py',
@@ -59,6 +61,7 @@ python_installation.install_sources(postcard_sources, subdir: 'postcard')
 postcard_core_sources = [
   'postcard/core/__init__.py',
   'postcard/core/secrets.py',
+  'postcard/core/goa.py',
   'postcard/core/avatars.py',
   'postcard/core/compose.py',
   'postcard/core/providers.py',
@@ -86,6 +89,7 @@ python_installation.install_sources(postcard_core_store_sources, subdir: 'postca
 
 postcard_core_net_sources = [
   'postcard/core/net/__init__.py',
+  'postcard/core/net/auth.py',
   'postcard/core/net/errors.py',
   'postcard/core/net/imap_session.py',
   'postcard/core/net/smtp_session.py',

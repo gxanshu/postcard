@@ -71,6 +71,17 @@ def test_smtp_security_is_inferred_from_the_port(db):
     assert starttls.smtp_security == "starttls"
 
 
+def test_an_account_remembers_the_online_account_it_came_from(db):
+    # goa_id is what tells credential lookup to ask GNOME Online Accounts
+    # instead of the keyring, so it has to survive the round trip.
+    db.save_account("a@x", "A", "imap.x", 993, "smtp.x", 587, goa_id="account_1700_0")
+    typed_in = db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
+
+    imported, listed_typed_in = db.accounts()
+    assert imported.goa_id == "account_1700_0"
+    assert (listed_typed_in.id, listed_typed_in.goa_id) == (typed_in.id, "")
+
+
 def test_an_explicit_smtp_security_wins(db):
     account = db.save_account(
         "a@x", "A", "imap.x", 993, "smtp.x", 465, smtp_security="starttls"

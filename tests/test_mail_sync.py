@@ -6,6 +6,7 @@ import postcard.mail_sync as mail_sync
 from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
+from postcard.core.net.auth import Credential
 from postcard.core.net.imap_session import (
     GMAIL_CAPABILITY,
     FetchedHeader,
@@ -31,6 +32,8 @@ from postcard.mail_sync import (
     sent_folder,
     server_uids,
 )
+
+CREDENTIAL = Credential("ada@example.com", "hunter2")
 
 
 @pytest.fixture
@@ -250,7 +253,7 @@ def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_pag
         def connect(self):
             pass
 
-        def login(self, user, password):
+        def sign_in(self, credential):
             pass
 
         def list_folders(self):
@@ -280,7 +283,7 @@ def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_pag
         smtp_port=0,
     )
 
-    result = fetch_mailbox(account, "password", offset=offset)
+    result = fetch_mailbox(account, CREDENTIAL, offset=offset)
 
     assert FakeImapSession.searches == search_calls
     assert result.all_uids == snapshot
@@ -303,7 +306,7 @@ class CountingImapSession:
     def connect(self):
         pass
 
-    def login(self, user, password):
+    def sign_in(self, credential):
         pass
 
     def list_folders(self):
@@ -352,7 +355,7 @@ def sync(offset: int = 0) -> SyncResult:
         smtp_host="",
         smtp_port=0,
     )
-    return mail_sync.fetch_mailbox(account, "hunter2", offset=offset)
+    return mail_sync.fetch_mailbox(account, CREDENTIAL, offset=offset)
 
 
 def test_every_role_folder_but_the_fetched_one_is_counted(counting_imap):
@@ -542,14 +545,16 @@ def test_the_uid_and_threading_headers_carry_over_verbatim():
 
 
 class FakeSmtpSession:
+    sign_ins: list[Credential] = []
+
     def __init__(self, host, port, security):
         pass
 
     def connect(self):
         pass
 
-    def login(self, user, password):
-        pass
+    def sign_in(self, credential):
+        type(self).sign_ins.append(credential)
 
     def send_raw(self, from_addr, recipients, raw):
         pass
@@ -564,6 +569,7 @@ class AppendingImapSession:
     appends: list[tuple[str, bytes]] = []
     mailboxes: list[str] = []
     capabilities: tuple[str, ...] = ()
+    sign_ins: list[Credential] = []
 
     def __init__(self, host, port, security):
         pass
@@ -571,8 +577,8 @@ class AppendingImapSession:
     def connect(self):
         pass
 
-    def login(self, user, password):
-        pass
+    def sign_in(self, credential):
+        type(self).sign_ins.append(credential)
 
     def has_capability(self, name):
         return name in type(self).capabilities
@@ -592,6 +598,8 @@ def imap(monkeypatch):
     AppendingImapSession.appends = []
     AppendingImapSession.mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
     AppendingImapSession.capabilities = ()
+    AppendingImapSession.sign_ins = []
+    FakeSmtpSession.sign_ins = []
     monkeypatch.setattr(mail_sync, "SmtpSession", FakeSmtpSession)
     monkeypatch.setattr(mail_sync, "ImapSession", AppendingImapSession)
     return AppendingImapSession
@@ -608,7 +616,7 @@ def send() -> None:
         smtp_port=465,
     )
     mail_sync.send_message(
-        account, "hunter2", "ada@example.com", ["you@example.com"], b"raw"
+        account, CREDENTIAL, "ada@example.com", ["you@example.com"], b"raw"
     )
 
 

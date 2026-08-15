@@ -25,11 +25,22 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
           icon-name: "in.gxanshu.postcard-symbolic";
           title: _("Welcome to Postcard");
           description: _("Add a mail account to get started.");
-          child: Gtk.Button add_account_button {
-            label: _("Add Account");
+          child: Gtk.Box {
+            orientation: vertical;
+            spacing: 12;
             halign: center;
 
-            styles ["suggested-action", "pill"]
+            Gtk.Button add_account_button {
+              label: _("Add Account");
+
+              styles ["suggested-action", "pill"]
+            }
+
+            Gtk.Button online_accounts_button {
+              label: _("Use Online Accounts");
+
+              styles ["pill"]
+            }
           };
         };
       };

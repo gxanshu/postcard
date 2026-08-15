@@ -7,6 +7,7 @@ from email import policy
 from typing import NamedTuple
 
 from . import NET_TIMEOUT_SECONDS
+from .auth import MECHANISM_LOGIN, MECHANISM_XOAUTH2, Credential, xoauth2_response
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +110,23 @@ class ImapSession:
             )
         return self._imap.welcome.decode("utf-8", "replace")
 
-    def login(self, user: str, password: str) -> None:
+    def sign_in(self, credential: Credential) -> None:
+        imap = self._require_imap()
         try:
-            self._require_imap().login(user, password)
+            if credential.mechanism == MECHANISM_XOAUTH2:
+                # imaplib base64-encodes whatever the callback returns.
+                imap.authenticate(
+                    "XOAUTH2",
+                    lambda _challenge: xoauth2_response(
+                        credential.user, credential.secret
+                    ).encode(),
+                )
+            elif credential.mechanism == MECHANISM_LOGIN:
+                imap.login(credential.user, credential.secret)
+            else:
+                # Falling through would leave the session unauthenticated and
+                # surface as a puzzling SELECT failure instead of a login one.
+                raise ImapError(f"unsupported mechanism {credential.mechanism}")
         except imaplib.IMAP4.error as error:
             raise ImapError(str(error)) from error
 

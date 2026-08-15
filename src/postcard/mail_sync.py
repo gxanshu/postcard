@@ -14,6 +14,7 @@ from .core.models.folder import Folder
 # Re-exported: callers reach MessageHeader through mail_sync, which is where it
 # is built. It lives in core.models so core.store can accept one directly.
 from .core.models.message_header import MessageHeader
+from .core.net.auth import Credential
 from .core.net.imap_session import (
     ATTR_NOSELECT,
     GMAIL_CAPABILITY,
@@ -108,7 +109,7 @@ def inbox_name(folders: list[str]) -> str:
 
 def fetch_mailbox(
     account: Account,
-    password: str,
+    credential: Credential,
     folder: str | None = None,
     limit: int = RECENT_LIMIT,
     offset: int = 0,
@@ -123,7 +124,7 @@ def fetch_mailbox(
     session.connect()
 
     try:
-        session.login(account.email, password)
+        session.sign_in(credential)
         mailboxes = session.list_folders()
         target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
@@ -198,14 +199,14 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
 
 
 def fetch_full_message(
-    account: Account, password: str, folder_name: str, uid: str
+    account: Account, credential: Credential, folder_name: str, uid: str
 ) -> bytes:
     """Connect, login, open one folder, and download a single full message"""
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
 
     try:
-        session.login(account.email, password)
+        session.sign_in(credential)
         session.select(folder_name)
         return session.fetch_message(uid)
     finally:
@@ -225,7 +226,7 @@ def server_uids(conversation: Conversation) -> list[str]:
 
 def set_flag(
     account: Account,
-    password: str,
+    credential: Credential,
     folder_name: str,
     uids: Sequence[str],
     flag: str,
@@ -235,7 +236,7 @@ def set_flag(
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
-        session.login(account.email, password)
+        session.sign_in(credential)
         session.select(folder_name, is_readonly=False)
         for uid in uids:
             session.store_flags(uid, flag, should_add)
@@ -245,7 +246,7 @@ def set_flag(
 
 def move_messages(
     account: Account,
-    password: str,
+    credential: Credential,
     folder_name: str,
     uids: list[str],
     destination: str,
@@ -254,7 +255,7 @@ def move_messages(
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
     try:
-        session.login(account.email, password)
+        session.sign_in(credential)
         session.select(folder_name, is_readonly=False)
         destination_uids = []
         for index, uid in enumerate(uids):
@@ -268,14 +269,18 @@ def move_messages(
 
 
 def send_message(
-    account: Account, password: str, from_addr: str, recipients: list[str], raw: bytes
+    account: Account,
+    credential: Credential,
+    from_addr: str,
+    recipients: list[str],
+    raw: bytes,
 ) -> None:
     """Connect, log in, and hand a fully-built message to the server."""
     session = SmtpSession(account.smtp_host, account.smtp_port, account.smtp_security)
     session.connect()
 
     try:
-        session.login(account.email, password)
+        session.sign_in(credential)
         session.send_raw(from_addr, recipients, raw)
     finally:
         session.quit()
@@ -285,7 +290,7 @@ def send_message(
     # other client. Never fatal: it has already gone out, and failing here would
     # leave it in the Outbox to be sent a second time.
     try:
-        _append_to_sent(account, password, raw)
+        _append_to_sent(account, credential, raw)
     except Exception:
         logger.warning(
             "could not save a copy of the sent message to Sent on %s (account %s)",
@@ -295,12 +300,12 @@ def send_message(
         )
 
 
-def _append_to_sent(account: Account, password: str, raw: bytes) -> None:
+def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
 
     try:
-        session.login(account.email, password)
+        session.sign_in(credential)
         if session.has_capability(GMAIL_CAPABILITY):
             return
         sent = mailbox_with_role(

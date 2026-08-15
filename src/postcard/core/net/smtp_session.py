@@ -2,6 +2,7 @@ import logging
 import smtplib
 
 from . import NET_TIMEOUT_SECONDS
+from .auth import MECHANISM_LOGIN, MECHANISM_XOAUTH2, Credential, xoauth2_response
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,24 @@ class SmtpSession:
                 self._host, self._port, timeout=NET_TIMEOUT_SECONDS
             )
 
-    def login(self, user: str, password: str) -> None:
+    def sign_in(self, credential: Credential) -> None:
+        smtp = self._require_smtp()
         try:
-            self._require_smtp().login(user, password)
+            if credential.mechanism == MECHANISM_XOAUTH2:
+                # login() greets the server on our behalf; auth() does not, and
+                # SMTP_SSL has not greeted it either by this point.
+                smtp.ehlo_or_helo_if_needed()
+                smtp.auth(
+                    "XOAUTH2",
+                    lambda _challenge=None: xoauth2_response(
+                        credential.user, credential.secret
+                    ),
+                    initial_response_ok=True,
+                )
+            elif credential.mechanism == MECHANISM_LOGIN:
+                smtp.login(credential.user, credential.secret)
+            else:
+                raise SmtpError(f"unsupported mechanism {credential.mechanism}")
         except smtplib.SMTPException as error:
             raise SmtpError(str(error)) from error
 

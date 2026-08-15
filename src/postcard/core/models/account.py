@@ -42,6 +42,7 @@ class Account(GObject.Object):
         smtp_port: int,
         imap_security: str = "tls",
         smtp_security: str = "tls",
+        goa_id: str = "",
     ) -> None:
         super().__init__()
         self.id: int = id
@@ -53,3 +54,6 @@ class Account(GObject.Object):
         self.smtp_port: int = smtp_port
         self.imap_security: str = imap_security
         self.smtp_security: str = smtp_security
+        # Set when the account came from GNOME Online Accounts, which is then
+        # where its credentials live instead of the keyring.
+        self.goa_id: str = goa_id

@@ -143,34 +143,39 @@ class ReaderMixin(MainWindowParts):
             callback(None, _("No account is open."))
             return
 
-        password = secrets.lookup_password(account.id)
-        if not password:
-            callback(None, _("No saved password for this account."))
-            return
-
         request = BodyRequest(
             email_id=mail.id, uid=mail.server_id, folder_name=folder.name
         )
         thread = threading.Thread(
             target=self._body_worker,
-            args=(account, password, request, callback),
+            args=(account, request, callback),
             daemon=True,
         )
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access. Takes a
-    # snapshot rather than the Email, which the main thread may mutate -- the
-    # account and password are resolved by _load_body for the same reason.
+    # snapshot rather than the Email, which the main thread may mutate.
     def _body_worker(
         self,
         account: Account,
-        password: str,
         request: BodyRequest,
         callback: LoadCallback,
     ) -> None:
+        credential = secrets.credential_for(account)
+        if credential is None:
+            logger.warning("could not sign in to account %s", account.email)
+            GLib.idle_add(
+                self._deliver_body,
+                callback,
+                request.email_id,
+                None,
+                _("Could not sign in to this account."),
+            )
+            return
+
         try:
             raw = mail_sync.fetch_full_message(
-                account, password, request.folder_name, request.uid
+                account, credential, request.folder_name, request.uid
             )
         except Exception as error:
             logger.exception(

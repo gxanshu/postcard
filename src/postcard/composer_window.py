@@ -517,18 +517,10 @@ class PostcardComposerWindow(Adw.Window):
         )
         self._db.save_raw_message(row.id, raw)
 
-        # Resolve the password here, on the main thread: the worker does
-        # network only, and this way a missing password is reported before the
-        # UI switches into its sending state.
-        password = secrets.lookup_password(self._account.id)
-        if not password:
-            self._on_send_failed(_("No saved password for this account."))
-            return
-
         self._set_sending(True)
         thread = threading.Thread(
             target=self._send_worker,
-            args=(row.id, subject, recipients, raw, password),
+            args=(row.id, subject, recipients, raw),
             daemon=True,
         )
         thread.start()
@@ -540,11 +532,16 @@ class PostcardComposerWindow(Adw.Window):
         subject: str,
         recipients: list[str],
         raw: bytes,
-        password: str,
     ) -> None:
         account = self._account
+        credential = secrets.credential_for(account)
+        if credential is None:
+            logger.warning("could not sign in to account %s", account.email)
+            GLib.idle_add(self._on_send_failed, _("Could not sign in to this account."))
+            return
+
         try:
-            mail_sync.send_message(account, password, account.email, recipients, raw)
+            mail_sync.send_message(account, credential, account.email, recipients, raw)
         except Exception as error:
             logger.exception(
                 "could not send %r to %s via %s (account %s)",

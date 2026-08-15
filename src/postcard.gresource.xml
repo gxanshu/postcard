@@ -5,6 +5,7 @@
     <file preprocess="xml-stripblanks">ui/shortcuts-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/account-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/accounts-dialog.ui</file>
+    <file preprocess="xml-stripblanks">ui/online-accounts-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/composer-window.ui</file>
     <file preprocess="xml-stripblanks">ui/preferences-dialog.ui</file>
     <file>style.css</file>

@@ -16,11 +16,22 @@ template $PostcardAccountsDialog: Adw.Dialog {
                     title: _("Mail Accounts");
 
                     [header-suffix]
-                    Gtk.Button add_button {
-                        icon-name: "list-add-symbolic";
-                        tooltip-text: _("Add Account");
-                        
-                        styles ["flat"]
+                    Gtk.Box {
+                        spacing: 6;
+
+                        Gtk.Button online_accounts_button {
+                            icon-name: "goa-panel-symbolic";
+                            tooltip-text: _("Add from Online Accounts");
+
+                            styles ["flat"]
+                          }
+
+                        Gtk.Button add_button {
+                            icon-name: "list-add-symbolic";
+                            tooltip-text: _("Add Account");
+
+                            styles ["flat"]
+                          }
                       }
                   }
               };

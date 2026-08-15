@@ -8,6 +8,7 @@ src/postcard/application.py
 src/postcard/composer_window.py
 src/postcard/mail_sync.py
 src/postcard/message_view.py
+src/postcard/online_accounts_dialog.py
 src/postcard/preferences_dialog.py
 src/postcard/window_accounts.py
 src/postcard/window_actions.py
@@ -18,5 +19,6 @@ src/ui/account-dialog.blp
 src/ui/accounts-dialog.blp
 src/ui/composer-window.blp
 src/ui/main-window.blp
+src/ui/online-accounts-dialog.blp
 src/ui/preferences-dialog.blp
 src/ui/shortcuts-dialog.blp

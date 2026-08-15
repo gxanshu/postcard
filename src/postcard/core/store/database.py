@@ -64,6 +64,7 @@ MIGRATIONS = [
     ALTER TABLE emails ADD COLUMN recipient TEXT NOT NULL DEFAULT '';
     ALTER TABLE emails ADD COLUMN recipient_address TEXT NOT NULL DEFAULT '';
     """,
+    "ALTER TABLE accounts ADD COLUMN goa_id TEXT NOT NULL DEFAULT ''",
 ]
 
 
@@ -179,6 +180,7 @@ class Database:
             smtp_port=row["smtp_port"],
             imap_security=row["imap_security"],
             smtp_security=row["smtp_security"],
+            goa_id=row["goa_id"],
         )
 
     def accounts(self) -> list[Account]:
@@ -195,6 +197,7 @@ class Database:
         smtp_port: int,
         imap_security: str = SECURITY_TLS,
         smtp_security: str | None = None,
+        goa_id: str = "",
     ) -> Account:
         if smtp_security is None:
             # Port 465 is implicit TLS (SMTPS); everything else is assumed to
@@ -206,8 +209,8 @@ class Database:
             """
             INSERT INTO accounts
                 (email, display_name, imap_host, imap_port, smtp_host, smtp_port,
-                 imap_security, smtp_security)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 imap_security, smtp_security, goa_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 email,
@@ -218,6 +221,7 @@ class Database:
                 smtp_port,
                 imap_security,
                 smtp_security,
+                goa_id,
             ),
         )
         self._conn.commit()

@@ -208,26 +208,28 @@ class MoveMixin(MainWindowParts):
 
     def _run_move_worker(self, pending: PendingMove) -> None:
         account = self._account
-        password = secrets.lookup_password(account.id) if account else None
-        if account is None or not password:
+        if account is None:
             self._restore_move(pending)
-            self._toast(_("No saved password for this account."))
             return
         thread = threading.Thread(
             target=self._move_worker,
-            args=(account, password, pending),
+            args=(account, pending),
             daemon=True,
         )
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access.
-    def _move_worker(
-        self, account: Account, password: str, pending: PendingMove
-    ) -> None:
+    def _move_worker(self, account: Account, pending: PendingMove) -> None:
+        credential = secrets.credential_for(account)
+        if credential is None:
+            logger.warning("could not sign in to account %s", account.email)
+            GLib.idle_add(self._on_move_sign_in_failed, pending)
+            return
+
         try:
             result = mail_sync.move_messages(
                 account,
-                password,
+                credential,
                 pending.source.name,
                 pending.uids,
                 pending.dest.name,
@@ -276,6 +278,12 @@ class MoveMixin(MainWindowParts):
                 result.error,
             )
             self._toast(_("Move failed: {msg}").format(msg=result.error))
+        return False
+
+    def _on_move_sign_in_failed(self, pending: PendingMove) -> bool:
+        # The messages were already moved locally, so they have to come back.
+        self._restore_move(pending)
+        self._toast(_("Could not sign in to this account."))
         return False
 
     def _on_move_failed(

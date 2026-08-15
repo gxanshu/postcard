@@ -46,10 +46,6 @@ class SyncMixin(MainWindowParts):
         if not pending:
             return
 
-        password = secrets.lookup_password(account.id)
-        if not password:
-            return
-
         jobs = []
         for mail in pending:
             raw = self._db.get_raw_message(mail.id)
@@ -61,7 +57,7 @@ class SyncMixin(MainWindowParts):
 
         thread = threading.Thread(
             target=self._outbox_worker,
-            args=(account, password, jobs),
+            args=(account, jobs),
             daemon=True,
         )
         thread.start()
@@ -72,14 +68,20 @@ class SyncMixin(MainWindowParts):
     def _outbox_worker(
         self,
         account: Account,
-        password: str,
         jobs: list[tuple[int, str, list[str], bytes]],
     ) -> None:
+        credential = secrets.credential_for(account)
+        if credential is None:
+            logger.warning(
+                "could not sign in to %s; the Outbox stays queued", account.email
+            )
+            return
+
         results: list[OutboxResult] = []
         for email_id, subject, recipients, raw in jobs:
             try:
                 mail_sync.send_message(
-                    account, password, account.email, recipients, raw
+                    account, credential, account.email, recipients, raw
                 )
             except Exception as error:
                 logger.exception(
@@ -156,10 +158,7 @@ class SyncMixin(MainWindowParts):
         if in_background and self._is_syncing:
             return
         account = self._account
-        password = secrets.lookup_password(account.id) if account else None
-        if account is None or not password:
-            if not in_background:
-                self._toast(_("No saved password for this account."))
+        if account is None:
             return
 
         self._set_syncing(True)
@@ -167,7 +166,7 @@ class SyncMixin(MainWindowParts):
             self.conversation_stack.set_visible_child_name(PAGE_LOADING)
         thread = threading.Thread(
             target=self._sync_worker,
-            args=(account, password, folder_name, offset),
+            args=(account, folder_name, offset),
             daemon=True,
         )
         thread.start()
@@ -193,13 +192,22 @@ class SyncMixin(MainWindowParts):
     def _sync_worker(
         self,
         account: Account,
-        password: str,
         folder_name: str | None,
         offset: int = 0,
     ) -> None:
+        credential = secrets.credential_for(account)
+        if credential is None:
+            logger.warning("could not sign in to account %s", account.email)
+            GLib.idle_add(
+                self._on_sync_error,
+                errors.CATEGORY_AUTH,
+                _("Could not sign in to this account."),
+            )
+            return
+
         try:
             result = mail_sync.fetch_mailbox(
-                account, password, folder_name, offset=offset
+                account, credential, folder_name, offset=offset
             )
         except Exception as error:
             logger.exception(

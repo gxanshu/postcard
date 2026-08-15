@@ -11,6 +11,7 @@ from .composer_window import PostcardComposerWindow
 from .core import compose
 from .core.mime.message_parser import ParsedMessage
 from .core.models.account import Account
+from .online_accounts_dialog import PostcardOnlineAccountsDialog
 from .window_parts import MainWindowParts
 from .window_types import PAGE_NO_ACCOUNT
 
@@ -53,6 +54,7 @@ class AccountsMixin(MainWindowParts):
         box.append(Gtk.Separator())
         for label, handler in (
             (_("Add Account"), self._on_switcher_add),
+            (_("Online Accounts"), self._on_switcher_online_accounts),
             (_("Manage Accounts"), self._on_switcher_manage),
         ):
             button = Gtk.Button(label=label)
@@ -72,6 +74,10 @@ class AccountsMixin(MainWindowParts):
     def _on_switcher_add(self, button: Gtk.Button) -> None:
         self.account_switcher.popdown()
         self._on_add_account_clicked(button)
+
+    def _on_switcher_online_accounts(self, button: Gtk.Button) -> None:
+        self.account_switcher.popdown()
+        self._on_online_accounts_clicked(button)
 
     def _on_switcher_manage(self, _button: Gtk.Button) -> None:
         self.account_switcher.popdown()
@@ -97,7 +103,12 @@ class AccountsMixin(MainWindowParts):
         dialog.connect("account-added", self._on_account_added)
         dialog.present(self)
 
-    def _on_account_added(self, _dialog: PostcardAccountDialog) -> None:
+    def _on_online_accounts_clicked(self, _button: Gtk.Button) -> None:
+        dialog = PostcardOnlineAccountsDialog(self._db)
+        dialog.connect("account-added", self._on_account_added)
+        dialog.present(self)
+
+    def _on_account_added(self, _dialog: Adw.Dialog) -> None:
         # Load the newly added account (highest id sorts last).
         self._load_mail_view(self._db.accounts()[-1])
 

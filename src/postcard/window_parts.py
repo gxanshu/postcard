@@ -41,6 +41,7 @@ class MainWindowParts(_Base):
     main_stack: Gtk.Stack
     account_switcher: Gtk.MenuButton
     add_account_button: Gtk.Button
+    online_accounts_button: Gtk.Button
     refresh_button: Gtk.Button
     sync_spinner: Gtk.Spinner
     search_bar: Gtk.SearchBar
@@ -111,6 +112,9 @@ class MainWindowParts(_Base):
         raise NotImplementedError
 
     def _on_add_account_clicked(self, _button: Gtk.Button) -> None:
+        raise NotImplementedError
+
+    def _on_online_accounts_clicked(self, _button: Gtk.Button) -> None:
         raise NotImplementedError
 
     def _on_compose_clicked(self, *_args: object) -> None:

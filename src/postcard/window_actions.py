@@ -217,9 +217,6 @@ class MailActionsMixin(MainWindowParts):
         folder = self._current_folder
         if account is None or folder is None:
             return
-        password = secrets.lookup_password(account.id)
-        if not password:
-            return
         change = FlagChange(
             folder_name=folder.name,
             uids=tuple(uids),
@@ -228,7 +225,7 @@ class MailActionsMixin(MainWindowParts):
         )
         thread = threading.Thread(
             target=self._flag_worker,
-            args=(account, password, change, revert),
+            args=(account, change, revert),
             daemon=True,
         )
         thread.start()
@@ -237,14 +234,19 @@ class MailActionsMixin(MainWindowParts):
     def _flag_worker(
         self,
         account: Account,
-        password: str,
         change: FlagChange,
         revert: Callable[[], None],
     ) -> None:
+        credential = secrets.credential_for(account)
+        if credential is None:
+            logger.warning("could not sign in to account %s", account.email)
+            GLib.idle_add(self._on_flag_sign_in_failed, revert)
+            return
+
         try:
             mail_sync.set_flag(
                 account,
-                password,
+                credential,
                 change.folder_name,
                 change.uids,
                 change.flag,
@@ -259,6 +261,13 @@ class MailActionsMixin(MainWindowParts):
                 account.email,
             )
             GLib.idle_add(self._on_action_failed, revert, account.imap_host, error)
+
+    def _on_flag_sign_in_failed(self, revert: Callable[[], None]) -> bool:
+        # The row was already updated optimistically, so leaving it would show a
+        # read/starred state the server never got, until the next sync undid it.
+        revert()
+        self._toast(_("Could not sign in to this account."))
+        return False
 
     def _on_action_failed(
         self, revert: Callable[[], None], host: str, error: Exception

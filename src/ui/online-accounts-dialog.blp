@@ -1,0 +1,51 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $PostcardOnlineAccountsDialog: Adw.Dialog {
+    title: _("Online Accounts");
+    content-width: 480;
+    content-height: 480;
+
+    child: Adw.ToastOverlay toast_overlay {
+        child: Adw.ToolbarView {
+            [top]
+            Adw.HeaderBar {}
+
+            content: Gtk.Stack accounts_stack {
+                Gtk.StackPage {
+                    name: "list";
+                    child: Adw.PreferencesPage {
+                        Adw.PreferencesGroup accounts_group {
+                            title: _("Accounts in GNOME Settings");
+                            description: _("Postcard signs in to these for you, so there is no password to enter.");
+                          }
+
+                        Adw.PreferencesGroup {
+                            Gtk.Button settings_button {
+                                label: _("Open Online Accounts");
+                                halign: center;
+
+                                styles ["pill"]
+                              }
+                          }
+                      };
+                  }
+
+                Gtk.StackPage {
+                    name: "empty";
+                    child: Adw.StatusPage {
+                        icon-name: "goa-panel-symbolic";
+                        title: _("No Online Accounts");
+                        description: _("Connect an account in GNOME Settings and it will show up here.");
+                        child: Gtk.Button empty_settings_button {
+                            label: _("Open Online Accounts");
+                            halign: center;
+
+                            styles ["suggested-action", "pill"]
+                          };
+                      };
+                  }
+              };
+          };
+      };
+  }

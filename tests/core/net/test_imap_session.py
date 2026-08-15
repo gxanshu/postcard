@@ -1,5 +1,6 @@
 import pytest
 
+from postcard.core.net.auth import MECHANISM_XOAUTH2, Credential
 from postcard.core.net.imap_session import FetchedHeader, ImapError, ImapSession
 
 
@@ -24,6 +25,12 @@ class FakeImap:
     def status(self, *args):
         self.calls.append(args)
         return self._status_reply
+
+    def authenticate(self, mechanism, authobject):
+        self.calls.append(("AUTHENTICATE", mechanism, authobject(b"")))
+
+    def login(self, user, password):
+        self.calls.append(("LOGIN", user, password))
 
 
 def connect(monkeypatch, imap: FakeImap) -> ImapSession:
@@ -203,3 +210,35 @@ def test_has_capability_is_case_insensitive(monkeypatch):
 
     assert session.has_capability("x-gm-ext-1")
     assert not session.has_capability("X-SOMETHING-ELSE")
+
+
+def test_xoauth2_hands_imaplib_the_raw_sasl_response(monkeypatch):
+    # imaplib base64-encodes the callback's return itself, so it has to get the
+    # bytes unencoded.
+    imap = FakeImap()
+    session = connect(monkeypatch, imap)
+
+    session.sign_in(Credential("me@example.com", "token", MECHANISM_XOAUTH2))
+
+    assert imap.calls == [
+        ("AUTHENTICATE", "XOAUTH2", b"user=me@example.com\x01auth=Bearer token\x01\x01")
+    ]
+
+
+def test_a_password_account_still_uses_plain_login(monkeypatch):
+    imap = FakeImap()
+    session = connect(monkeypatch, imap)
+
+    session.sign_in(Credential("me@example.com", "hunter2"))
+
+    assert imap.calls == [("LOGIN", "me@example.com", "hunter2")]
+
+
+def test_an_unknown_mechanism_fails_rather_than_staying_unauthenticated(monkeypatch):
+    imap = FakeImap()
+    session = connect(monkeypatch, imap)
+
+    with pytest.raises(ImapError, match="unsupported mechanism none"):
+        session.sign_in(Credential("me@example.com", "", "none"))
+
+    assert imap.calls == []

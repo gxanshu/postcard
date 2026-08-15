@@ -58,6 +58,7 @@ class PostcardMainWindow(
     main_stack: Gtk.Stack = Gtk.Template.Child()
     account_switcher: Gtk.MenuButton = Gtk.Template.Child()
     add_account_button: Gtk.Button = Gtk.Template.Child()
+    online_accounts_button: Gtk.Button = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
     sync_spinner: Gtk.Spinner = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
@@ -110,6 +111,7 @@ class PostcardMainWindow(
         self._setup_actions()
 
         self.add_account_button.connect("clicked", self._on_add_account_clicked)
+        self.online_accounts_button.connect("clicked", self._on_online_accounts_clicked)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         self.compose_button.connect("clicked", self._on_compose_clicked)
         self.reply_all_button.connect("clicked", self._on_reply_all_clicked)

@@ -59,6 +59,23 @@
   </screenshots>
 
   <releases>
+    <release version="1.9.1" date="2026-08-15">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Add a Google account straight from GNOME Online Accounts — no app password
+          to generate, and Postcard never sees a password</li>
+          <li>The folder and conversation sidebars can now be resized</li>
+          <li>Sent and Drafts now show the recipient's avatar instead of your own</li>
+          <li>Faster startup, sync, and search</li>
+          <li>Fix folders being matched and created by the wrong name</li>
+          <li>Fix the black flash when a message first loads</li>
+          <li>Fix the background-running notice appearing every launch</li>
+          <li>Fix links in error messages not being clickable</li>
+          <li>Fix conversations from one account showing up in another account's folders</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.9.0" date="2026-08-15">
       <description translate="no">
         <p>New in this release:</p>

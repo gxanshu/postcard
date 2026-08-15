@@ -5,7 +5,7 @@
 
   **Geary's three-pane email, rebuilt on GTK 4 without twelve years of accumulated complexity.**
 
-  [![Version](https://img.shields.io/badge/version-1.9.0-3584e4?style=flat-square)](#installing)
+  [![Version](https://img.shields.io/badge/version-1.9.1-3584e4?style=flat-square)](#installing)
   [![Tests](https://img.shields.io/github/actions/workflow/status/gxanshu/postcard/tests.yml?style=flat-square&label=tests)](https://github.com/gxanshu/postcard/actions/workflows/tests.yml)
   [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4?style=flat-square)](COPYING)
   [![Flatpak](https://img.shields.io/badge/install-Flatpak-4a86cf?style=flat-square&logo=flatpak&logoColor=white)](#installing)

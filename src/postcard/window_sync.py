@@ -100,19 +100,15 @@ class SyncMixin(MainWindowParts):
         if account is None:
             return False
 
-        sent_folder: Folder | None = None
+        sent: Folder | None = None
         sent_count = 0
         for result in results:
             if result.error is not None:
                 continue
-            if sent_folder is None:
-                sent_folder = self._db.get_or_create_folder(
-                    account.id,
-                    mail_sync.SENT_FOLDER,
-                    mail_sync.icon_for_folder(mail_sync.SENT_FOLDER),
-                )
+            if sent is None:
+                sent = mail_sync.sent_folder(self._db, account.id)
             row = self._db.save_email(
-                sent_folder.id,
+                sent.id,
                 sender=account.email,
                 sender_address=account.email,
                 subject=result.subject,

@@ -12,6 +12,7 @@ from postcard.core.net.imap_session import (
     ImapError,
     MailboxInfo,
 )
+from postcard.core.store.database import Database
 from postcard.mail_sync import (
     NO_SUBJECT,
     FolderRole,
@@ -22,10 +23,22 @@ from postcard.mail_sync import (
     format_date,
     icon_for_folder,
     inbox_name,
+    mailbox_with_role,
     parent_mailbox_name,
     role_for_folder,
+    sent_folder,
     server_uids,
 )
+
+
+@pytest.fixture
+def db_account():
+    database = Database(":memory:")
+    account = database.save_account(
+        "me@example.com", "Me", "imap.example.com", 993, "smtp.example.com", 587
+    )
+    yield database, account.id
+    database.close()
 
 
 def conversation(*server_ids: str | None) -> Conversation:
@@ -53,6 +66,8 @@ def conversation(*server_ids: str | None) -> Conversation:
         ("inbox", "inbox"),
         ("[Gmail]/Sent Mail", "sent"),
         ("Sent Items", "sent"),
+        ("Sent Messages", "sent"),
+        ("INBOX.Sent", "sent"),
         ("INBOX.Drafts", "drafts"),
         ("Trash", "trash"),
         ("Deleted Items", "trash"),
@@ -74,8 +89,30 @@ def test_only_a_folder_named_exactly_inbox_is_the_inbox():
 
 
 def test_the_first_matching_role_wins():
-    # Substrings are checked in order, so "sent" beats the later "draft".
+    # Patterns are tried in order, so "sent" beats the later "draft".
     assert role_for_folder("Sent/Drafts") == "sent"
+
+
+@pytest.mark.parametrize("name", ["Consent forms", "Presentations", "Unsent Messages"])
+def test_a_role_word_inside_another_word_is_not_that_role(name):
+    # A user folder whose name merely contains "sent" must not be taken for the
+    # sent mailbox -- mail sent from Postcard would be filed into it.
+    assert role_for_folder(name) is not FolderRole.SENT
+
+
+def test_mailbox_with_role_finds_the_provider_s_own_spelling():
+    assert (
+        mailbox_with_role(["INBOX", "Sent Items", "Trash"], FolderRole.SENT)
+        == "Sent Items"
+    )
+    assert (
+        mailbox_with_role(["INBOX", "[Gmail]/Sent Mail"], FolderRole.SENT)
+        == "[Gmail]/Sent Mail"
+    )
+
+
+def test_mailbox_with_role_returns_none_when_the_server_lists_none():
+    assert mailbox_with_role(["INBOX", "Notes"], FolderRole.SENT) is None
 
 
 def test_role_for_folder_returns_a_folder_role_member():
@@ -132,6 +169,29 @@ def test_display_name_without_a_delimiter_keeps_the_full_path():
 def test_display_name_decodes_modified_utf7():
     assert display_name_for_folder("INBOX.Entw&APw-rfe", ".") == "Entwürfe"
     assert display_name_for_folder("A&-B") == "A&B"
+
+
+def test_sent_folder_uses_the_synced_mailbox_rather_than_a_new_one(db_account):
+    db, account_id = db_account
+    db.get_or_create_folder(account_id, "INBOX")
+    db.get_or_create_folder(account_id, "[Gmail]/Sent Mail")
+
+    folder = sent_folder(db, account_id)
+
+    assert folder.name == "[Gmail]/Sent Mail"
+    assert [f.name for f in db.folders_for_account(account_id)] == [
+        "INBOX",
+        "[Gmail]/Sent Mail",
+    ]
+
+
+def test_sent_folder_creates_one_before_the_first_sync(db_account):
+    db, account_id = db_account
+
+    folder = sent_folder(db, account_id)
+
+    assert folder.name == "Sent"
+    assert sent_folder(db, account_id).id == folder.id
 
 
 def test_inbox_name_prefers_the_server_s_own_spelling():

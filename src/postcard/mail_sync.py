@@ -1,5 +1,6 @@
 import logging
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
@@ -8,6 +9,7 @@ from gettext import gettext as _
 
 from .core.models.account import Account
 from .core.models.conversation import Conversation
+from .core.models.folder import Folder
 
 # Re-exported: callers reach MessageHeader through mail_sync, which is where it
 # is built. It lives in core.models so core.store can accept one directly.
@@ -21,6 +23,7 @@ from .core.net.imap_session import (
     decode_mailbox_name,
 )
 from .core.net.smtp_session import SmtpSession
+from .core.store.database import Database
 from .core.threader import NO_SUBJECT
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,20 @@ class FolderRole(StrEnum):
     STARRED = "starred"
     OTHER = "other"
 
+
+# How servers spell each role, in the order role_for_folder tries them: the
+# first match wins, so "Sent/Drafts" is a sent mailbox rather than a drafts one.
+# Word boundaries rather than a bare substring, so a mailbox the user named
+# "Consent forms", "Presentations" or "Unsent Messages" isn't taken for Sent.
+_ROLE_PATTERNS: tuple[tuple[re.Pattern[str], FolderRole], ...] = (
+    (re.compile(r"^inbox$", re.IGNORECASE), FolderRole.INBOX),
+    (re.compile(r"\bsent\b", re.IGNORECASE), FolderRole.SENT),
+    (re.compile(r"\bdrafts?\b", re.IGNORECASE), FolderRole.DRAFTS),
+    (re.compile(r"\b(trash|deleted)\b", re.IGNORECASE), FolderRole.TRASH),
+    (re.compile(r"\b(junk|spam)\b", re.IGNORECASE), FolderRole.JUNK),
+    (re.compile(r"\b(archives?|all mail)\b", re.IGNORECASE), FolderRole.ARCHIVE),
+    (re.compile(r"\b(starred|flagged)\b", re.IGNORECASE), FolderRole.STARRED),
+)
 
 # The canonical IMAP inbox name. Servers vary the casing, so this is the
 # fallback rather than something to compare against -- see inbox_name.
@@ -86,10 +103,7 @@ def inbox_name(folders: list[str]) -> str:
     """The server's inbox mailbox. IMAP calls it INBOX but servers vary the
     casing (Yahoo lists it as "Inbox"), so match by role and fall back to the
     canonical name."""
-    for name in folders:
-        if role_for_folder(name) == FolderRole.INBOX:
-            return name
-    return INBOX_MAILBOX
+    return mailbox_with_role(folders, FolderRole.INBOX) or INBOX_MAILBOX
 
 
 def fetch_mailbox(
@@ -286,13 +300,8 @@ def _append_to_sent(account: Account, password: str, raw: bytes) -> None:
         session.login(account.email, password)
         if session.has_capability(GMAIL_CAPABILITY):
             return
-        sent = next(
-            (
-                mailbox.name
-                for mailbox in session.list_folders()
-                if role_for_folder(mailbox.name) == FolderRole.SENT
-            ),
-            None,
+        sent = mailbox_with_role(
+            (mailbox.name for mailbox in session.list_folders()), FolderRole.SENT
         )
         if sent is None:
             logger.warning(
@@ -304,30 +313,40 @@ def _append_to_sent(account: Account, password: str, raw: bytes) -> None:
         session.logout()
 
 
-def role_for_folder(name: str) -> FolderRole:  # noqa: PLR0911
+def role_for_folder(name: str) -> FolderRole:
     """Classify a mailbox by name.
 
-    Matched by substring and tolerant of casing, because servers name these
-    differently ("Deleted Items", "[Gmail]/All Mail", "Bulk Mail").
-
-    noqa PLR0911: a dispatch table — one return per role is the point.
+    Matched by regex and tolerant of casing, because servers name these
+    differently ("Sent Items", "[Gmail]/Sent Mail", "Deleted Items").
     """
-    lowered = name.lower()
-    if lowered == FolderRole.INBOX:
-        return FolderRole.INBOX
-    if "sent" in lowered:
-        return FolderRole.SENT
-    if "draft" in lowered:
-        return FolderRole.DRAFTS
-    if "trash" in lowered or "deleted" in lowered:
-        return FolderRole.TRASH
-    if "junk" in lowered or "spam" in lowered:
-        return FolderRole.JUNK
-    if "archive" in lowered or "all mail" in lowered:
-        return FolderRole.ARCHIVE
-    if "star" in lowered or "flagged" in lowered:
-        return FolderRole.STARRED
+    for pattern, role in _ROLE_PATTERNS:
+        if pattern.search(name):
+            return role
     return FolderRole.OTHER
+
+
+def mailbox_with_role(names: Iterable[str], role: FolderRole) -> str | None:
+    """The mailbox this server uses for a role, or None when it lists none.
+
+    Every provider spells these its own way -- sent mail lives in "Sent",
+    "Sent Items", "Sent Messages", "[Gmail]/Sent Mail" or "INBOX.Sent" -- so
+    the name has to come from the server's own list, never from a constant.
+    """
+    return next((name for name in names if role_for_folder(name) is role), None)
+
+
+def sent_folder(db: Database, account_id: int) -> Folder:
+    """The local folder that mirrors this account's sent mailbox on the server.
+
+    Reads and writes the database, so main thread only. Saving the copy under a
+    folder literally named "Sent" files it beside the server's own sent mailbox
+    instead of in it, and the next sync's prune_folders then drops that folder
+    and the copy with it -- the mail vanishes from the app. Falls back to
+    creating "Sent" for an account whose folder list hasn't synced yet.
+    """
+    names = (folder.name for folder in db.folders_for_account(account_id))
+    name = mailbox_with_role(names, FolderRole.SENT) or SENT_FOLDER
+    return db.get_or_create_folder(account_id, name, icon_for_folder(name))
 
 
 def parent_mailbox_name(name: str, delimiter: str) -> str:

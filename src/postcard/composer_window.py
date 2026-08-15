@@ -553,11 +553,7 @@ class PostcardComposerWindow(Adw.Window):
     # Back on the main thread: safe to touch the database and widgets.
     def _on_send_done(self, email_id: int, subject: str, raw: bytes) -> bool:
         self._db.delete_email(email_id)
-        sent = self._db.get_or_create_folder(
-            self._account.id,
-            mail_sync.SENT_FOLDER,
-            mail_sync.icon_for_folder(mail_sync.SENT_FOLDER),
-        )
+        sent = mail_sync.sent_folder(self._db, self._account.id)
         row = self._db.save_email(
             sent.id,
             sender=self._account.email,

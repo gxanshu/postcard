@@ -87,6 +87,18 @@ lint:
         || echo "flatpak-builder-lint not installed (flatpak install flathub org.flatpak.Builder)"
 
 # ----------------------------------------------------------------------------
+# Website
+# ----------------------------------------------------------------------------
+
+# Build web/ into build/site and serve it at http://localhost:8000 (Ctrl+C stops).
+# Runs the same script CI does, version stamped from meson.build, so what you see
+# on localhost is exactly what lands on postcard.gxanshu.in.
+site port="8000":
+    sh web/build.sh "{{builddir}}/site"
+    @echo "Serving http://localhost:{{port}}"
+    {{python}} -m http.server {{port}} -d "{{builddir}}/site"
+
+# ----------------------------------------------------------------------------
 # Editor tooling & housekeeping
 # ----------------------------------------------------------------------------
 

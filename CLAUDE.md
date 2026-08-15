@@ -107,6 +107,30 @@ An account is either typed in by hand or imported from GNOME Online Accounts; `a
 
 **Only OAuth accounts are imported** — in practice Google. A GOA "Email Server" account is plain IMAP/SMTP, which the Add Account dialog already does and tests, so importing it would buy nothing but the typing; `mail_accounts()` flags it `is_oauth2` False and the dialog points at Add Account instead. Microsoft 365 and Exchange come back `is_mail_supported` False: GOA's Microsoft token carries Graph-only scopes (`mail.readwrite`, `mail.send`) with no `IMAP.AccessAsUser.All`, so there is no IMAP server to point at. Neither kind is hidden, so the dialog can always say why a row is unavailable.
 
+## The website
+
+`web/` is the landing page served at `postcard.gxanshu.in` from the **`pages`** branch.
+`sh web/build.sh <dir>` (or `just site`) assembles it and replaces `__VERSION__` with the
+`version:` from `meson.build`, so the version on the page can never drift from the release.
+Screenshots there are WebP copies of `data/screenshots/*.png`, regenerated with
+`magick <src> -resize 1920x -quality 82 web/img/<name>.webp` when a screenshot changes.
+
+Two workflows publish, and the split is not optional:
+
+- `release.yml` publishes with `force_orphan: true`, which **wipes the branch** and rebuilds
+  it. The signed ostree `repo/` lives on that branch, so it can only be published together
+  with the repo.
+- `site.yml` publishes on any push touching `web/**`, with `keep_files: true` so `repo/`
+  survives. Anything that deploys the site outside these two paths must keep `repo/` intact
+  or every installed copy loses `flatpak update`.
+
+Install buttons must point at
+`https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref` and
+nowhere else — that URL is what increments GitHub's per-asset download counter, which is the
+only install metric the project has. `release.yml` deliberately writes the `.flatpakref`
+outside `site/` for the same reason: mirroring it onto the site would leak downloads past the
+counter.
+
 ## Conventions
 
 - App ID `in.gxanshu.postcard`; GResource/GSettings prefix `/in/gxanshu/postcard`. GType names are `Postcard*` (e.g. `PostcardMainWindow`) — keep this prefix when adding templated widgets, and update it everywhere if the app is ever renamed again (it was renamed Postbox → Postcard).

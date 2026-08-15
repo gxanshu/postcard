@@ -1,0 +1,34 @@
+name: Site
+
+# Publishes the landing page on its own, so a copy fix doesn't have to wait for
+# a release. keep_files is what makes this safe: release.yml owns the branch with
+# force_orphan, and the signed ostree repo/ lives there. Wiping it would break
+# `flatpak update` for everyone already running Postcard.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: sh web/build.sh site
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: site
+          publish_branch: pages
+          keep_files: true
+          cname: postcard.gxanshu.in

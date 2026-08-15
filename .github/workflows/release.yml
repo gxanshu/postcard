@@ -131,9 +131,9 @@ jobs:
 
       - name: Assemble the site
         run: |
-          mkdir site
+          # Landing page, icon, robots and sitemap, with the version stamped in.
+          sh web/build.sh site
           mv repo site/repo
-          cp "data/icons/hicolor/256x256/apps/$APP_ID.png" site/icon.png
           cat > site/postcard.flatpakrepo <<EOF
           [Flatpak Repo]
           Title=Postcard

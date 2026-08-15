@@ -1,6 +1,7 @@
 import socket
 import ssl
 
+from postcard.core.net import errors
 from postcard.core.net.errors import classify
 from postcard.core.net.imap_session import ImapError
 from postcard.core.net.smtp_session import SmtpError
@@ -44,3 +45,14 @@ def test_a_generic_socket_error_is_treated_as_unreachable():
 
 def test_an_unrecognised_exception_falls_back_to_server():
     assert classify(ValueError("boom"), "imap.x") == ("server", "boom")
+
+
+def test_a_help_url_becomes_a_link():
+    assert errors.linkify("required: https://support.google.com/answer/185833 (x)") == (
+        'required: <a href="https://support.google.com/answer/185833">'
+        "https://support.google.com/answer/185833</a> (x)"
+    )
+
+
+def test_markup_in_a_server_message_is_escaped_not_rendered():
+    assert errors.linkify("<b>A & B</b>") == "&lt;b&gt;A &amp; B&lt;/b&gt;"

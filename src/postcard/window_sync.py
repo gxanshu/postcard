@@ -389,7 +389,7 @@ class SyncMixin(MainWindowParts):
         return "" if category == errors.CATEGORY_AUTH else _("Retry")
 
     def _show_connection_banner(self, title: str, button_label: str = "") -> None:
-        self.connection_banner.set_title(title)
+        self.connection_banner.set_title(errors.linkify(title))
         self.connection_banner.set_button_label(button_label)
         self.connection_banner.set_revealed(True)
 

@@ -1,3 +1,5 @@
+import html
+import re
 import socket
 import ssl
 from gettext import gettext as _
@@ -54,3 +56,15 @@ def classify(exc: Exception, host: str) -> tuple[str, str]:  # noqa: PLR0911
             "Couldn't reach the mail server. Check your connection."
         )
     return CATEGORY_SERVER, str(exc)
+
+
+# Trailing punctuation is sentence, not URL: "see https://x/y." keeps the dot out.
+_URL_PATTERN = re.compile(r"https?://[^\s<>]*[^\s<>.,;:)\]]")
+
+
+# Server messages often carry a help URL ("Application-specific password
+# required: https://support.google.com/..."). The banner renders Pango markup,
+# so escape the text first, then turn bare URLs into clickable links.
+def linkify(text: str) -> str:
+    escaped = html.escape(text, quote=False)
+    return _URL_PATTERN.sub(lambda m: f'<a href="{m.group()}">{m.group()}</a>', escaped)

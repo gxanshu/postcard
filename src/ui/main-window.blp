@@ -10,7 +10,10 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
     child: Gtk.Box {
       orientation: vertical;
 
-      Adw.Banner connection_banner {}
+
+      Adw.Banner connection_banner {
+        use-markup: true;
+      }
 
       Gtk.Stack main_stack {
         vexpand: true;

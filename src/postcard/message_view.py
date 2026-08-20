@@ -258,7 +258,6 @@ class MessageView(Gtk.Box):
         webview.connect("decide-policy", self._on_decide_policy)
         settings = webview.get_settings()
         settings.set_enable_javascript(False)
-        settings.set_auto_load_images(self._should_load_remote_images)
         # A message body needs none of these, and each one carries buffers.
         settings.set_enable_page_cache(False)
         settings.set_enable_media(False)
@@ -269,9 +268,15 @@ class MessageView(Gtk.Box):
         # paints; the GTK class supplies the white canvas expected by email HTML.
         webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
         webview.add_css_class("message-html")
-        webview.load_html(html, None)
+        webview.load_html(self._sandboxed_html(), None)
         self._webview = webview
         self._body.append(webview)
+
+    def _sandboxed_html(self) -> str:
+        return message_parser.sandbox_html(
+            self._html or "",
+            are_remote_images_allowed=self._should_load_remote_images,
+        )
 
     # The webview only ever renders the message body; anything the user clicks
     # belongs in their browser, not in here.
@@ -302,9 +307,9 @@ class MessageView(Gtk.Box):
     def _on_show_images_clicked(self, _banner: Adw.Banner) -> None:
         if self._webview is None or self._html is None:
             return
-        self._webview.get_settings().set_auto_load_images(True)
+        self._should_load_remote_images = True
         self._images_banner.set_revealed(False)
-        self._webview.load_html(self._html, None)
+        self._webview.load_html(self._sandboxed_html(), None)
 
     def _populate_attachments(self, attachments: list[Attachment]) -> None:
         if not attachments:

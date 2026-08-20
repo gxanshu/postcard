@@ -1,4 +1,4 @@
-from postcard.core.mime.message_parser import _format_date, parse_message
+from postcard.core.mime.message_parser import _format_date, parse_message, sandbox_html
 
 PLAIN = b"""\
 From: Ada <ada@example.com>
@@ -133,3 +133,15 @@ def test_format_date_of_a_missing_header():
 def test_empty_and_garbage_input_do_not_raise():
     assert parse_message(b"").attachments == []
     assert parse_message(b"\x00\xff not a message at all").attachments == []
+
+
+def test_sandbox_html_blocks_remote_subresources() -> None:
+    blocked = sandbox_html("<p>hi</p>", are_remote_images_allowed=False)
+    assert "default-src 'none'" in blocked
+    assert 'img-src data:"' in blocked
+    assert "<p>hi</p>" in blocked
+
+    allowed = sandbox_html("<p>hi</p>", are_remote_images_allowed=True)
+    assert "img-src data: https: http:" in allowed
+    # Remote CSS stays blocked either way -- it leaks the read like a pixel does.
+    assert "style-src 'unsafe-inline';" in allowed

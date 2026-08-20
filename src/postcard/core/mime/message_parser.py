@@ -85,3 +85,20 @@ def _as_attachment(part: EmailMessage) -> Attachment:
         mime_type=part.get_content_type(),
         content=content,
     )
+
+
+# WebKit's auto-load-images setting only gates <img>; a remote stylesheet,
+# @import, @font-face or <iframe> loads regardless and leaks the read just the
+# same. Only img-src is toggled: remote CSS is never needed to read mail, so it
+# stays blocked even after the user asks for images.
+_CSP = "default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:"
+_CSP_WITH_IMAGES = _CSP + " https: http:"
+
+
+def sandbox_html(html: str, *, are_remote_images_allowed: bool) -> str:
+    """Wrap a message body in a document whose CSP blocks remote subresources."""
+    policy = _CSP_WITH_IMAGES if are_remote_images_allowed else _CSP
+    return (
+        '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" '
+        f'content="{policy}"></head><body>{html}</body></html>'
+    )

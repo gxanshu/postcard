@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 
 import gi
@@ -14,7 +15,13 @@ from .core.mime import message_parser
 from .core.models.attachment import Attachment
 from .core.models.email import Email
 
+logger = logging.getLogger(__name__)
+
 LoadCallback = Callable[[bytes | None, str | None], None]
+
+# A mail body may name any scheme, and a registered handler will happily take
+# file:, smb: or tel: from a stranger. Only these three are worth honouring.
+EXTERNAL_SCHEMES = frozenset({"http", "https", "mailto"})
 
 # The standard gutter, matching the 12px spacing used by folder and
 # conversation rows. Adwaita's own margins are multiples of 6.
@@ -278,8 +285,10 @@ class MessageView(Gtk.Box):
             are_remote_images_allowed=self._should_load_remote_images,
         )
 
-    # The webview only ever renders the message body; anything the user clicks
-    # belongs in their browser, not in here.
+    # The webview only ever renders the message body: the one navigation it may
+    # perform is the load_html document itself. A click goes to the browser, and
+    # anything else the body asks for -- a meta refresh, a redirect, a target of
+    # its own -- is refused outright.
     def _on_decide_policy(
         self,
         _webview: WebKit.WebView,
@@ -292,16 +301,29 @@ class MessageView(Gtk.Box):
             return False
 
         action = decision.get_navigation_action()
+        uri = action.get_request().get_uri() or ""
+        scheme = uri.partition(":")[0].lower()
+
         if action.get_navigation_type() != WebKit.NavigationType.LINK_CLICKED:
-            return False
+            # load_html has no base URI, so its own document arrives as
+            # about:blank -- or with no URI at all. Neither can leak anything.
+            if scheme in ("about", ""):
+                return False
+            decision.ignore()
+            logger.warning("blocked navigation from a message body to %s", uri)
+            return True
 
         decision.ignore()
-        uri = action.get_request().get_uri()
-        if uri:
-            root = self.get_root()
-            Gtk.UriLauncher(uri=uri).launch(
-                root if isinstance(root, Gtk.Window) else None, None, None
+        if scheme not in EXTERNAL_SCHEMES:
+            logger.warning(
+                "blocked a message body link with scheme %r: %s", scheme, uri
             )
+            return True
+
+        root = self.get_root()
+        Gtk.UriLauncher(uri=uri).launch(
+            root if isinstance(root, Gtk.Window) else None, None, None
+        )
         return True
 
     def _on_show_images_clicked(self, _banner: Adw.Banner) -> None:

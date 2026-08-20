@@ -6,15 +6,12 @@ data/in.gxanshu.postcard.metainfo.xml.in
 src/postcard/accounts_dialog.py
 src/postcard/application.py
 src/postcard/composer_window.py
+src/postcard/core/net/errors.py
 src/postcard/mail_sync.py
 src/postcard/message_view.py
 src/postcard/online_accounts_dialog.py
 src/postcard/preferences_dialog.py
-src/postcard/window_accounts.py
-src/postcard/window_actions.py
-src/postcard/window_move.py
-src/postcard/window_reader.py
-src/postcard/window_sync.py
+src/postcard/window.py
 src/ui/account-dialog.blp
 src/ui/accounts-dialog.blp
 src/ui/composer-window.blp

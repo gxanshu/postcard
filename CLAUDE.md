@@ -24,7 +24,7 @@ Requires `flatpak` + `flatpak-builder` on the host; Python/GTK/meson come from t
 ## Lint, format, tests
 
 - **Format:** `just fmt` (ruff, line length 88, py312 target). Editor config in `pyproject.toml`; Zed formats on save.
-- **Tests:** `just test` (host pytest, no Flatpak). `build`, `run` and `bundle` all depend on it, so a failing test blocks the Flatpak build; CI runs the same suite via `.github/workflows/tests.yml`, which `release.yml` calls before publishing. The GTK-free `core/` modules are unit-tested; tests live under `tests/` mirroring the `core/` package layout (e.g. `tests/core/test_threader.py`). `[tool.pytest.ini_options]` sets `pythonpath = ["src"]`, so the package resolves without being installed — no `conftest.py` needed. Note: the checked-in `.venv` is dev-tooling only (per `pyproject.toml`) and `.venv/bin/pytest` has a stale shebang after the project rename, which is why the recipe invokes `.venv/bin/python -m pytest`. Testable without a display: the pure-Python `core/` code (threader, compose, mime parser, models, database), `mail_sync`'s folder classification and its raw-header mapping, and the IMAP/SMTP sessions via a fake in place of `imaplib`/`smtplib` (see `tests/core/net/`). Not testable: `core/secrets.py` (libsecret), the D-Bus half of `core/goa.py` (its pure host/port/security helpers are), and the whole GTK layer, since the Adw typelib only exists inside the Flatpak. That last gap is real — four crashes have shipped in `window*.py` code no test could have caught, so exercise those changes with `just run`.
+- **Tests:** `just test` (host pytest, no Flatpak). `build`, `run` and `bundle` all depend on it, so a failing test blocks the Flatpak build; CI runs the same suite via `.github/workflows/tests.yml`, which `release.yml` calls before publishing. The GTK-free `core/` modules are unit-tested; tests live under `tests/` mirroring the `core/` package layout (e.g. `tests/core/test_threader.py`). `[tool.pytest.ini_options]` sets `pythonpath = ["src"]`, so the package resolves without being installed — no `conftest.py` needed. Note: the checked-in `.venv` is dev-tooling only (per `pyproject.toml`) and `.venv/bin/pytest` has a stale shebang after the project rename, which is why the recipe invokes `.venv/bin/python -m pytest`. Testable without a display: the pure-Python `core/` code (threader, compose, mime parser, models, database), `mail_sync`'s folder classification and its raw-header mapping, and the IMAP/SMTP sessions via a fake in place of `imaplib`/`smtplib` (see `tests/core/net/`). Not testable: `core/secrets.py` (libsecret), the D-Bus half of `core/goa.py` (its pure host/port/security helpers are), and the whole GTK layer, since the Adw typelib only exists inside the Flatpak. That last gap is real — four crashes have shipped in `window.py` code no test could have caught, so exercise those changes with `just run`.
 - `pyright` runs in `basic` mode over `src/postcard`. `PyGObject-stubs` must be installed for this to be useful — without it every `gi` import reports as unresolved and drowns the real findings. Install it with `--no-deps`: it declares `PyGObject` as a dependency, which builds `pycairo` from source and needs cairo headers, but the `.venv` deliberately takes `gi` from apt via `--system-site-packages`.
 - **Check:** `just check` (ruff check + `ruff format --check` + pyright). `test` depends on `check`, and `build`/`bundle` depend on `test`, so a lint or type error blocks the Flatpak build. CI runs the same three steps.
 
@@ -36,7 +36,7 @@ Three places the standard is deliberately not applied literally, each with the r
 
 - **`TRY003` is disabled.** It forbids long messages outside the exception class, which is in direct conflict with the standard's own logging rule — `ImapError(f"could not move {uid} to {destination}: {data}")` is the message we want, and satisfying `TRY003` means one exception subclass per message.
 - **"Fewer than 4 parameters" cannot apply to `core/models/*.py`.** `Account`, `Email` and `Folder` are `GObject.Object` subclasses because `Gio.ListStore` only accepts GObjects, so they can't become dataclasses and every field has to be a constructor parameter. They are keyword-only instead, so call sites still read like a dataclass.
-- **"Under 200 lines per file" is the target for `core/` only.** `@Gtk.Template` modules aim for under 400: a templated widget class can't be split below its own widget surface without fighting the template.
+- **"Under 200 lines per file" is the target for `core/` only.** A templated widget class can't be split below its own widget surface without fighting the template, so `@Gtk.Template` modules are measured by whether the split earns its keep rather than by a line count. `window.py` is ~2,200 lines because the alternative was eight files plus a declaration-only ninth — see the main window section below.
 
 ### Logging
 
@@ -53,34 +53,37 @@ Two layers, and the boundary matters:
 - **`src/postcard/core/`** — UI-agnostic logic, no GTK widgets. Sub-packages: `models/` (Account, Folder, Email, Conversation, Attachment as `GObject.Object`s so `Gio.ListStore` accepts them, plus `MessageHeader` as a plain dataclass), `store/database.py` (all SQLite), `net/` (`imap_session.py`, `smtp_session.py`, `errors.py` — thin stdlib `imaplib`/`smtplib` wrappers), `mime/message_parser.py`, plus `threader.py`, `compose.py`, `secrets.py`. This is where testable logic belongs.
 - **`src/postcard/*.py`** — the GTK layer. `application.py` (Adw.Application, app actions/accelerators), the main window (below), and per-view modules (`composer_window.py`, `message_view.py`, `conversation_row.py`, dialogs, `mail_sync.py`).
 
-### The main window is a class split across files
+### The main window is one class
 
-`PostcardMainWindow` is one class assembled from mixins, one per concern:
+`PostcardMainWindow` lives entirely in `window.py` — one `@Gtk.Template` class of
+~2,200 lines, ordered by concern and signposted with `# ---` dividers:
 
-| file | what it owns |
+| section | what it owns |
 |---|---|
-| `window.py` | the `@Gtk.Template`, `__init__`, `_load_mail_view`, window lifecycle |
-| `window_accounts.py` | account switcher, adding accounts, opening the composer |
-| `window_actions.py` | read/unread, star, the flag worker, row context menu |
-| `window_move.py` | archive/trash/move and the undo window |
-| `window_folders.py` | the folder sidebar tree, rows, selection |
-| `window_list.py` | the conversation list, search, scroll paging |
-| `window_reader.py` | the reading pane, message bodies, attachments |
-| `window_sync.py` | syncing, the Outbox, the connection banner |
-| `window_types.py` | constants and records the above share |
-| `window_parts.py` | the shared surface, declared once for the type checker |
+| (top) | the template, `__init__`, `_load_mail_view`, window lifecycle |
+| accounts | account switcher, adding accounts, opening the composer |
+| actions | read/unread, star, the flag worker, row context menu |
+| move | archive/trash/move and the undo window |
+| folders | the folder sidebar tree, rows, selection |
+| list | the conversation list, search, scroll paging |
+| reader | the reading pane, message bodies, attachments |
+| sync | syncing, the Outbox, the connection banner |
 
-Three things will bite you here:
+`window_types.py` holds the constants and frozen records the window shares with
+`preferences_dialog.py`; it stays a separate module for that reason.
 
-- **`Adw.ApplicationWindow` is listed last** in `PostcardMainWindow`'s bases. The mixins share `MainWindowParts`, which *is* the window type when type-checking, and C3 requires a base to follow its own subclasses. Position doesn't change the GType parent, so `Gtk.Template` still sees `AdwApplicationWindow`.
-- **`MainWindowParts` inherits the window type only under `TYPE_CHECKING`**; at runtime it must stay a plain `object`. `Gtk.Template` checks that the template's declared parent matches the instance's direct parent GType, so a mixin that were itself a GObject subclass would make the direct parent a mixin and the template would refuse to build.
-- **Add a declaration to `window_parts.py`** when a mixin starts using state or a sibling method it didn't before — that file is why each mixin type-checks on its own. Stubs there `raise NotImplementedError`, so a declaration with no implementation fails loudly.
+This was eight mixin files plus a 268-line `window_parts.py` that re-declared
+every field and cross-mixin method so each mixin would type-check alone. The
+declarations were pure overhead — no behaviour, and a second place to update on
+every change — so the class was merged back into the thing it always was at
+runtime. Keep it that way: splitting it again brings `window_parts.py` back.
 
-Anything only used inside one mixin stays private to it; `window_parts.py` lists just the cross-module surface.
+The file is long on purpose. Add new window code to the section it belongs to
+rather than starting a `window_*.py` module for it.
 
 ### Threading model (critical)
 
-**All network I/O runs on a `threading.Thread(daemon=True)`; results are marshalled back to the main thread with `GLib.idle_add`.** The worker function does network only — it must never touch the database or GTK widgets, and that includes reading `self._account`: resolve that on the main thread and pass it in. Credentials are the exception, and deliberately so: `secrets.credential_for` blocks on IPC, and for a GNOME Online Account that can mean a token refresh over the network, so it is called *inside* the worker. Both backends (libsecret, GOA over D-Bus) are thread-safe and touch neither the database nor GTK. The `_on_*` callback that `idle_add` schedules runs on the main loop and is the only place that mutates the DB or UI. Follow this pattern for any new network action (see `_start_sync`/`_sync_worker`/`_on_sync_done` in `window_sync.py`). Hand the worker a frozen snapshot rather than a live object the main thread might mutate — `FlagChange` and `BodyRequest` in `window_types.py` are the examples. IMAP/SMTP sessions are opened and torn down per operation, not pooled.
+**All network I/O runs on a `threading.Thread(daemon=True)`; results are marshalled back to the main thread with `GLib.idle_add`.** The worker function does network only — it must never touch the database or GTK widgets, and that includes reading `self._account`: resolve that on the main thread and pass it in. Credentials are the exception, and deliberately so: `secrets.credential_for` blocks on IPC, and for a GNOME Online Account that can mean a token refresh over the network, so it is called *inside* the worker. Both backends (libsecret, GOA over D-Bus) are thread-safe and touch neither the database nor GTK. The `_on_*` callback that `idle_add` schedules runs on the main loop and is the only place that mutates the DB or UI. Follow this pattern for any new network action (see `_start_sync`/`_sync_worker`/`_on_sync_done` in `window.py`). Hand the worker a frozen snapshot rather than a live object the main thread might mutate — `FlagChange` and `BodyRequest` in `window_types.py` are the examples. IMAP/SMTP sessions are opened and torn down per operation, not pooled.
 
 ### No account is a real state
 

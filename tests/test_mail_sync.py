@@ -37,6 +37,20 @@ from postcard.mail_sync import (
 CREDENTIAL = Credential("ada@example.com", "hunter2")
 
 
+def account(smtp_host: str = "", smtp_port: int = 0) -> Account:
+    """The account handed to mail_sync. The SMTP half is only filled in for the
+    tests that send; the rest never reach it."""
+    return Account(
+        id=1,
+        email="ada@example.com",
+        display_name="Ada",
+        imap_host="imap.example.com",
+        imap_port=993,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+    )
+
+
 @pytest.fixture
 def db_account():
     database = Database(":memory:")
@@ -234,72 +248,16 @@ def test_server_uids_skips_messages_the_server_has_never_seen():
     assert server_uids(conversation(None)) == []
 
 
-@pytest.mark.parametrize(
-    ("offset", "snapshot", "search_calls"),
-    [
-        (0, {"4", "9"}, 1),
-        (0, set(), 1),
-        (50, None, 0),
-    ],
-)
-def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_page(
-    monkeypatch, offset, snapshot, search_calls
-):
-    class FakeImapSession:
-        searches = 0
+class FakeImapSession:
+    """An IMAP server that answers every command with nothing.
 
-        def __init__(self, host, port, security):
-            pass
-
-        def connect(self):
-            pass
-
-        def sign_in(self, credential):
-            pass
-
-        def list_folders(self):
-            return []
-
-        def select(self, mailbox):
-            return 0
-
-        def search_all_uids(self):
-            type(self).searches += 1
-            return snapshot
-
-        def fetch_recent_headers(self, exists, limit, offset):
-            return []
-
-        def logout(self):
-            pass
-
-    monkeypatch.setattr(mail_sync, "ImapSession", FakeImapSession)
-    account = Account(
-        id=1,
-        email="ada@example.com",
-        display_name="Ada",
-        imap_host="imap.example.com",
-        imap_port=993,
-        smtp_host="",
-        smtp_port=0,
-    )
-
-    result = fetch_mailbox(account, CREDENTIAL, offset=offset)
-
-    assert FakeImapSession.searches == search_calls
-    assert result.all_uids == snapshot
-    assert SyncResult().all_uids is None
-
-
-# --- unread counts for the folders this sync did not fetch ------------------
-
-
-class CountingImapSession:
-    """An IMAP server that records which mailboxes were asked for a count."""
+    The doubles below subclass this and override only the one command they
+    record, so each says what it is for and nothing else. State is per-class
+    rather than per-instance because mail_sync constructs the session itself --
+    a test only gets to hand it the class, so the fixture resets the class.
+    """
 
     mailboxes: list[MailboxInfo] = []
-    refused: str = ""
-    asked: list[str] = []
 
     def __init__(self, host, port, security):
         pass
@@ -313,7 +271,7 @@ class CountingImapSession:
     def list_folders(self):
         return type(self).mailboxes
 
-    def select(self, mailbox):
+    def select(self, mailbox, is_readonly=True):
         return 0
 
     def search_all_uids(self):
@@ -322,14 +280,55 @@ class CountingImapSession:
     def fetch_recent_headers(self, exists, limit, offset):
         return []
 
+    def logout(self):
+        pass
+
+
+def mailboxes(*names: str) -> list[MailboxInfo]:
+    """Selectable mailboxes under the usual "/" delimiter."""
+    return [MailboxInfo(name, "/", "") for name in names]
+
+
+@pytest.mark.parametrize(
+    ("offset", "snapshot", "search_calls"),
+    [
+        (0, {"4", "9"}, 1),
+        (0, set(), 1),
+        (50, None, 0),
+    ],
+)
+def test_fetch_mailbox_returns_an_authoritative_uid_snapshot_only_for_newest_page(
+    monkeypatch, offset, snapshot, search_calls
+):
+    # Declared here rather than beside the others: each parametrization needs
+    # its own `snapshot` and a counter starting at zero.
+    class SearchingImapSession(FakeImapSession):
+        searches = 0
+
+        def search_all_uids(self):
+            type(self).searches += 1
+            return snapshot
+
+    monkeypatch.setattr(mail_sync, "ImapSession", SearchingImapSession)
+
+    result = fetch_mailbox(account(), CREDENTIAL, offset=offset)
+
+    assert SearchingImapSession.searches == search_calls
+    assert result.all_uids == snapshot
+    assert SyncResult().all_uids is None
+
+
+class CountingImapSession(FakeImapSession):
+    """An IMAP server that records which mailboxes were asked for a count."""
+
+    refused: str = ""
+    asked: list[str] = []
+
     def unseen_count(self, mailbox):
         type(self).asked.append(mailbox)
         if mailbox == type(self).refused:
             raise ImapError("mailbox unavailable")
         return 7
-
-    def logout(self):
-        pass
 
 
 @pytest.fixture
@@ -347,16 +346,7 @@ def counting_imap(monkeypatch):
 
 
 def sync(offset: int = 0) -> SyncResult:
-    account = Account(
-        id=1,
-        email="ada@example.com",
-        display_name="Ada",
-        imap_host="imap.example.com",
-        imap_port=993,
-        smtp_host="",
-        smtp_port=0,
-    )
-    return mail_sync.fetch_mailbox(account, CREDENTIAL, offset=offset)
+    return mail_sync.fetch_mailbox(account(), CREDENTIAL, offset=offset)
 
 
 def test_every_role_folder_but_the_fetched_one_is_counted(counting_imap):
@@ -546,7 +536,7 @@ def test_the_uid_and_threading_headers_carry_over_verbatim():
 
 
 class FakeSmtpSession:
-    sign_ins: list[Credential] = []
+    """An SMTP server that accepts everything and remembers nothing."""
 
     def __init__(self, host, port, security):
         pass
@@ -555,7 +545,7 @@ class FakeSmtpSession:
         pass
 
     def sign_in(self, credential):
-        type(self).sign_ins.append(credential)
+        pass
 
     def send_raw(self, from_addr, recipients, raw):
         pass
@@ -564,60 +554,36 @@ class FakeSmtpSession:
         pass
 
 
-class AppendingImapSession:
+class AppendingImapSession(FakeImapSession):
     """An IMAP server that records what was appended where."""
 
     appends: list[tuple[str, bytes]] = []
-    mailboxes: list[str] = []
     capabilities: tuple[str, ...] = ()
-    sign_ins: list[Credential] = []
-
-    def __init__(self, host, port, security):
-        pass
-
-    def connect(self):
-        pass
-
-    def sign_in(self, credential):
-        type(self).sign_ins.append(credential)
 
     def has_capability(self, name):
         return name in type(self).capabilities
 
-    def list_folders(self):
-        return [MailboxInfo(name, "/", "") for name in type(self).mailboxes]
-
     def append(self, mailbox, raw):
         type(self).appends.append((mailbox, raw))
-
-    def logout(self):
-        pass
 
 
 @pytest.fixture
 def imap(monkeypatch):
     AppendingImapSession.appends = []
-    AppendingImapSession.mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
+    AppendingImapSession.mailboxes = mailboxes("INBOX", "[Gmail]/Sent Mail")
     AppendingImapSession.capabilities = ()
-    AppendingImapSession.sign_ins = []
-    FakeSmtpSession.sign_ins = []
     monkeypatch.setattr(mail_sync, "SmtpSession", FakeSmtpSession)
     monkeypatch.setattr(mail_sync, "ImapSession", AppendingImapSession)
     return AppendingImapSession
 
 
 def send() -> None:
-    account = Account(
-        id=1,
-        email="ada@example.com",
-        display_name="Ada",
-        imap_host="imap.example.com",
-        imap_port=993,
-        smtp_host="smtp.example.com",
-        smtp_port=465,
-    )
     mail_sync.send_message(
-        account, CREDENTIAL, "ada@example.com", ["you@example.com"], b"raw"
+        account("smtp.example.com", 465),
+        CREDENTIAL,
+        "ada@example.com",
+        ["you@example.com"],
+        b"raw",
     )
 
 
@@ -638,7 +604,7 @@ def test_gmail_files_its_own_copy_so_nothing_is_appended(imap):
 
 
 def test_a_server_without_a_sent_mailbox_is_skipped_rather_than_failing(imap):
-    imap.mailboxes = ["INBOX"]
+    imap.mailboxes = mailboxes("INBOX")
 
     send()
 
@@ -659,28 +625,13 @@ def test_the_send_still_counts_as_done_when_the_append_fails(imap, monkeypatch):
 # --- flags ------------------------------------------------------------------
 
 
-class StoringImapSession:
+class StoringImapSession(FakeImapSession):
     """An IMAP server that records every STORE it was asked to run."""
 
     stores: list[tuple[str, str, bool]] = []
 
-    def __init__(self, host, port, security):
-        pass
-
-    def connect(self):
-        pass
-
-    def sign_in(self, credential):
-        pass
-
-    def select(self, mailbox, is_readonly=True):
-        return 0
-
     def store_flags(self, uids, flags, should_add):
         type(self).stores.append((uids, flags, should_add))
-
-    def logout(self):
-        pass
 
 
 @pytest.fixture
@@ -691,16 +642,7 @@ def storing_imap(monkeypatch):
 
 
 def set_flag(*uids: str) -> None:
-    account = Account(
-        id=1,
-        email="ada@example.com",
-        display_name="Ada",
-        imap_host="imap.example.com",
-        imap_port=993,
-        smtp_host="",
-        smtp_port=0,
-    )
-    mail_sync.set_flag(account, CREDENTIAL, "INBOX", uids, FLAG_SEEN, should_add=True)
+    mail_sync.set_flag(account(), CREDENTIAL, "INBOX", uids, FLAG_SEEN, should_add=True)
 
 
 def test_a_whole_thread_is_flagged_in_one_store(storing_imap):

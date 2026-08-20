@@ -1829,6 +1829,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
 
         launcher = Gtk.FileLauncher(file=Gio.File.new_for_path(str(path)))
+        # Server-supplied bytes: make the portal ask which app, so one click
+        # can't hand an arbitrary file straight to its default handler.
+        launcher.set_always_ask(True)
         launcher.launch(self, None, self._on_launch_done, attachment.filename)
 
     def _on_launch_done(

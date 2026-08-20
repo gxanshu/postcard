@@ -475,16 +475,6 @@ class Database:
                 [(folder_id, email_id) for email_id in email_ids],
             )
 
-    def restore_emails(self, emails: Sequence[tuple[int, int, str]]) -> None:
-        """Atomically put pending moves back in their original mailbox and UID.
-
-        The UID is never None here: only messages the server already knows
-        about can be moved, so only those can need restoring. Otherwise this is
-        the same reconciliation as a completed move -- same triples, same
-        "an authoritative row already exists" rule.
-        """
-        self.reconcile_moved_emails(emails)
-
     def reconcile_moved_emails(
         self, moves: Sequence[tuple[int, int, str | None]]
     ) -> None:

@@ -1096,7 +1096,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._run_move_worker(pending)
 
     def _restore_move(self, pending: PendingMove) -> None:
-        self._db.restore_emails(pending.originals)
+        self._db.reconcile_moved_emails(pending.originals)
         self._clear_move_tombstones(pending)
         self._reload_folders()
         self._refresh_conversations()
@@ -1180,7 +1180,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if failed_index is None and completed < len(pending.uids):
             failed_index = completed
         if failed_index is not None:
-            self._db.restore_emails(pending.originals[failed_index:])
+            self._db.reconcile_moved_emails(pending.originals[failed_index:])
             self._clear_move_tombstones(pending, failed_index)
         self._reload_folders()
         self._refresh_conversations()

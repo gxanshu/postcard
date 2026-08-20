@@ -323,7 +323,7 @@ def test_moving_an_email_between_folders(db, folder):
     assert [e.id for e in db.emails_in_folder(trash.id)] == [email.id]
 
 
-# restore_emails and reconcile_moved_emails are the same reconciliation, so
+# Undo and commit are the same reconciliation pointed at different mailboxes, so
 # both halves of it are pinned here: the undo path and the commit path.
 
 
@@ -333,7 +333,7 @@ def test_undoing_a_move_puts_the_email_back_with_its_original_uid(db, folder):
     (email,) = db.emails_in_folder(folder.id)
     db.move_emails([email.id], trash.id)
 
-    db.restore_emails([(email.id, folder.id, "7")])
+    db.reconcile_moved_emails([(email.id, folder.id, "7")])
 
     (restored,) = db.emails_in_folder(folder.id)
     assert (restored.id, restored.server_id) == (email.id, "7")
@@ -348,7 +348,7 @@ def test_undoing_a_move_drops_the_placeholder_when_a_sync_beat_it_back(db, folde
     # A sync reinserted the source UID while the move was pending.
     incoming(db, folder.id, "7")
 
-    db.restore_emails([(email.id, folder.id, "7")])
+    db.reconcile_moved_emails([(email.id, folder.id, "7")])
 
     (kept,) = db.emails_in_folder(folder.id)
     assert kept.id != email.id  # the authoritative row survived, not ours

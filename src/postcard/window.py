@@ -111,6 +111,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     forward_button: Gtk.Button = Gtk.Template.Child()
     mark_read_button: Gtk.Button = Gtk.Template.Child()
     star_button: Gtk.Button = Gtk.Template.Child()
+    archive_button: Gtk.Button = Gtk.Template.Child()
+    archive_button_content: Adw.ButtonContent = Gtk.Template.Child()
     move_button: Gtk.MenuButton = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
     connection_banner: Adw.Banner = Gtk.Template.Child()
@@ -929,7 +931,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         menu.append_section(None, flags)
 
         actions = Gio.Menu()
-        actions.append(_("Archive"), "context.archive")
+        actions.append(self._archive_label(), "context.archive")
         actions.append(_("Delete"), "context.trash")
         actions.append_submenu(_("Move to"), self._build_move_menu("context"))
         menu.append_section(None, actions)
@@ -938,8 +940,32 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # --- archive, trash and move, with an undo window ---------------------
 
+    # Archive moves to the archive folder -- except while reading the archive
+    # itself, where the same button/action/menu item unarchives to the inbox.
+    def _archive_role(self) -> mail_sync.FolderRole:
+        folder = self._current_folder
+        if folder is not None and (
+            mail_sync.role_for_folder(folder.name) is mail_sync.FolderRole.ARCHIVE
+        ):
+            return mail_sync.FolderRole.INBOX
+        return mail_sync.FolderRole.ARCHIVE
+
+    def _archive_label(self) -> str:
+        if self._archive_role() is mail_sync.FolderRole.INBOX:
+            return _("Unarchive")
+        return _("Archive")
+
+    def _update_archive_button(self) -> None:
+        is_unarchive = self._archive_role() is mail_sync.FolderRole.INBOX
+        label = self._archive_label()
+        self.archive_button_content.set_label(label)
+        self.archive_button_content.set_icon_name(
+            "mail-unread-symbolic" if is_unarchive else "mail-archive-symbolic"
+        )
+        self.archive_button.set_tooltip_text(label)
+
     def _on_archive(self, _action: Gio.SimpleAction, _param: object) -> None:
-        self._start_move_by_role(mail_sync.FolderRole.ARCHIVE)
+        self._start_move_by_role(self._archive_role())
 
     def _on_trash(self, _action: Gio.SimpleAction, _param: object) -> None:
         self._start_move_by_role(mail_sync.FolderRole.TRASH)
@@ -979,6 +1005,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             title = ngettext("Archived", "Archived {n} conversations", count).format(
                 n=count
             )
+        elif role == mail_sync.FolderRole.INBOX:
+            title = ngettext(
+                "Unarchived", "Unarchived {n} conversations", count
+            ).format(n=count)
         else:
             title = ngettext("Deleted", "Deleted {n} conversations", count).format(
                 n=count
@@ -1348,6 +1378,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         previous = self._current_folder
         self._current_folder = folder
         self.move_button.set_menu_model(self._build_move_menu())
+        self._update_archive_button()
         if self._suppress_folder_refresh:
             return
         self._refresh_conversations()

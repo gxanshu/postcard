@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import ssl
 
 from . import NET_TIMEOUT_SECONDS
 from .auth import MECHANISM_LOGIN, MECHANISM_XOAUTH2, Credential, xoauth2_response
@@ -19,14 +20,17 @@ class SmtpSession:
         self._smtp: smtplib.SMTP | None = None
 
     def connect(self) -> None:
+        # smtplib's default context does not verify the certificate or the
+        # hostname; see the note in ImapSession.connect.
+        context = ssl.create_default_context()
         if self._security == "starttls":
             self._smtp = smtplib.SMTP(
                 self._host, self._port, timeout=NET_TIMEOUT_SECONDS
             )
-            self._smtp.starttls()
+            self._smtp.starttls(context=context)
         else:
             self._smtp = smtplib.SMTP_SSL(
-                self._host, self._port, timeout=NET_TIMEOUT_SECONDS
+                self._host, self._port, timeout=NET_TIMEOUT_SECONDS, context=context
             )
 
     def sign_in(self, credential: Credential) -> None:

@@ -1,3 +1,5 @@
+import ssl
+
 import pytest
 
 from postcard.core.net.auth import MECHANISM_XOAUTH2, Credential
@@ -31,6 +33,9 @@ class FakeImap:
 
     def login(self, user, password):
         self.calls.append(("LOGIN", user, password))
+
+    def starttls(self, ssl_context=None):
+        self.calls.append(("STARTTLS", ssl_context))
 
 
 def connect(monkeypatch, imap: FakeImap) -> ImapSession:
@@ -242,3 +247,39 @@ def test_an_unknown_mechanism_fails_rather_than_staying_unauthenticated(monkeypa
         session.sign_in(Credential("me@example.com", "", "none"))
 
     assert imap.calls == []
+
+
+# --- TLS -------------------------------------------------------------------
+# imaplib defaults to ssl._create_stdlib_context(): check_hostname off,
+# verify_mode CERT_NONE. Left alone, every sync accepts any certificate and
+# hands the password to whoever is on the path.
+
+
+def _assert_verifies(context: ssl.SSLContext) -> None:
+    assert context.check_hostname
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_connect_gives_imap4_ssl_a_verifying_context(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "postcard.core.net.imap_session.imaplib.IMAP4_SSL",
+        lambda *args, **kwargs: captured.update(kwargs) or FakeImap(),
+    )
+
+    ImapSession("imap.example.com", 993).connect()
+
+    _assert_verifies(captured["ssl_context"])
+
+
+def test_connect_gives_starttls_a_verifying_context(monkeypatch):
+    imap = FakeImap()
+    monkeypatch.setattr(
+        "postcard.core.net.imap_session.imaplib.IMAP4",
+        lambda *args, **kwargs: imap,
+    )
+
+    ImapSession("imap.example.com", 143, "starttls").connect()
+
+    assert imap.calls[0][0] == "STARTTLS"
+    _assert_verifies(imap.calls[0][1])

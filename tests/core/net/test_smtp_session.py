@@ -1,4 +1,5 @@
 import smtplib
+import ssl
 
 import pytest
 
@@ -19,6 +20,9 @@ class FakeSmtp:
 
     def login(self, user, password):
         self.calls.append(("login", user, password))
+
+    def starttls(self, context=None):
+        self.calls.append(("starttls", context))
 
 
 def connect(monkeypatch, smtp: FakeSmtp) -> SmtpSession:
@@ -60,7 +64,7 @@ def test_send_raw_names_the_recipients_in_the_error(monkeypatch) -> None:
         def sendmail(self, from_addr: str, recipients: list[str], raw: bytes) -> None:
             raise smtplib.SMTPRecipientsRefused({})
 
-    monkeypatch.setattr(smtplib, "SMTP_SSL", lambda host, port, timeout: RefusingSmtp())
+    monkeypatch.setattr(smtplib, "SMTP_SSL", lambda *args, **kwargs: RefusingSmtp())
     session = SmtpSession("smtp.example.com", 465)
     session.connect()
 
@@ -100,3 +104,38 @@ def test_a_password_account_still_uses_plain_login(monkeypatch):
     session.sign_in(Credential("me@example.com", "hunter2"))
 
     assert smtp.calls == [("login", "me@example.com", "hunter2")]
+
+
+# --- TLS -------------------------------------------------------------------
+# Same defect as imaplib: smtplib's implicit context checks neither the
+# certificate nor the hostname, so a send would leak the password.
+
+
+def _assert_verifies(context: ssl.SSLContext) -> None:
+    assert context.check_hostname
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_connect_gives_smtp_ssl_a_verifying_context(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "postcard.core.net.smtp_session.smtplib.SMTP_SSL",
+        lambda *args, **kwargs: captured.update(kwargs) or FakeSmtp(),
+    )
+
+    SmtpSession("smtp.example.com", 465).connect()
+
+    _assert_verifies(captured["context"])
+
+
+def test_connect_gives_starttls_a_verifying_context(monkeypatch):
+    smtp = FakeSmtp()
+    monkeypatch.setattr(
+        "postcard.core.net.smtp_session.smtplib.SMTP",
+        lambda *args, **kwargs: smtp,
+    )
+
+    SmtpSession("smtp.example.com", 587, "starttls").connect()
+
+    assert smtp.calls[0][0] == "starttls"
+    _assert_verifies(smtp.calls[0][1])

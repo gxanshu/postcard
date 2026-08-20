@@ -55,7 +55,8 @@ _URL_PATTERN = re.compile(r"https?://[^\s<>]*[^\s<>.,;:)\]]")
 
 # Server messages often carry a help URL ("Application-specific password
 # required: https://support.google.com/..."). The banner renders Pango markup,
-# so escape the text first, then turn bare URLs into clickable links.
+# so escape the text first, then turn bare URLs into clickable links. Quotes are
+# escaped too: an unescaped one would break out of the href="..." attribute.
 def linkify(text: str) -> str:
-    escaped = html.escape(text, quote=False)
+    escaped = html.escape(text)
     return _URL_PATTERN.sub(lambda m: f'<a href="{m.group()}">{m.group()}</a>', escaped)

@@ -49,3 +49,10 @@ def test_a_help_url_becomes_a_link():
 
 def test_markup_in_a_server_message_is_escaped_not_rendered():
     assert errors.linkify("<b>A & B</b>") == "&lt;b&gt;A &amp; B&lt;/b&gt;"
+
+
+def test_a_quote_in_a_server_message_cannot_break_out_of_href():
+    assert errors.linkify('auth failed: https://evil/" title="x') == (
+        'auth failed: <a href="https://evil/&quot">https://evil/&quot</a>'
+        "; title=&quot;x"
+    )

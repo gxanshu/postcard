@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
+from .composer_window import composer_for_mailto
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
 from .window import PostcardMainWindow
@@ -81,16 +82,28 @@ class PostcardApplication(Adw.Application):
         win.present()
 
     def do_open(self, files: list[Gio.File], _n_files: int, _hint: str) -> None:
-        self.do_activate()
-        win = self.props.active_window
-        if not isinstance(win, PostcardMainWindow):
-            return
         for file in files:
             uri = file.get_uri()
             if uri.lower().startswith(MAILTO_SCHEME):
-                win.open_mailto(uri)
+                self._open_mailto(uri)
             else:
                 logger.warning("ignoring unsupported URI %s", uri)
+
+    # A mailto: link opens the composer and nothing else; the main window is
+    # only presented when there is no account to compose from.
+    def _open_mailto(self, uri: str) -> None:
+        win = next(
+            (w for w in self.get_windows() if isinstance(w, PostcardMainWindow)), None
+        )
+        if win is not None:
+            win.open_mailto(uri)
+            return
+        accounts = self.db.accounts()
+        if not accounts:
+            logger.warning("no account to compose %s from, opening the window", uri)
+            self.do_activate()
+            return
+        composer_for_mailto(self, self.db, accounts[0], self.settings, uri).present()
 
     def _load_css(self) -> None:
         display = Gdk.Display.get_default()

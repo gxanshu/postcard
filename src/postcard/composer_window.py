@@ -628,3 +628,31 @@ def _gtk_font() -> tuple[str, str]:
     if not size.isdigit():
         return description, "11"
     return family, size
+
+
+# Build a composer from a mailto: URI. Shared by the main window and by a
+# mailto: launch, which opens the composer with no main window at all.
+def composer_for_mailto(
+    app: Gtk.Application | None,
+    db: Database,
+    account: Account,
+    settings: Gio.Settings,
+    uri: str,
+) -> PostcardComposerWindow:
+    draft = compose.parse_mailto(uri)
+    signature = (
+        settings.get_string("signature-text").strip()
+        if settings.get_boolean("signature-enabled")
+        else ""
+    )
+    return PostcardComposerWindow(
+        app,
+        db,
+        account,
+        to=draft.to,
+        subject=draft.subject,
+        body=draft.body_html
+        or (compose.signature_block(signature) if signature else ""),
+        cc=draft.cc,
+        bcc=draft.bcc,
+    )

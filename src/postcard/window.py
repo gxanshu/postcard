@@ -17,7 +17,7 @@ from . import mail_sync, message_view
 from .account_dialog import PostcardAccountDialog
 from .accounts_dialog import PostcardAccountsDialog
 from .avatar_loader import AvatarLoader
-from .composer_window import PostcardComposerWindow
+from .composer_window import PostcardComposerWindow, composer_for_mailto
 from .conversation_row import ConversationRow
 from .core import compose, secrets
 from .core.mime.message_parser import ParsedMessage
@@ -535,18 +535,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # Open the composer for a mailto: link handed to us by the desktop.
     def open_mailto(self, uri: str) -> None:
-        draft = compose.parse_mailto(uri)
-        signature = self._signature_text()
-        body = draft.body_html or (
-            compose.signature_block(signature) if signature else ""
+        if self._account is None:
+            return
+        composer = composer_for_mailto(
+            self.get_application(), self._db, self._account, self._settings, uri
         )
-        self._open_composer(
-            to=draft.to,
-            subject=draft.subject,
-            body=body,
-            cc=draft.cc,
-            bcc=draft.bcc,
-        )
+        composer.connect("finished", self._on_composer_finished)
+        composer.present()
 
     def _open_composer(
         self,

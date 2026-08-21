@@ -1384,12 +1384,23 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._folder_shape = shape
             self._rebuild_folder_tree(accounts)
 
+        # SQLite reuses the rowid of a deleted folder, so anything keyed by
+        # folder id has to go when the folder does -- otherwise a new account
+        # inherits the old one's badge, cooldown and paging state.
+        live_ids = {folder.id for folder in folders}
+        for cache in (
+            self._loaded_counts,
+            self._folders_with_more_mail,
+            self._folder_sync_times,
+            self._remote_unread_counts,
+        ):
+            for folder_id in set(cache) - live_ids:
+                del cache[folder_id]
+
         # Nothing is selected on a first run, or after the open folder was
         # pruned along with its account. An account row can't stand in: it is
         # only a heading, so the list would sit empty with no way back.
-        if self._current_folder is not None and self._current_folder.id not in {
-            folder.id for folder in folders
-        }:
+        if self._current_folder is not None and self._current_folder.id not in live_ids:
             self._current_folder = None
         if self._current_folder is None:
             self._select_inbox_row()

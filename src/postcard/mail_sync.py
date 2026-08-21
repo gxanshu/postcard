@@ -1,5 +1,6 @@
 import logging
 import re
+import urllib.error
 import urllib.request
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -313,12 +314,29 @@ def send_message(
         )
 
 
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuses a redirect that would leave https.
+
+    The token in an unsubscribe URL is the only thing authenticating the
+    request, and a list is free to redirect us at any host it likes -- so a
+    plain-http hop would put that token on the wire in the clear.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https:"):
+            raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_unsubscribe_opener = urllib.request.build_opener(_HttpsOnlyRedirect())
+
+
 def post_unsubscribe(url: str) -> None:
     """Send an RFC 8058 one-click unsubscribe. Raises unless the list accepts it.
 
-    urlopen raises HTTPError for any 4xx/5xx, so a return means the list took
-    the request. Nothing authenticates this: no cookies, no credentials, no
-    identifying User-Agent beyond urllib's own.
+    open() raises HTTPError for any 4xx/5xx, so a return means the list took the
+    request. Nothing authenticates this beyond the token already in the URL: no
+    cookies, no credentials, no identifying User-Agent past urllib's own.
     """
     request = urllib.request.Request(
         url,
@@ -326,7 +344,7 @@ def post_unsubscribe(url: str) -> None:
         headers={"Content-Type": FORM_CONTENT_TYPE},
         method="POST",
     )
-    urllib.request.urlopen(request, timeout=UNSUBSCRIBE_TIMEOUT_SECONDS).close()
+    _unsubscribe_opener.open(request, timeout=UNSUBSCRIBE_TIMEOUT_SECONDS).close()
 
 
 def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:

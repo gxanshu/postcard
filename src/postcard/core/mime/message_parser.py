@@ -72,15 +72,20 @@ def parse_message(raw: bytes) -> ParsedMessage:
 def _unsubscribe(msg: EmailMessage) -> Unsubscribe | None:
     url = ""
     mailto = ""
-    for target in _TARGET.findall(str(msg.get("List-Unsubscribe", ""))):
-        scheme = target.strip().partition(":")[0].lower()
+    for bracketed in _TARGET.findall(str(msg.get("List-Unsubscribe", ""))):
+        # These URLs carry a long opaque token, so senders fold the header --
+        # and unfolding keeps the continuation whitespace inside the URL, where
+        # it makes the request unsendable. Strip every space, not just the ends.
+        target = "".join(bracketed.split())
+        scheme = target.partition(":")[0].lower()
         # A stranger's header may name any scheme, and a registered handler
         # would happily take file: or smb: from one. http is honoured only as a
-        # link, never as a request this app makes itself.
-        if scheme in ("https", "http") and not url:
-            url = target.strip()
+        # link, never as a request this app makes itself -- so an https target
+        # wins even when an http one was published first.
+        if scheme in ("https", "http") and not url.lower().startswith("https:"):
+            url = target
         elif scheme == "mailto" and not mailto:
-            mailto = target.strip()
+            mailto = target
 
     if not url and not mailto:
         return None

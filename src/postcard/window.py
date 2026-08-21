@@ -1880,52 +1880,47 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             logger.warning("could not open attachment %s: %s", filename, error.message)
             self._toast(_("Couldn't open {name}.").format(name=filename))
 
-    # The target comes out of a stranger's header, so name where the request
-    # is going before making it -- and a one-click POST cannot be taken back.
     def _on_unsubscribe(self, target: Unsubscribe, on_done: Callable[[], None]) -> None:
-        destination = (
-            urlparse(target.url).hostname or compose.parse_mailto(target.mailto).to
-        )
+        # Without a One-Click header the list wants a human at the other end,
+        # and nothing is sent from here: hand it to the browser, or to the
+        # composer if all the list published was a mailto. The banner stays --
+        # the user has not unsubscribed yet, they have only been taken to it.
+        if not target.is_one_click:
+            if target.url:
+                Gtk.UriLauncher(uri=target.url).launch(self, None, None)
+            else:
+                self.open_mailto(target.mailto)
+            return
 
+        # A one-click POST cannot be taken back, and its address comes out of a
+        # stranger's header, so name where the request is going before making
+        # it. Cancel stays the default: a stray Enter must not unsubscribe.
         dialog = Adw.AlertDialog(
             heading=_("Unsubscribe from this list?"),
             body=_("A request will be sent to {destination}.").format(
-                destination=destination
+                destination=urlparse(target.url).hostname or target.url
             ),
         )
         dialog.add_response("cancel", _("Cancel"))
         dialog.add_response("unsubscribe", _("Unsubscribe"))
         dialog.set_response_appearance("unsubscribe", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("unsubscribe")
-        dialog.connect("response", self._on_unsubscribe_response, target, on_done)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", self._on_unsubscribe_response, target.url, on_done)
         dialog.present(self)
 
     def _on_unsubscribe_response(
         self,
         _dialog: Adw.AlertDialog,
         response: str,
-        target: Unsubscribe,
+        url: str,
         on_done: Callable[[], None],
     ) -> None:
         if response != "unsubscribe":
             return
-
-        if target.is_one_click:
-            thread = threading.Thread(
-                target=self._unsubscribe_worker,
-                args=(target.url, on_done),
-                daemon=True,
-            )
-            thread.start()
-            return
-
-        # No One-Click header, so the list wants a human at the other end: hand
-        # it to the browser, or to the composer if all it published was mailto.
-        if target.url:
-            Gtk.UriLauncher(uri=target.url).launch(self, None, None)
-        else:
-            self.open_mailto(target.mailto)
-        on_done()
+        thread = threading.Thread(
+            target=self._unsubscribe_worker, args=(url, on_done), daemon=True
+        )
+        thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access. Takes the
     # url as a plain string, and needs no credentials -- the list authenticates

@@ -185,6 +185,28 @@ def test_one_click_needs_https_and_the_post_header():
     assert unsubscribe(no_post).is_one_click is False
 
 
+def test_a_folded_unsubscribe_header_yields_a_sendable_url():
+    folded = (
+        b"Subject: Weekly\n"
+        b"List-Unsubscribe: <https://acme.com/u/aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        b" bbbbbbbbbbbbbbbbbbbb>\n"
+        b"List-Unsubscribe-Post: List-Unsubscribe=One-Click\n\nbody\n"
+    )
+    # Unfolding leaves the continuation whitespace inside the URL, and urllib
+    # refuses to send a URL containing a space.
+    assert " " not in unsubscribe(folded).url
+
+
+def test_an_https_target_beats_an_http_one_published_first():
+    both = (
+        b"List-Unsubscribe: <http://l/u/tok>, <https://l/u/tok>\n"
+        b"List-Unsubscribe-Post: List-Unsubscribe=One-Click\n\nbody\n"
+    )
+    target = unsubscribe(both)
+    assert target.url == "https://l/u/tok"
+    assert target.is_one_click
+
+
 def test_unsubscribe_ignores_a_scheme_we_would_never_open():
     hostile = (
         b"List-Unsubscribe: <file:///etc/passwd>, <mailto:leave@acme.com>\n\nbody\n"

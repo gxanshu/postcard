@@ -2076,6 +2076,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # Back on the main thread: safe to touch the database and widgets.
     def _on_sync_done(self, account: Account, result: mail_sync.SyncResult) -> bool:
+        # Before the staleness check: a dropped callback still has to release
+        # the spinner and the Refresh button.
+        self._set_syncing(account.id, False)
         if self._is_stale(account):
             return False
 
@@ -2145,7 +2148,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         arrived_elsewhere = self._apply_unread_counts(account, result.unread_counts)
 
-        self._set_syncing(account.id, False)
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
         self.connection_banner.set_revealed(False)
@@ -2232,9 +2234,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_sync_error(
         self, account: Account, is_auth_failure: bool, message: str
     ) -> bool:
+        self._set_syncing(account.id, False)
         if self._is_stale(account):
             return False
-        self._set_syncing(account.id, False)
         self._show_connection_banner(message, self._retry_button_label(is_auth_failure))
         return False
 

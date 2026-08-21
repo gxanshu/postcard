@@ -111,21 +111,9 @@ After that Postcard shows up in your app launcher like any other app, and `flatp
 
 ## Starting hidden at login
 
-Turn on **Keep running in the background** in Preferences, then set it to autostart:
-
-```bash
-flatpak run in.gxanshu.postcard --hidden
-```
-
-GNOME Tweaks can only pick existing applications, so if it does not accept the flag, write `~/.config/autostart/in.gxanshu.postcard.desktop` yourself:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=Postcard
-Exec=flatpak run in.gxanshu.postcard --hidden
-Icon=in.gxanshu.postcard
-```
+Turn on **Keep running in the background** and **Start at Login** in Preferences.
+Postcard asks the desktop portal to create the autostart entry, so there is no
+file to write by hand.
 
 Postcard starts with no window, checks for mail on your sync interval, and notifies you when something arrives. Click the notification to open it.
 

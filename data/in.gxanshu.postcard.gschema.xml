@@ -21,6 +21,11 @@
 			<summary>Keep running in the background</summary>
 			<description>Keep checking for new mail after the window is closed.</description>
 		</key>
+		<key name="start-at-login" type="b">
+			<default>false</default>
+			<summary>Start Postcard at login</summary>
+			<description>Whether the desktop portal has been asked to start Postcard hidden at login. The portal owns the autostart entry; this only records its answer.</description>
+		</key>
 		<key name="background-notice-shown" type="b">
 			<default>false</default>
 			<summary>Background notice already shown</summary>

@@ -37,7 +37,8 @@ class PostcardApplication(Adw.Application):
         self._should_start_hidden = False
 
         # For autostart: build the window (so the sync timer runs) but skip
-        # presenting it. See the autostart .desktop file in the README.
+        # presenting it. The Background portal puts this flag in the autostart
+        # entry it writes -- see "Start at Login" in preferences_dialog.py.
         self.add_main_option(
             "hidden",
             0,

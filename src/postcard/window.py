@@ -2235,6 +2235,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self, account: Account, is_auth_failure: bool, message: str
     ) -> bool:
         self._set_syncing(account.id, False)
+        # Another account's failure can leave the open folder on the spinner,
+        # because _start_sync flips the stack for whichever account syncs.
+        self._show_list_or_placeholder()
         if self._is_stale(account):
             return False
         self._show_connection_banner(message, self._retry_button_label(is_auth_failure))

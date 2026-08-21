@@ -45,6 +45,10 @@ template $PostcardComposerWindow: Adw.Window {
 
           styles ["boxed-list"]
 
+          Adw.ComboRow from_row {
+            title: _("From");
+          }
+
           Adw.EntryRow to_row {
             title: _("To");
           }

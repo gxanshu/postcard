@@ -210,6 +210,7 @@ class PostcardComposerWindow(Adw.Window):
     cancel_button: Gtk.Button = Gtk.Template.Child()
     send_button: Gtk.Button = Gtk.Template.Child()
     send_spinner: Gtk.Spinner = Gtk.Template.Child()
+    from_row: Adw.ComboRow = Gtk.Template.Child()
     to_row: Adw.EntryRow = Gtk.Template.Child()
     cc_row: Adw.EntryRow = Gtk.Template.Child()
     bcc_row: Adw.EntryRow = Gtk.Template.Child()
@@ -252,6 +253,7 @@ class PostcardComposerWindow(Adw.Window):
             command: getattr(self, name) for name, command in _FORMAT_COMMANDS.items()
         }
 
+        self._build_from_row(account)
         self.to_row.set_text(to)
         self.cc_row.set_text(cc)
         self.bcc_row.set_text(bcc)
@@ -275,6 +277,20 @@ class PostcardComposerWindow(Adw.Window):
             _AddressSuggestions(row, known)
             for row in (self.to_row, self.cc_row, self.bcc_row)
         ]
+
+    # The account every send, draft and Sent copy belongs to. Picking another
+    # here is the only way to change it once the composer is open.
+    def _build_from_row(self, account: Account) -> None:
+        self._accounts = self._db.accounts()
+        self.from_row.set_model(
+            Gtk.StringList(strings=[each.email for each in self._accounts])
+        )
+        ids = [each.id for each in self._accounts]
+        self.from_row.set_selected(ids.index(account.id) if account.id in ids else 0)
+        self.from_row.connect("notify::selected", self._on_from_changed)
+
+    def _on_from_changed(self, *_args: object) -> None:
+        self._account = self._accounts[self.from_row.get_selected()]
 
     # --- editor ------------------------------------------------------------
 
@@ -521,7 +537,7 @@ class PostcardComposerWindow(Adw.Window):
         self._set_sending(True)
         thread = threading.Thread(
             target=self._send_worker,
-            args=(row.id, subject, recipients, raw),
+            args=(self._account, row.id, subject, recipients, raw),
             daemon=True,
         )
         thread.start()
@@ -529,12 +545,12 @@ class PostcardComposerWindow(Adw.Window):
     # Runs on the worker thread: network only, no Gtk/database access.
     def _send_worker(
         self,
+        account: Account,
         email_id: int,
         subject: str,
         recipients: list[str],
         raw: bytes,
     ) -> None:
-        account = self._account
         credential = secrets.credential_for(account)
         if credential is None:
             logger.warning("could not sign in to account %s", account.email)
@@ -554,16 +570,18 @@ class PostcardComposerWindow(Adw.Window):
             _is_auth_failure, message = errors.classify(error, account.smtp_host)
             GLib.idle_add(self._on_send_failed, message)
             return
-        GLib.idle_add(self._on_send_done, email_id, subject, raw)
+        GLib.idle_add(self._on_send_done, account, email_id, subject, raw)
 
     # Back on the main thread: safe to touch the database and widgets.
-    def _on_send_done(self, email_id: int, subject: str, raw: bytes) -> bool:
+    def _on_send_done(
+        self, account: Account, email_id: int, subject: str, raw: bytes
+    ) -> bool:
         self._db.delete_email(email_id)
-        sent = mail_sync.sent_folder(self._db, self._account.id)
+        sent = mail_sync.sent_folder(self._db, account.id)
         recipient, recipient_address = mail_sync.first_recipient(self.to_row.get_text())
         row = self._db.save_email(
             sent.id,
-            sender=self._account.email,
+            sender=account.email,
             recipient=recipient,
             recipient_address=recipient_address,
             subject=subject,
@@ -589,6 +607,7 @@ class PostcardComposerWindow(Adw.Window):
 
     def _set_sending(self, is_sending: bool) -> None:
         self.send_button.set_sensitive(not is_sending)
+        self.from_row.set_sensitive(not is_sending)
         self.cancel_button.set_sensitive(not is_sending)
         self.send_spinner.set_visible(is_sending)
         if is_sending:

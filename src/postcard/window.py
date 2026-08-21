@@ -100,7 +100,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     add_account_button: Gtk.Button = Gtk.Template.Child()
     online_accounts_button: Gtk.Button = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
-    sync_spinner: Gtk.Spinner = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
     unread_button: Gtk.ToggleButton = Gtk.Template.Child()
@@ -250,6 +249,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Boxes of the rows currently on screen, keyed by folder id, so
         # _reload_folders can refresh them without rebuilding the tree.
         self._folder_rows: dict[int, FolderRow] = {}
+        # The same, for the account headings, so their sync spinners can start
+        # and stop on their own.
+        self._account_rows: dict[int, FolderRow] = {}
         # The account ids and (id, parent_id) folder pairs the tree was last
         # built from.
         self._folder_shape: tuple[list[int], list[tuple[int, int | None]]] = ([], [])
@@ -1262,7 +1264,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # An account row is a heading over its folders, not somewhere to click.
         item.set_selectable(isinstance(entry, Folder))
         if isinstance(entry, Account):
-            row.bind_account(entry, tree_list_row)
+            self._account_rows[entry.id] = row
+            is_syncing = entry.id in self._syncing_account_ids
+            row.bind_account(entry, tree_list_row, is_syncing)
             return
 
         assert isinstance(entry, Folder)
@@ -1289,9 +1293,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     ) -> None:
         tree_list_row = item.get_item()
         if isinstance(tree_list_row, Gtk.TreeListRow):
-            folder = tree_list_row.get_item()
-            if isinstance(folder, Folder):
-                self._folder_rows.pop(folder.id, None)
+            entry = tree_list_row.get_item()
+            if isinstance(entry, Folder):
+                self._folder_rows.pop(entry.id, None)
+            elif isinstance(entry, Account):
+                self._account_rows.pop(entry.id, None)
 
         expander = item.get_child()
         if isinstance(expander, Gtk.TreeExpander):
@@ -1419,6 +1425,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._suppress_folder_refresh = True
 
         self._folder_rows.clear()
+        self._account_rows.clear()
         self._folder_root_store.remove_all()
         for account in accounts:
             self._folder_root_store.append(account)
@@ -2318,16 +2325,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         else:
             self._syncing_account_ids.discard(account_id)
 
-        is_busy = bool(self._syncing_account_ids)
-        self.refresh_button.set_sensitive(not is_busy)
-        self.sync_spinner.set_visible(is_busy)
-        if is_busy:
-            self.sync_spinner.start()
-        else:
-            self.sync_spinner.stop()
+        account_row = self._account_rows.get(account_id)
+        if account_row is not None:
+            account_row.set_syncing(is_syncing)
 
-    # The spinner covers every account, but the conversation list only waits on
-    # the one whose folder is open.
+        self.refresh_button.set_sensitive(not self._syncing_account_ids)
+
+    # Each account row spins on its own, but the conversation list only waits
+    # on the one whose folder is open.
     def _is_current_account_syncing(self) -> bool:
         folder = self._current_folder
         return folder is not None and folder.account_id in self._syncing_account_ids

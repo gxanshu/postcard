@@ -24,6 +24,10 @@ class FolderRow(Gtk.Box):
         self._name_label = Gtk.Label(xalign=0, hexpand=True)
         self.append(self._name_label)
 
+        self._spinner = Gtk.Spinner()
+        self._spinner.set_visible(False)
+        self.append(self._spinner)
+
         self._badge = Gtk.Label()
         self._badge.add_css_class("dim-label")
         self.append(self._badge)
@@ -50,14 +54,26 @@ class FolderRow(Gtk.Box):
         )
         self._name_label.remove_css_class("heading")
         self._expandable = None
+        self.set_syncing(False)
         self._badge.set_label(str(unread_count))
         self._badge.set_visible(unread_count > 0)
 
     # The same widget also draws the account headings the folders sit under, so
     # bind() above has to undo whatever this sets -- rows are recycled for both.
-    def bind_account(self, account: Account, tree_list_row: Gtk.TreeListRow) -> None:
+    def bind_account(
+        self, account: Account, tree_list_row: Gtk.TreeListRow, is_syncing: bool
+    ) -> None:
         self._expandable = tree_list_row
         self._icon.set_from_icon_name("avatar-default-symbolic")
         self._name_label.set_label(account.email)
         self._name_label.add_css_class("heading")
+        self.set_syncing(is_syncing)
         self._badge.set_visible(False)
+
+    # Only account rows use this; the window calls it as syncs start and finish.
+    def set_syncing(self, is_syncing: bool) -> None:
+        self._spinner.set_visible(is_syncing)
+        if is_syncing:
+            self._spinner.start()
+        else:
+            self._spinner.stop()

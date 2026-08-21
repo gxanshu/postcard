@@ -2164,11 +2164,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._refresh_conversations(keep_id=keep_id)
         self.connection_banner.set_revealed(False)
 
-        self._notify_arrivals(new_messages, target.id, arrived_elsewhere)
+        self._notify_arrivals(account.id, new_messages, target.id, arrived_elsewhere)
         return False
 
+    # Notification ids carry the account: every account syncs on the same tick,
+    # and a repeated id replaces the notification already on screen.
     def _notify_arrivals(
         self,
+        account_id: int,
         messages: list[mail_sync.MessageHeader],
         folder_id: int,
         arrived_elsewhere: dict[str, int],
@@ -2177,9 +2180,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self.is_active():
             return
         if messages:
-            self._notify_new_mail(messages, folder_id)
+            self._notify_new_mail(account_id, messages, folder_id)
         if arrived_elsewhere:
-            self._notify_unread_elsewhere(arrived_elsewhere)
+            self._notify_unread_elsewhere(account_id, arrived_elsewhere)
 
     def _apply_unread_counts(
         self, account: Account, counts: dict[str, int]
@@ -2200,7 +2203,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._remote_unread_counts[folder.id] = count
         return arrived
 
-    def _notify_unread_elsewhere(self, arrived: dict[str, int]) -> None:
+    def _notify_unread_elsewhere(
+        self, account_id: int, arrived: dict[str, int]
+    ) -> None:
         """New mail in a folder we didn't fetch, so there are no headers to
         name -- only the count and where it landed."""
         if not self._settings.get_boolean("notifications"):
@@ -2215,10 +2220,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         notification.set_body(", ".join(arrived))
         notification.set_default_action("app.focus-mail")
-        app.send_notification("new-mail-elsewhere", notification)
+        app.send_notification(f"new-mail-elsewhere-{account_id}", notification)
 
     def _notify_new_mail(
-        self, messages: list[mail_sync.MessageHeader], folder_id: int
+        self, account_id: int, messages: list[mail_sync.MessageHeader], folder_id: int
     ) -> None:
         if not self._settings.get_boolean("notifications"):
             return
@@ -2241,7 +2246,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             notification.set_body(senders)
             notification.set_default_action("app.focus-mail")
 
-        app.send_notification("new-mail", notification)
+        app.send_notification(f"new-mail-{account_id}", notification)
 
     def _on_sync_error(
         self, account: Account, is_auth_failure: bool, message: str

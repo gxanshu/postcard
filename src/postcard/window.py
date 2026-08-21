@@ -10,6 +10,7 @@ from email.utils import parseaddr
 from gettext import gettext as _
 from gettext import ngettext
 from pathlib import Path
+from urllib.parse import urlparse
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
@@ -20,7 +21,7 @@ from .avatar_loader import AvatarLoader
 from .composer_window import PostcardComposerWindow, composer_for_mailto
 from .conversation_row import ConversationRow
 from .core import compose, secrets
-from .core.mime.message_parser import ParsedMessage
+from .core.mime.message_parser import ParsedMessage, Unsubscribe
 from .core.models.account import Account
 from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
@@ -1716,6 +1717,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 on_save_attachment=self._save_attachment,
                 on_open_attachment=self._open_attachment,
                 on_rendered=self._on_newest_rendered if is_newest else None,
+                on_unsubscribe=self._on_unsubscribe,
                 is_expanded=is_newest,
                 should_load_remote_images=should_load_remote_images,
                 avatars=self._avatars,
@@ -1877,6 +1879,78 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 return
             logger.warning("could not open attachment %s: %s", filename, error.message)
             self._toast(_("Couldn't open {name}.").format(name=filename))
+
+    # The target comes out of a stranger's header, so name where the request
+    # is going before making it -- and a one-click POST cannot be taken back.
+    def _on_unsubscribe(self, target: Unsubscribe, on_done: Callable[[], None]) -> None:
+        destination = (
+            urlparse(target.url).hostname or compose.parse_mailto(target.mailto).to
+        )
+
+        dialog = Adw.AlertDialog(
+            heading=_("Unsubscribe from this list?"),
+            body=_("A request will be sent to {destination}.").format(
+                destination=destination
+            ),
+        )
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("unsubscribe", _("Unsubscribe"))
+        dialog.set_response_appearance("unsubscribe", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("unsubscribe")
+        dialog.connect("response", self._on_unsubscribe_response, target, on_done)
+        dialog.present(self)
+
+    def _on_unsubscribe_response(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        target: Unsubscribe,
+        on_done: Callable[[], None],
+    ) -> None:
+        if response != "unsubscribe":
+            return
+
+        if target.is_one_click:
+            thread = threading.Thread(
+                target=self._unsubscribe_worker,
+                args=(target.url, on_done),
+                daemon=True,
+            )
+            thread.start()
+            return
+
+        # No One-Click header, so the list wants a human at the other end: hand
+        # it to the browser, or to the composer if all it published was mailto.
+        if target.url:
+            Gtk.UriLauncher(uri=target.url).launch(self, None, None)
+        else:
+            self.open_mailto(target.mailto)
+        on_done()
+
+    # Runs on the worker thread: network only, no Gtk/database access. Takes the
+    # url as a plain string, and needs no credentials -- the list authenticates
+    # the request by the opaque token already in the URL.
+    def _unsubscribe_worker(self, url: str, on_done: Callable[[], None]) -> None:
+        try:
+            mail_sync.post_unsubscribe(url)
+        except Exception:
+            logger.exception(
+                "could not unsubscribe via %s", urlparse(url).hostname or url
+            )
+            GLib.idle_add(self._on_unsubscribed, on_done, False)
+            return
+        GLib.idle_add(self._on_unsubscribed, on_done, True)
+
+    # Back on the main thread. A failure leaves the banner up so the user can
+    # try again; errors.classify() is for IMAP/SMTP and HTTPError subclasses
+    # OSError, so it would answer "couldn't reach the mail server" here.
+    def _on_unsubscribed(self, on_done: Callable[[], None], is_done: bool) -> bool:
+        if not is_done:
+            self._toast(_("Couldn't unsubscribe. The list didn't accept the request."))
+            return False
+        on_done()
+        self._toast(_("Unsubscribed. It can take a few days to take effect."))
+        return False
 
     # --- syncing, the Outbox, and the connection banner -------------------
 

@@ -1,5 +1,6 @@
 import logging
 import re
+import urllib.request
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -31,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
+
+# RFC 8058: the body is the whole request, and the server matches it verbatim.
+ONE_CLICK_BODY = b"List-Unsubscribe=One-Click"
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
+UNSUBSCRIBE_TIMEOUT_SECONDS = 15
 
 # Gmail nests its special folders under an unselectable "[Gmail]" container.
 # It isn't a real mailbox, so it's hidden and its children sit at the top level.
@@ -305,6 +311,22 @@ def send_message(
             account.email,
             exc_info=True,
         )
+
+
+def post_unsubscribe(url: str) -> None:
+    """Send an RFC 8058 one-click unsubscribe. Raises unless the list accepts it.
+
+    urlopen raises HTTPError for any 4xx/5xx, so a return means the list took
+    the request. Nothing authenticates this: no cookies, no credentials, no
+    identifying User-Agent beyond urllib's own.
+    """
+    request = urllib.request.Request(
+        url,
+        data=ONE_CLICK_BODY,
+        headers={"Content-Type": FORM_CONTENT_TYPE},
+        method="POST",
+    )
+    urllib.request.urlopen(request, timeout=UNSUBSCRIBE_TIMEOUT_SECONDS).close()
 
 
 def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:

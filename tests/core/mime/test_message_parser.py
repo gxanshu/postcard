@@ -1,4 +1,9 @@
-from postcard.core.mime.message_parser import _format_date, parse_message, sandbox_html
+from postcard.core.mime.message_parser import (
+    Unsubscribe,
+    _format_date,
+    parse_message,
+    sandbox_html,
+)
 
 PLAIN = b"""\
 From: Ada <ada@example.com>
@@ -145,3 +150,49 @@ def test_sandbox_html_blocks_remote_subresources() -> None:
     assert "img-src data: https: http:" in allowed
     # Remote CSS stays blocked either way -- it leaks the read like a pixel does.
     assert "style-src 'unsafe-inline';" in allowed
+
+
+ONE_CLICK = b"""\
+From: news@acme.com
+Subject: Weekly
+List-Unsubscribe: <mailto:leave@acme.com>, <https://acme.com/u/abc>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+
+body
+"""
+
+
+def unsubscribe(raw: bytes) -> Unsubscribe:
+    target = parse_message(raw).unsubscribe
+    assert target is not None
+    return target
+
+
+def test_one_click_unsubscribe_keeps_both_targets():
+    target = unsubscribe(ONE_CLICK)
+    assert target.url == "https://acme.com/u/abc"
+    assert target.mailto == "mailto:leave@acme.com"
+    assert target.is_one_click
+
+
+def test_one_click_needs_https_and_the_post_header():
+    plaintext = ONE_CLICK.replace(b"https://", b"http://")
+    assert unsubscribe(plaintext).is_one_click is False
+
+    no_post = ONE_CLICK.replace(
+        b"List-Unsubscribe-Post: List-Unsubscribe=One-Click\n", b""
+    )
+    assert unsubscribe(no_post).is_one_click is False
+
+
+def test_unsubscribe_ignores_a_scheme_we_would_never_open():
+    hostile = (
+        b"List-Unsubscribe: <file:///etc/passwd>, <mailto:leave@acme.com>\n\nbody\n"
+    )
+    target = unsubscribe(hostile)
+    assert target.url == ""
+    assert target.mailto == "mailto:leave@acme.com"
+
+
+def test_a_message_from_no_mailing_list_has_no_unsubscribe():
+    assert parse_message(PLAIN).unsubscribe is None

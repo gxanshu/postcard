@@ -85,7 +85,7 @@ Postcard speaks plain IMAP and SMTP, so anything that supports those should work
 | **Gmail** | ✅ | ✅ | The easiest way: add your Google account in GNOME Settings → Online Accounts, then pick it in Postcard. Adding it by hand also works, but you need 2-Step Verification and an [app password](https://myaccount.google.com/apppasswords) |
 | **Yahoo Mail** | ✅ | ✅ | Needs an app password from Account Security |
 | **Proton Mail** | ✅ | ✅ | Through [Proton Mail Bridge](https://proton.me/mail/bridge) (paid plans). Use the Bridge's local host, port and password with STARTTLS |
-| **Any IMAP/SMTP server** | ✅ | ❌ | Fastmail, Zoho, Mailbox.org (✅), Migadu, self-hosted Dovecot/Postfix. Enter host, port and TLS mode by hand |
+| **Any IMAP/SMTP server** | ✅ | ❌ | Fastmail, Zoho, Mailbox.org, Migadu (✅), self-hosted Dovecot/Postfix. Enter host, port and TLS mode by hand |
 | **Outlook / Hotmail / Microsoft 365** | ❌ | ❌ | Microsoft removed basic auth and requires OAuth 2.0. Planned |
 
 TIP: most providers with 2FA will reject your normal account password over IMAP. You need to generate an

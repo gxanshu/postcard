@@ -438,6 +438,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # new folder if the open one went with a deleted account.
     def reload_accounts(self) -> None:
         if not self._db.accounts():
+            self._accounts = {}
             self._account = None
             self._current_folder = None
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)

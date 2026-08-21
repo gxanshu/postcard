@@ -2031,7 +2031,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
 
     def _on_sync_tick(self) -> bool:
-        if self._account is not None and self._is_online:
+        if self._accounts and self._is_online:
             self._sync_all(in_background=True)
         return True
 
@@ -2262,7 +2262,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _on_banner_retry(self, _banner: Adw.Banner) -> None:
         self.connection_banner.set_revealed(False)
-        if self._account is not None:
+        if self._accounts:
             self._sync_all()
 
     # network-changed fires on any change; act only on real online/offline flips.
@@ -2276,7 +2276,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._show_offline_banner()
             return
         self.connection_banner.set_revealed(False)
-        if self._account is not None:
+        if self._accounts:
             self._sync_all()
 
     def _notify_background(self) -> None:

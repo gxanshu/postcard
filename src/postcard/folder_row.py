@@ -1,6 +1,7 @@
 from gi.repository import Gtk
 
 from . import mail_sync
+from .core.models.account import Account
 from .core.models.folder import Folder
 
 
@@ -33,5 +34,14 @@ class FolderRow(Gtk.Box):
         self._name_label.set_label(
             mail_sync.display_name_for_folder(folder.name, folder.display_delimiter)
         )
+        self._name_label.remove_css_class("heading")
         self._badge.set_label(str(unread_count))
         self._badge.set_visible(unread_count > 0)
+
+    # The same widget also draws the account headings the folders sit under, so
+    # bind() above has to undo whatever this sets -- rows are recycled for both.
+    def bind_account(self, account: Account) -> None:
+        self._icon.set_from_icon_name("avatar-default-symbolic")
+        self._name_label.set_label(account.email)
+        self._name_label.add_css_class("heading")
+        self._badge.set_visible(False)

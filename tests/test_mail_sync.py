@@ -6,6 +6,7 @@ import postcard.mail_sync as mail_sync
 from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
+from postcard.core.models.folder import Folder
 from postcard.core.net.auth import Credential
 from postcard.core.net.imap_session import (
     FLAG_SEEN,
@@ -24,6 +25,7 @@ from postcard.mail_sync import (
     fetch_mailbox,
     first_recipient,
     format_date,
+    group_folders,
     icon_for_folder,
     inbox_name,
     is_outgoing_folder,
@@ -235,6 +237,18 @@ def test_a_top_level_mailbox_has_no_parent():
 
 def test_a_namespace_root_does_not_count_as_a_parent():
     assert parent_mailbox_name("[Gmail]/Sent Mail", "/") == ""
+
+
+def test_group_folders_keeps_each_account_on_its_own_branch():
+    inbox_a = Folder(id=1, account_id=10, name="INBOX", icon_name="")
+    work = Folder(id=2, account_id=10, name="Work", icon_name="")
+    acme = Folder(id=3, account_id=10, name="Work/Acme", icon_name="", parent_id=2)
+    inbox_b = Folder(id=4, account_id=20, name="INBOX", icon_name="")
+
+    roots, children = group_folders([inbox_a, work, acme, inbox_b])
+
+    assert roots == {10: [inbox_a, work], 20: [inbox_b]}
+    assert children == {2: [acme]}
 
 
 def test_server_uids_collects_every_uid():

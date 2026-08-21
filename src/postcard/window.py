@@ -3,7 +3,7 @@ import logging
 import shutil
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from email import policy
 from email.utils import parseaddr
@@ -97,7 +97,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     reader_subject: Gtk.Label = Gtk.Template.Child()
     thread_box: Gtk.Box = Gtk.Template.Child()
     main_stack: Gtk.Stack = Gtk.Template.Child()
-    account_switcher: Gtk.MenuButton = Gtk.Template.Child()
     add_account_button: Gtk.Button = Gtk.Template.Child()
     online_accounts_button: Gtk.Button = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
@@ -150,11 +149,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             600,
         )
 
-        # None until _load_mail_view runs, which __init__ skips entirely when
-        # there are no accounts yet. Read it through a guard clause, never
-        # directly -- background callbacks (sync timer, network-changed,
-        # notification actions) can fire while it is still None.
+        # The account owning the selected folder. None until _load_mail_view
+        # runs, which __init__ skips when there are no accounts yet, so read it
+        # through a guard clause -- background callbacks can fire before then.
         self._account: Account | None = None
+        # Every account, by id.
+        self._accounts: dict[int, Account] = {}
 
         self._current_folder: Folder | None = None
         self._active_view: MessageView | None = None
@@ -172,6 +172,46 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._setup_actions()
 
+        self._connect_widgets()
+
+        self.connection_banner.connect("button-clicked", self._on_banner_retry)
+        self._network = Gio.NetworkMonitor.get_default()
+        self._is_online = self._network.get_network_available()
+        self._network_handler = self._network.connect(
+            "network-changed", self._on_network_changed
+        )
+
+        self._avatars = AvatarLoader(self._settings)
+        self._avatar_handler = self._settings.connect(
+            "changed::load-sender-avatars", lambda *_: self._refresh_conversations()
+        )
+
+        # Accounts with a sync in flight. A set, not a flag: every account syncs
+        # on the same tick.
+        self._syncing_account_ids: set[int] = set()
+        self._sync_timer_id = 0
+        self._interval_handler = self._settings.connect(
+            f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
+        )
+
+        self.connect("close-request", self._on_close_request)
+        if not self._is_online:
+            self._show_offline_banner()
+
+        self._build_mail_models()
+
+        # Gio.SimpleAction starts enabled, so the accelerators would stay live
+        # on a window with nothing selected to act on.
+        self._set_mail_actions_enabled(False)
+        self._set_reply_forward_enabled(False)
+
+        if not self._db.accounts():
+            self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
+            return
+
+        self._load_mail_view()
+
+    def _connect_widgets(self) -> None:
         self.add_account_button.connect("clicked", self._on_add_account_clicked)
         self.online_accounts_button.connect("clicked", self._on_online_accounts_clicked)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
@@ -187,55 +227,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
-        # Load older mail when the list is scrolled to the bottom. Wired here
-        # rather than in _setup_conversation_list because the scroller outlives
-        # every account switch, and that runs once per switch.
+        # Load older mail when the list is scrolled to the bottom.
         self.conversation_scroller.connect("edge-reached", self._on_list_edge_reached)
         # Presenting the window again after _on_close_request released the
         # reading pane re-renders whatever is still selected.
         self.connect("map", self._on_map)
 
-        self.connection_banner.connect("button-clicked", self._on_banner_retry)
-        self._network = Gio.NetworkMonitor.get_default()
-        self._is_online = self._network.get_network_available()
-        self._network_handler = self._network.connect(
-            "network-changed", self._on_network_changed
-        )
-
-        self._avatars = AvatarLoader(self._settings)
-        self._avatar_handler = self._settings.connect(
-            "changed::load-sender-avatars", lambda *_: self._refresh_conversations()
-        )
-
-        self._is_syncing = False
-        self._sync_timer_id = 0
-        self._interval_handler = self._settings.connect(
-            f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
-        )
-
-        self.connect("close-request", self._on_close_request)
-        if not self._is_online:
-            self._show_offline_banner()
-
-        accounts = self._db.accounts()
-        if not accounts:
-            # Gio.SimpleAction starts enabled, and only _load_mail_view turns
-            # these off, so without this the accelerators stay live on a window
-            # that has no mail to act on.
-            self._set_mail_actions_enabled(False)
-            self._set_reply_forward_enabled(False)
-            self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
-            return
-
-        self._load_mail_view(accounts[0])
-
-    def _load_mail_view(self, account: Account) -> None:
-        self._account = account
-
-        # Reset per-account reader state so a switch starts clean.
-        self._current_folder = None
-        self._rendered_id = None
-        self._active_view = None
+    # Everything the mail view runs on. Built once, before we know
+    # whether there are any accounts to put in it.
+    def _build_mail_models(self) -> None:
         # Load-on-scroll paging state, keyed by folder id: how many of the
         # newest messages we've paged through (also the next page's offset),
         # and whether older messages remain on the server.
@@ -246,25 +246,18 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Unread counts the server last reported for the folders we don't
         # fetch, keyed by folder id.
         self._remote_unread_counts: dict[int, int] = {}
-        self.reader_stack.set_visible_child_name(PAGE_EMPTY)
-        self._set_mail_actions_enabled(False)
-        self._set_reply_forward_enabled(False)
-        # A sync left in flight now drops its own callback, so clear this here
-        # or the new account looks permanently busy and never syncs.
-        self._set_syncing(False)
-
-        self.main_stack.set_visible_child_name(PAGE_MAIL)
-        self._refresh_account_switcher()
 
         # Boxes of the rows currently on screen, keyed by folder id, so
         # _reload_folders can refresh them without rebuilding the tree.
         self._folder_rows: dict[int, FolderRow] = {}
-        # The (id, parent_id) pairs the tree was last built from.
-        self._folder_shape_pairs: list[tuple[int, int | None]] = []
-        # Folders grouped by parent id; None holds the roots.
-        self._folder_children: dict[int | None, list[Folder]] = {}
+        # The account ids and (id, parent_id) folder pairs the tree was last
+        # built from.
+        self._folder_shape: tuple[list[int], list[tuple[int, int | None]]] = ([], [])
+        # Top-level folders per account id, and child folders per parent id.
+        self._account_roots: dict[int, list[Folder]] = {}
+        self._folder_children: dict[int, list[Folder]] = {}
 
-        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Folder)
+        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Account)
         self._folder_tree_model: Gtk.TreeListModel = Gtk.TreeListModel.new(
             self._folder_root_store,
             False,
@@ -290,17 +283,20 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._setup_folder_sidebar()
         self._setup_conversation_list()
 
+    # Show the mail view over every account at once. Runs once per window, or
+    # again when the first account is added to an empty database.
+    def _load_mail_view(self) -> None:
+        self.reader_stack.set_visible_child_name(PAGE_EMPTY)
+        self.main_stack.set_visible_child_name(PAGE_MAIL)
+
+        # _reload_folders selects the inbox, which fetches it via
+        # _on_folder_selected; the sync below covers the other accounts, and
+        # bootstraps a fresh one whose folders aren't in the database yet.
         self._reload_folders()
 
-        # Selecting the inbox kicks off a network fetch for it via
-        # _on_folder_selected; the sync below only bootstraps a fresh account
-        # whose folders aren't in the database yet.
-        self._select_inbox_row()
-
-        self._drain_outbox()
         self._reschedule_sync()
         if self._is_online:
-            self._start_sync(in_background=True)
+            self._sync_all(in_background=True)
 
     def _setup_sidebar_resize(
         self,
@@ -433,97 +429,43 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # --- accounts, and opening the composer -------------------------------
 
-    def _refresh_account_switcher(self) -> None:
-        account = self._account
-        if account is None:
-            return
-        self.account_switcher.set_label(account.email)
-        # The label ellipsizes on a narrow sidebar, so the tooltip carries the
-        # full address rather than repeating what the arrow already says.
-        self.account_switcher.set_tooltip_text(account.email)
-        self.account_switcher.set_popover(self._build_account_popover())
-
-    def _build_account_popover(self) -> Gtk.Popover:
-        box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=6,
-            margin_top=6,
-            margin_bottom=6,
-            margin_start=6,
-            margin_end=6,
-        )
-
-        accounts_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        accounts_list.add_css_class("boxed-list")
-        for account in self._db.accounts():
-            row = Adw.ActionRow(
-                title=account.email, subtitle=account.display_name, activatable=True
-            )
-            if self._account is not None and account.id == self._account.id:
-                row.add_suffix(Gtk.Image.new_from_icon_name("object-select-symbolic"))
-            row.connect("activated", self._on_account_row_activated, account)
-            accounts_list.append(row)
-        box.append(accounts_list)
-
-        box.append(Gtk.Separator())
-        # Every one of these opens something over the popover, so each closes it
-        # first rather than each handler remembering to.
-        for label, handler in (
-            (_("Add Account"), self._on_add_account_clicked),
-            (_("Online Accounts"), self._on_online_accounts_clicked),
-            (_("Manage Accounts"), self._on_switcher_manage),
-        ):
-            button = Gtk.Button(label=label)
-            button.add_css_class("flat")
-            button.connect("clicked", self._popdown_then, handler)
-            box.append(button)
-
-        popover = Gtk.Popover()
-        popover.set_child(box)
-        return popover
-
-    def _on_account_row_activated(self, _row: Adw.ActionRow, account: Account) -> None:
-        self.account_switcher.popdown()
-        if self._account is None or account.id != self._account.id:
-            self._load_mail_view(account)
-
-    def _popdown_then(
-        self, button: Gtk.Button, handler: Callable[[Gtk.Button], None]
-    ) -> None:
-        self.account_switcher.popdown()
-        handler(button)
-
-    def _on_switcher_manage(self, _button: Gtk.Button) -> None:
+    def _on_manage_accounts(self, *_args: object) -> None:
         dialog = PostcardAccountsDialog(self._db)
         dialog.connect("closed", lambda *_: self.reload_accounts())
         dialog.present(self)
 
-    # Re-read accounts after they change (add/remove); fall back sensibly if
-    # the active account was deleted.
+    # Re-read accounts after they change (add/remove). _reload_folders picks a
+    # new folder if the open one went with a deleted account.
     def reload_accounts(self) -> None:
-        accounts = self._db.accounts()
-        if not accounts:
+        if not self._db.accounts():
+            self._account = None
+            self._current_folder = None
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
             return
-        current = self._account.id if self._account else None
-        if current is not None and any(account.id == current for account in accounts):
-            self._refresh_account_switcher()
-        else:
-            self._load_mail_view(accounts[0])
+        if self._account is None:
+            self._load_mail_view()
+            return
+        self._reload_folders()
 
-    def _on_add_account_clicked(self, _button: Gtk.Button) -> None:
+    def _on_add_account_clicked(self, *_args: object) -> None:
         dialog = PostcardAccountDialog(self._db)
         dialog.connect("account-added", self._on_account_added)
         dialog.present(self)
 
-    def _on_online_accounts_clicked(self, _button: Gtk.Button) -> None:
+    def _on_online_accounts_clicked(self, *_args: object) -> None:
         dialog = PostcardOnlineAccountsDialog(self._db)
         dialog.connect("account-added", self._on_account_added)
         dialog.present(self)
 
     def _on_account_added(self, _dialog: Adw.Dialog) -> None:
-        # Load the newly added account (highest id sorts last).
-        self._load_mail_view(self._db.accounts()[-1])
+        # The first account has no mail view yet; a later one only adds a branch
+        # to the sidebar, so the open folder is left alone.
+        if self._current_folder is None:
+            self._load_mail_view()
+            return
+        self._reload_folders()
+        # Highest id sorts last, so this is the one just added.
+        self._start_sync(self._db.accounts()[-1], in_background=True)
 
     def _signature_text(self) -> str:
         if not self._settings.get_boolean("signature-enabled"):
@@ -632,7 +574,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         keep_id = selected.id if selected is not None else None
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
-        self._drain_outbox()
+        if self._account is not None:
+            self._drain_outbox(self._account)
 
     # --- read/unread, star, and the row context menu ----------------------
 
@@ -648,6 +591,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ("forward", self._on_forward_clicked),
             ("refresh", self._on_refresh_clicked),
             ("search", self._on_search_action),
+            ("add-account", self._on_add_account_clicked),
+            ("online-accounts", self._on_online_accounts_clicked),
+            ("manage-accounts", self._on_manage_accounts),
         ):
             _register(self, name, handler)
         _register(self, "move", self._on_move, _MOVE_PARAM_TYPE)
@@ -1262,11 +1208,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # --- the folder sidebar -----------------------------------------------
 
+    # Two kinds of branch: an account row holds its top-level mailboxes, a
+    # folder row holds its subfolders.
     def _folder_children_func(
         self, item: GObject.Object, *_args: object
     ) -> Gio.ListStore | None:
-        assert isinstance(item, Folder)
-        children = self._folder_children.get(item.id)
+        if isinstance(item, Account):
+            children = self._account_roots.get(item.id)
+        else:
+            assert isinstance(item, Folder)
+            children = self._folder_children.get(item.id)
         if not children:
             return None
         store = Gio.ListStore(item_type=Folder)
@@ -1303,14 +1254,19 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         assert isinstance(tree_list_row, Gtk.TreeListRow)
         expander.set_list_row(tree_list_row)
 
-        folder = tree_list_row.get_item()
-        assert isinstance(folder, Folder)
-
         row = expander.get_child()
         assert isinstance(row, FolderRow)
 
-        self._folder_rows[folder.id] = row
-        row.bind(folder, self._unread_badge(folder))
+        entry = tree_list_row.get_item()
+        # An account row is a heading over its folders, not somewhere to click.
+        item.set_selectable(isinstance(entry, Folder))
+        if isinstance(entry, Account):
+            row.bind_account(entry)
+            return
+
+        assert isinstance(entry, Folder)
+        self._folder_rows[entry.id] = row
+        row.bind(entry, self._unread_badge(entry))
 
     def _unread_badge(self, folder: Folder) -> int:
         """What the sidebar shows next to a folder.
@@ -1340,20 +1296,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if isinstance(expander, Gtk.TreeExpander):
             expander.set_list_row(None)
 
-    # Select the inbox row, or the first folder if we can't spot one.
+    # Select the first account's inbox, or its first folder if we can't spot one.
     def _select_inbox_row(self) -> None:
-        row_count = self._folder_tree_model.get_n_items()
-        if row_count == 0:
+        target = -1
+        for position, folder in self._folder_positions():
+            if target < 0:
+                target = position
+            if mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX:
+                target = position
+                break
+        if target < 0:
             return
-        target = 0
-        for position in range(row_count):
-            tree_row = self._folder_tree_model.get_item(position)
-            if isinstance(tree_row, Gtk.TreeListRow):
-                folder = tree_row.get_item()
-                assert isinstance(folder, Folder)
-                if mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX:
-                    target = position
-                    break
 
         # Row 0 is autoselected when the tree is built, so set_selected() may
         # emit nothing. Load the folder directly instead.
@@ -1362,6 +1315,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._suppress_folder_refresh = False
         self._current_folder = None
         self._on_folder_selected(self._folder_selection, target, 1)
+
+    # Every folder row in the flattened tree, with its position. Account rows
+    # sit in the same model, so they are skipped here rather than at each caller.
+    def _folder_positions(self) -> Iterator[tuple[int, Folder]]:
+        for position in range(self._folder_tree_model.get_n_items()):
+            tree_row = self._folder_tree_model.get_item(position)
+            if isinstance(tree_row, Gtk.TreeListRow):
+                folder = tree_row.get_item()
+                if isinstance(folder, Folder):
+                    yield position, folder
 
     def _on_folder_selected(
         self,
@@ -1374,9 +1337,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
 
         folder = tree_list_row.get_item()
-        assert isinstance(folder, Folder)
+        # SingleSelection autoselects row 0, which is an account heading.
+        if not isinstance(folder, Folder):
+            return
         previous = self._current_folder
         self._current_folder = folder
+        self._account = self._accounts[folder.account_id]
         self.move_button.set_menu_model(self._build_move_menu())
         self._update_archive_button()
         if self._suppress_folder_refresh:
@@ -1389,31 +1355,50 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         changed = previous is None or previous.id != folder.id
         age = time.monotonic() - self._folder_sync_times.get(folder.id, 0.0)
         if changed and self._is_online and age >= FOLDER_SYNC_COOLDOWN_SECONDS:
-            self._start_sync(in_background=True, folder_name=folder.name)
+            self._start_sync(
+                self._accounts[folder.account_id],
+                in_background=True,
+                folder_name=folder.name,
+            )
 
     # Rebuilding the tree destroys every row, which resets the user's
-    # expand/collapse state, so only rebuild when the folders or their nesting
-    # actually changed. A plain badge/icon update refreshes the rows in place.
+    # expand/collapse state, so only rebuild when the accounts, the folders or
+    # their nesting actually changed. A plain badge/icon update refreshes the
+    # rows in place.
     def _reload_folders(self) -> None:
-        if self._account is None:
-            return
-        folders = self._db.folders_for_account(self._account.id)
+        accounts = self._db.accounts()
+        self._accounts = {account.id: account for account in accounts}
+        folders = [
+            folder
+            for account in accounts
+            for folder in self._db.folders_for_account(account.id)
+        ]
+        self._account_roots, self._folder_children = mail_sync.group_folders(folders)
 
-        self._folder_children = {}
-        for folder in folders:
-            self._folder_children.setdefault(folder.parent_id, []).append(folder)
+        shape = (
+            [account.id for account in accounts],
+            [(folder.id, folder.parent_id) for folder in folders],
+        )
+        if shape != self._folder_shape:
+            self._folder_shape = shape
+            self._rebuild_folder_tree(accounts)
 
-        shape = [(folder.id, folder.parent_id) for folder in folders]
-        if shape != self._folder_shape_pairs:
-            self._folder_shape_pairs = shape
-            self._rebuild_folder_tree()
+        # Nothing is selected on a first run, or after the open folder was
+        # pruned along with its account. An account row can't stand in: it is
+        # only a heading, so the list would sit empty with no way back.
+        if self._current_folder is not None and self._current_folder.id not in {
+            folder.id for folder in folders
+        }:
+            self._current_folder = None
+        if self._current_folder is None:
+            self._select_inbox_row()
 
         for folder in folders:
             row = self._folder_rows.get(folder.id)
             if row is not None:
                 row.bind(folder, self._unread_badge(folder))
 
-    def _rebuild_folder_tree(self) -> None:
+    def _rebuild_folder_tree(self, accounts: list[Account]) -> None:
         # Preserve the selection by folder id, not row index — pruning stale
         # folders shifts the indices. Re-selecting is suppressed so it doesn't
         # rebuild the conversation list; callers refresh that explicitly.
@@ -1423,8 +1408,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._folder_rows.clear()
         self._folder_root_store.remove_all()
-        for folder in self._folder_children.get(None, []):
-            self._folder_root_store.append(folder)
+        for account in accounts:
+            self._folder_root_store.append(account)
 
         if keep_id is not None:
             self._select_folder_by_id(keep_id)
@@ -1432,16 +1417,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._suppress_folder_refresh = False
 
     def _select_folder_by_id(self, folder_id: int) -> None:
-        row_count = self._folder_tree_model.get_n_items()
-        if row_count == 0:
-            return
-        for position in range(row_count):
-            tree_row = self._folder_tree_model.get_item(position)
-            if isinstance(tree_row, Gtk.TreeListRow):
-                folder = tree_row.get_item()
-                if isinstance(folder, Folder) and folder.id == folder_id:
-                    self._folder_selection.set_selected(position)
-                    return
+        for position, folder in self._folder_positions():
+            if folder.id == folder_id:
+                self._folder_selection.set_selected(position)
+                return
 
     # --- the conversation list: contents, search, and paging --------------
 
@@ -1512,7 +1491,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _show_list_or_placeholder(self) -> None:
         if self._conversation_store.get_n_items() > 0:
             page = PAGE_LIST
-        elif self._is_syncing:
+        elif self._is_current_account_syncing():
             page = PAGE_LOADING
         else:
             page = PAGE_EMPTY
@@ -1576,11 +1555,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if pos != Gtk.PositionType.BOTTOM:
             return
         folder = self._current_folder
-        if folder is None or self._is_syncing or not self._is_online:
+        if folder is None or not self._is_online:
+            return
+        if self._is_current_account_syncing():
             return
         if not self._folders_with_more_mail.get(folder.id, False):
             return
         self._start_sync(
+            self._accounts[folder.account_id],
             in_background=True,
             folder_name=folder.name,
             offset=self._loaded_counts.get(folder.id, 0),
@@ -1630,10 +1612,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.search_bar.set_search_mode(not self.search_bar.get_search_mode())
 
     def _on_refresh_clicked(self, *_args: object) -> None:
-        self._drain_outbox()
-        # The open folder, not the inbox: the only way past the sync cooldown.
-        folder = self._current_folder
-        self._start_sync(folder_name=folder.name if folder else None)
+        # Not in the background, so this is also the way past the sync cooldown
+        # on the open folder.
+        self._sync_all()
 
     # --- the reading pane: thread, bodies, and attachments ----------------
 
@@ -1881,11 +1862,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # --- syncing, the Outbox, and the connection banner -------------------
 
-    def _drain_outbox(self) -> None:
-        account = self._account
-        if account is None:
-            return
-
+    def _drain_outbox(self, account: Account) -> None:
         outbox = next(
             (
                 folder
@@ -2004,19 +1981,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _start_sync(
         self,
+        account: Account,
         in_background: bool = False,
         folder_name: str | None = None,
         offset: int = 0,
     ) -> None:
         # Don't pile background syncs (folder clicks, the poll timer) on top of
-        # one already running.
-        if in_background and self._is_syncing:
-            return
-        account = self._account
-        if account is None:
+        # one already running for the same account.
+        if in_background and account.id in self._syncing_account_ids:
             return
 
-        self._set_syncing(True)
+        self._set_syncing(account.id, True)
         if self.conversation_stack.get_visible_child_name() == PAGE_EMPTY:
             self.conversation_stack.set_visible_child_name(PAGE_LOADING)
         thread = threading.Thread(
@@ -2025,6 +2000,23 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             daemon=True,
         )
         thread.start()
+
+    # Send and fetch for every account. The open folder is the one folder worth
+    # naming; the rest get their inbox.
+    # ponytail: one thread per account at once, which is fine for a handful --
+    # queue them if someone turns up with twenty.
+    def _sync_all(self, in_background: bool = False) -> None:
+        open_folder = self._current_folder
+        for account in self._db.accounts():
+            self._drain_outbox(account)
+            folder_name = (
+                open_folder.name
+                if open_folder is not None and open_folder.account_id == account.id
+                else None
+            )
+            self._start_sync(
+                account, in_background=in_background, folder_name=folder_name
+            )
 
     # Refresh on a timer using the configured interval (0 = manual only).
     def _reschedule_sync(self) -> None:
@@ -2038,9 +2030,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
 
     def _on_sync_tick(self) -> bool:
-        if self._account is not None and self._is_online and not self._is_syncing:
-            self._drain_outbox()
-            self._start_sync(in_background=True)
+        if self._account is not None and self._is_online:
+            self._sync_all(in_background=True)
         return True
 
     # Runs on the worker thread: network only, no Gtk/database access.
@@ -2078,10 +2069,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         GLib.idle_add(self._on_sync_done, account, result)
 
-    # A sync that started before an account switch: filing its mail under the
-    # account open now would write one account's mail into the other's folders.
+    # A sync still in flight when its account was deleted: filing its mail
+    # would recreate the folders that went with it.
     def _is_stale(self, account: Account) -> bool:
-        return self._account is None or self._account.id != account.id
+        return account.id not in self._accounts
 
     # Back on the main thread: safe to touch the database and widgets.
     def _on_sync_done(self, account: Account, result: mail_sync.SyncResult) -> bool:
@@ -2154,7 +2145,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         arrived_elsewhere = self._apply_unread_counts(account, result.unread_counts)
 
-        self._set_syncing(False)
+        self._set_syncing(account.id, False)
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
         self.connection_banner.set_revealed(False)
@@ -2243,7 +2234,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     ) -> bool:
         if self._is_stale(account):
             return False
-        self._set_syncing(False)
+        self._set_syncing(account.id, False)
         self._show_connection_banner(message, self._retry_button_label(is_auth_failure))
         return False
 
@@ -2266,8 +2257,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_banner_retry(self, _banner: Adw.Banner) -> None:
         self.connection_banner.set_revealed(False)
         if self._account is not None:
-            self._drain_outbox()
-            self._start_sync()
+            self._sync_all()
 
     # network-changed fires on any change; act only on real online/offline flips.
     def _on_network_changed(
@@ -2281,8 +2271,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         self.connection_banner.set_revealed(False)
         if self._account is not None:
-            self._drain_outbox()
-            self._start_sync()
+            self._sync_all()
 
     def _notify_background(self) -> None:
         # Once per install, not once per close: the notice explains why the app
@@ -2301,11 +2290,22 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         notification.set_default_action("app.focus-mail")
         app.send_notification("running-background", notification)
 
-    def _set_syncing(self, is_syncing: bool) -> None:
-        self._is_syncing = is_syncing
-        self.refresh_button.set_sensitive(not is_syncing)
-        self.sync_spinner.set_visible(is_syncing)
+    def _set_syncing(self, account_id: int, is_syncing: bool) -> None:
         if is_syncing:
+            self._syncing_account_ids.add(account_id)
+        else:
+            self._syncing_account_ids.discard(account_id)
+
+        is_busy = bool(self._syncing_account_ids)
+        self.refresh_button.set_sensitive(not is_busy)
+        self.sync_spinner.set_visible(is_busy)
+        if is_busy:
             self.sync_spinner.start()
         else:
             self.sync_spinner.stop()
+
+    # The spinner covers every account, but the conversation list only waits on
+    # the one whose folder is open.
+    def _is_current_account_syncing(self) -> bool:
+        folder = self._current_folder
+        return folder is not None and folder.account_id in self._syncing_account_ids

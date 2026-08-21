@@ -80,16 +80,6 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                   styles ["suggested-action"]
                 }
 
-                title-widget: Gtk.MenuButton account_switcher {
-                  always-show-arrow: true;
-                  tooltip-text: _("Switch Account");
-                  // The label is the full address; without this its natural
-                  // width becomes the sidebar's floor and the drag stops early.
-                  can-shrink: true;
-
-                  styles ["flat"]
-                };
-
                 [end]
                 Gtk.MenuButton {
                   primary: true;
@@ -360,6 +350,21 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
 }
 
 menu primary_menu {
+  section {
+    item {
+      label: _("_Add Account");
+      action: "win.add-account";
+    }
+    item {
+      label: _("_Online Accounts");
+      action: "win.online-accounts";
+    }
+    item {
+      label: _("_Manage Accounts");
+      action: "win.manage-accounts";
+    }
+  }
+
   section {
     item {
       label: _("_Preferences");

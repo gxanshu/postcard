@@ -1262,7 +1262,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # An account row is a heading over its folders, not somewhere to click.
         item.set_selectable(isinstance(entry, Folder))
         if isinstance(entry, Account):
-            row.bind_account(entry)
+            row.bind_account(entry, tree_list_row)
             return
 
         assert isinstance(entry, Folder)

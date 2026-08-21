@@ -1,4 +1,4 @@
-from gi.repository import Gtk
+from gi.repository import Adw, Gtk
 
 from . import mail_sync
 from .core.models.account import Account
@@ -24,8 +24,8 @@ class FolderRow(Gtk.Box):
         self._name_label = Gtk.Label(xalign=0, hexpand=True)
         self.append(self._name_label)
 
-        self._spinner = Gtk.Spinner()
-        self._spinner.set_visible(False)
+        # Adw.Spinner spins whenever it is visible -- no start/stop to track.
+        self._spinner = Adw.Spinner(visible=False)
         self.append(self._spinner)
 
         self._badge = Gtk.Label()
@@ -73,7 +73,3 @@ class FolderRow(Gtk.Box):
     # Only account rows use this; the window calls it as syncs start and finish.
     def set_syncing(self, is_syncing: bool) -> None:
         self._spinner.set_visible(is_syncing)
-        if is_syncing:
-            self._spinner.start()
-        else:
-            self._spinner.stop()

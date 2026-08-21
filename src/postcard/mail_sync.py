@@ -388,20 +388,6 @@ def sent_folder(db: Database, account_id: int) -> Folder:
     return db.get_or_create_folder(account_id, name, icon_for_folder(name))
 
 
-def group_folders(
-    folders: Iterable[Folder],
-) -> tuple[dict[int, list[Folder]], dict[int, list[Folder]]]:
-    """Split folders into (roots per account id, children per parent folder id)."""
-    roots: dict[int, list[Folder]] = {}
-    children: dict[int, list[Folder]] = {}
-    for folder in folders:
-        if folder.parent_id is None:
-            roots.setdefault(folder.account_id, []).append(folder)
-        else:
-            children.setdefault(folder.parent_id, []).append(folder)
-    return roots, children
-
-
 def parent_mailbox_name(name: str, delimiter: str) -> str:
     """The mailbox enclosing name, or "" when it sits at the top level."""
     parent = name.rpartition(delimiter)[0] if delimiter else ""

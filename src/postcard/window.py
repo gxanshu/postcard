@@ -1362,11 +1362,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         changed = previous is None or previous.id != folder.id
         age = time.monotonic() - self._folder_sync_times.get(folder.id, 0.0)
         if changed and self._is_online and age >= FOLDER_SYNC_COOLDOWN_SECONDS:
-            self._start_sync(
-                self._accounts[folder.account_id],
-                in_background=True,
-                folder_name=folder.name,
-            )
+            self._start_sync(self._account, in_background=True, folder_name=folder.name)
 
     # Rebuilding the tree destroys every row, which resets the user's
     # expand/collapse state, so only rebuild when the accounts, the folders or
@@ -1380,7 +1376,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for account in accounts
             for folder in self._db.folders_for_account(account.id)
         ]
-        self._account_roots, self._folder_children = mail_sync.group_folders(folders)
+        # Two kinds of branch: top-level folders hang off their account, the
+        # rest off their parent folder.
+        self._account_roots = {}
+        self._folder_children = {}
+        for folder in folders:
+            if folder.parent_id is None:
+                self._account_roots.setdefault(folder.account_id, []).append(folder)
+            else:
+                self._folder_children.setdefault(folder.parent_id, []).append(folder)
 
         shape = (
             [account.id for account in accounts],
@@ -2026,7 +2030,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # queue them if someone turns up with twenty.
     def _sync_all(self, in_background: bool = False) -> None:
         open_folder = self._current_folder
-        for account in self._db.accounts():
+        for account in self._accounts.values():
             self._drain_outbox(account)
             folder_name = (
                 open_folder.name

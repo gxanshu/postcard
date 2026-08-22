@@ -59,6 +59,25 @@
   </screenshots>
 
   <releases>
+    <release version="1.10.0" date="2026-08-22">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>A unified inbox that shows mail from every account in one list</li>
+          <li>One-click unsubscribe from mailing lists, straight from the reader</li>
+          <li>Pick which account a message is sent from in the composer</li>
+          <li>Postcard can now start on login and keep syncing in the background</li>
+          <li>Remote images and other subresources in messages are now blocked by default</li>
+          <li>IMAP and SMTP connections now verify TLS certificates</li>
+          <li>Only http, https and mailto links open from a message body</li>
+          <li>Attachments now prompt for an app when nothing is set to open them</li>
+          <li>Fix the archive button not offering to unarchive already-archived mail</li>
+          <li>Fix new-mail notifications from different accounts replacing each other</li>
+          <li>Fix the conversation list emptying when a background sync failed</li>
+          <li>Fix the unread filter showing a recording icon instead of a bell</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.9.1" date="2026-08-15">
       <description translate="no">
         <p>New in this release:</p>

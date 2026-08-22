@@ -326,6 +326,11 @@ class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+# Names the app rather than mimicking a browser: bot filters reject the default
+# urllib agent, not an honest one. No version -- it would have to be threaded
+# down from main() for nothing, since no list branches on it.
+UNSUBSCRIBE_USER_AGENT = "Postcard (+https://postcard.gxanshu.in)"
+
 _unsubscribe_opener = urllib.request.build_opener(_HttpsOnlyRedirect())
 
 
@@ -334,12 +339,17 @@ def post_unsubscribe(url: str) -> None:
 
     open() raises HTTPError for any 4xx/5xx, so a return means the list took the
     request. Nothing authenticates this beyond the token already in the URL: no
-    cookies, no credentials, no identifying User-Agent past urllib's own.
+    cookies and no credentials -- but a User-Agent is not optional. Cloudflare
+    403s urllib's default "Python-urllib/x.y" at the edge, so a plain request
+    never reaches the list at all (Substack and mailersite.com both do this).
     """
     request = urllib.request.Request(
         url,
         data=ONE_CLICK_BODY,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": UNSUBSCRIBE_USER_AGENT,
+        },
     )
     _unsubscribe_opener.open(request, timeout=15).close()
 

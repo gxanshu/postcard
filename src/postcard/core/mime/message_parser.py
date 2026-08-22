@@ -1,10 +1,24 @@
 import email
 import email.utils
+import re
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.policy import default as default_policy
 
 from ..models.attachment import Attachment
+
+# RFC 2369 wraps each unsubscribe target in angle brackets and separates them
+# with commas, which may also appear inside a target -- so match the brackets.
+_TARGET = re.compile(r"<([^>]+)>")
+
+
+@dataclass(frozen=True, slots=True)
+class Unsubscribe:
+    """Where a mailing list says it will accept an unsubscribe request."""
+
+    url: str = ""
+    mailto: str = ""
+    is_one_click: bool = False
 
 
 @dataclass
@@ -18,6 +32,7 @@ class ParsedMessage:
     cc: list[str] = field(default_factory=list)
     bcc: list[str] = field(default_factory=list)
     date: str = ""
+    unsubscribe: Unsubscribe | None = None
 
 
 def parse_message(raw: bytes) -> ParsedMessage:
@@ -31,6 +46,7 @@ def parse_message(raw: bytes) -> ParsedMessage:
     result.cc = _addresses(msg, "Cc")
     result.bcc = _addresses(msg, "Bcc")
     result.date = _format_date(msg.get("Date"))
+    result.unsubscribe = _unsubscribe(msg)
 
     for part in msg.walk():
         if part.is_multipart():
@@ -51,6 +67,32 @@ def parse_message(raw: bytes) -> ParsedMessage:
             result.attachments.append(_as_attachment(part))
 
     return result
+
+
+def _unsubscribe(msg: EmailMessage) -> Unsubscribe | None:
+    url = ""
+    mailto = ""
+    for bracketed in _TARGET.findall(str(msg.get("List-Unsubscribe", ""))):
+        # These URLs carry a long opaque token, so senders fold the header --
+        # and unfolding keeps the continuation whitespace inside the URL, where
+        # it makes the request unsendable. Strip every space, not just the ends.
+        target = "".join(bracketed.split())
+        scheme = target.partition(":")[0].lower()
+        # A stranger's header may name any scheme, and a registered handler
+        # would happily take file: or smb: from one. http is honoured only as a
+        # link, never as a request this app makes itself -- so an https target
+        # wins even when an http one was published first.
+        if scheme in ("https", "http") and not url.lower().startswith("https:"):
+            url = target
+        elif scheme == "mailto" and not mailto:
+            mailto = target
+
+    if not url and not mailto:
+        return None
+
+    post = str(msg.get("List-Unsubscribe-Post", "")).lower()
+    is_one_click = url.lower().startswith("https:") and "one-click" in post
+    return Unsubscribe(url=url, mailto=mailto, is_one_click=is_one_click)
 
 
 def _addresses(msg: EmailMessage, header: str) -> list[str]:

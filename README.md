@@ -32,16 +32,21 @@ Postcard has the classic three panel layout. folders on the left, conversations 
 </tr>
 </table>
 
+<table>
+<tr>
+<td width="50%"><img src="data/screenshots/online-accounts.png" alt="The Online Accounts dialog listing a Google account from GNOME Settings, ready to add"></td>
+<td width="50%"><img src="data/screenshots/mailing-list-unsubscribe.png" alt="The reader showing a mailing list banner with an Unsubscribe button and the confirmation dialog naming the host the request goes to"></td>
+</tr>
+<tr>
+<td align="center"><sub><b>Gnome Online Accounts Sync</b></sub></td>
+<td align="center"><sub><b>One click unsubscribe from a mailing list</b></sub></td>
+</tr>
+</table>
+
 <div align="center">
 <img src="data/screenshots/mail-compose.png" width="340" alt="The composer at a narrow window size, with To/Cc/Bcc fields and a rich-text toolbar">
 
 <sub><b>Composer</b></sub>
-</div>
-
-<div align="center">
-<img src="data/screenshots/online-accounts.png" alt="The Online Accounts dialog listing a Google account from GNOME Settings, ready to add">
-
-<sub><b>Gnome Online Accounts Sync</b></sub>
 </div>
 
 > **Postcard is in heavy development.** You will probably hit bugs. Please
@@ -67,6 +72,7 @@ Postcard has the classic three panel layout. folders on the left, conversations 
 ### 🖥️ Desktop
 
 - **HTML and plain-text mail.** Remote images are blocked until you allow them, and links open in your browser.
+- **One click unsubscribe** from a mailing list. If the list supports it (RFC 8058), Postcard sends the request itself after telling you where it goes; otherwise it opens the list's page in your browser or a pre-filled email.
 - **Archive, trash, move, undo**, on one conversation or a whole selection.
 - **Attachments** open in their default app with one click.
 - **Relative dates** ("2h ago", "Yesterday"), with the exact time shown on hover.

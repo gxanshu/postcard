@@ -12,12 +12,16 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango, WebKit
 from . import mail_sync
 from .avatar_loader import AvatarLoader
 from .core.mime import message_parser
+from .core.mime.message_parser import Unsubscribe
 from .core.models.attachment import Attachment
 from .core.models.email import Email
 
 logger = logging.getLogger(__name__)
 
 LoadCallback = Callable[[bytes | None, str | None], None]
+# The second argument hides the banner once the list has confirmed; the window
+# only knows the outcome after a round trip, so it can't be done at click time.
+UnsubscribeCallback = Callable[[Unsubscribe, Callable[[], None]], None]
 
 # A mail body may name any scheme, and a registered handler will happily take
 # file:, smb: or tel: from a stranger. Only these three are worth honouring.
@@ -83,6 +87,7 @@ class MessageView(Gtk.Box):
         on_load: Callable[[Email, LoadCallback], None],
         on_save_attachment: Callable[[Attachment], None],
         on_open_attachment: Callable[[Attachment], None],
+        on_unsubscribe: UnsubscribeCallback,
         on_rendered: Callable[["MessageView"], None] | None = None,
         is_expanded: bool = False,
         should_load_remote_images: bool = False,
@@ -96,6 +101,7 @@ class MessageView(Gtk.Box):
         self._on_save_attachment = on_save_attachment
         self._on_open_attachment = on_open_attachment
         self._on_rendered = on_rendered
+        self._on_unsubscribe = on_unsubscribe
         self._should_load_remote_images = should_load_remote_images
         self._is_loaded = False
         self._is_loading = False
@@ -203,6 +209,7 @@ class MessageView(Gtk.Box):
         self.parsed = message_parser.parse_message(raw)
 
         self._show_details(self.parsed)
+        self._show_unsubscribe(self.parsed.unsubscribe)
 
         if self.parsed.html_body:
             self._show_html(self.parsed.html_body)
@@ -242,6 +249,25 @@ class MessageView(Gtk.Box):
         expander = Gtk.Expander(label=_("Details"))
         expander.set_child(grid)
         self._body.append(expander)
+
+    # Above the remote-images banner rather than below the body, so the two
+    # read as one block on a newsletter -- which carries both far more often
+    # than either alone.
+    def _show_unsubscribe(self, target: Unsubscribe | None) -> None:
+        if target is None:
+            return
+
+        banner = Adw.Banner(
+            title=_("You're subscribed to this mailing list."),
+            button_label=_("Unsubscribe"),
+            revealed=True,
+        )
+        on_unsubscribe = self._on_unsubscribe
+        banner.connect(
+            "button-clicked",
+            lambda _banner: on_unsubscribe(target, lambda: banner.set_revealed(False)),
+        )
+        self._body.append(banner)
 
     def _show_text(self, text: str) -> None:
         label = Gtk.Label(label=text, xalign=0, yalign=0, wrap=True, selectable=True)

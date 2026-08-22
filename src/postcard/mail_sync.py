@@ -1,5 +1,7 @@
 import logging
 import re
+import urllib.error
+import urllib.request
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -31,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 # how many recent messages to pull per sync
 RECENT_LIMIT = 50
+
+# RFC 8058: the body is the whole request, and the server matches it verbatim.
+ONE_CLICK_BODY = b"List-Unsubscribe=One-Click"
 
 # Gmail nests its special folders under an unselectable "[Gmail]" container.
 # It isn't a real mailbox, so it's hidden and its children sit at the top level.
@@ -305,6 +310,48 @@ def send_message(
             account.email,
             exc_info=True,
         )
+
+
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuses a redirect that would leave https.
+
+    The token in an unsubscribe URL is the only thing authenticating the
+    request, and a list is free to redirect us at any host it likes -- so a
+    plain-http hop would put that token on the wire in the clear.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https:"):
+            raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# Names the app rather than mimicking a browser: bot filters reject the default
+# urllib agent, not an honest one. No version -- it would have to be threaded
+# down from main() for nothing, since no list branches on it.
+UNSUBSCRIBE_USER_AGENT = "Postcard (+https://postcard.gxanshu.in)"
+
+_unsubscribe_opener = urllib.request.build_opener(_HttpsOnlyRedirect())
+
+
+def post_unsubscribe(url: str) -> None:
+    """Send an RFC 8058 one-click unsubscribe. Raises unless the list accepts it.
+
+    open() raises HTTPError for any 4xx/5xx, so a return means the list took the
+    request. Nothing authenticates this beyond the token already in the URL: no
+    cookies and no credentials -- but a User-Agent is not optional. Cloudflare
+    403s urllib's default "Python-urllib/x.y" at the edge, so a plain request
+    never reaches the list at all (Substack and mailersite.com both do this).
+    """
+    request = urllib.request.Request(
+        url,
+        data=ONE_CLICK_BODY,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": UNSUBSCRIBE_USER_AGENT,
+        },
+    )
+    _unsubscribe_opener.open(request, timeout=15).close()
 
 
 def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:

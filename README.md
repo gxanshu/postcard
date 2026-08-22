@@ -5,7 +5,7 @@
 
 **An email client for GNOME, written in Python with GTK 4 and libadwaita.**
 
-[![Version](https://img.shields.io/badge/version-1.10.0-3584e4?style=flat-square)](#installing)
+[![Version](https://img.shields.io/badge/version-1.10.1-3584e4?style=flat-square)](#installing)
 [![Tests](https://img.shields.io/github/actions/workflow/status/gxanshu/postcard/tests.yml?style=flat-square&label=tests)](https://github.com/gxanshu/postcard/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4?style=flat-square)](COPYING)
 [![Flatpak](https://img.shields.io/badge/install-Flatpak-4a86cf?style=flat-square&logo=flatpak&logoColor=white)](#installation)

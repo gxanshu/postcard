@@ -59,6 +59,14 @@
   </screenshots>
 
   <releases>
+    <release version="1.10.1" date="2026-08-22">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Fix connecting to a local mail bridge with a self-signed certificate</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.10.0" date="2026-08-22">
       <description translate="no">
         <p>New in this release:</p>

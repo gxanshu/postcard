@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <title>Postcard - a modern email client for GNOME</title>
-<meta name="description" content="Postcard is a modern email client for GNOME. GTK 4, libadwaita, IMAP/SMTP and GNOME Online Accounts, offline search, and a three-pane inbox. Install the Flatpak in one click.">
-<meta name="keywords" content="email client for GNOME, best email client for GNOME, GNOME mail app, GTK4 email client, libadwaita mail, Linux IMAP client, Flatpak email client">
+<meta name="description" content="Postcard is a modern email client for GNOME. GTK 4, libadwaita, IMAP/SMTP and GNOME Online Accounts, a unified inbox, offline search, and one click unsubscribe. Install the Flatpak in one click.">
+<meta name="keywords" content="email client for GNOME, best email client for GNOME, GNOME mail app, GTK4 email client, libadwaita mail, Linux IMAP client, Flatpak email client, unified inbox, one click unsubscribe">
 <link rel="canonical" href="https://postcard.gxanshu.in/">
 
 <meta property="og:title" content="Postcard — a modern email client for GNOME">
-<meta property="og:description" content="A native GNOME mail app on GTK 4 and libadwaita. Conversations, offline search, GNOME Online Accounts. Free and GPL-3.0.">
+<meta property="og:description" content="A native GNOME mail app on GTK 4 and libadwaita. A unified inbox, conversations, offline search, GNOME Online Accounts. Free and GPL-3.0.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://postcard.gxanshu.in/">
 <meta property="og:image" content="https://postcard.gxanshu.in/img/og.png">
@@ -18,7 +18,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Postcard — a modern email client for GNOME">
-<meta name="twitter:description" content="A native GNOME mail app on GTK 4 and libadwaita. Conversations, offline search, GNOME Online Accounts. Free and GPL-3.0.">
+<meta name="twitter:description" content="A native GNOME mail app on GTK 4 and libadwaita. A unified inbox, conversations, offline search, GNOME Online Accounts. Free and GPL-3.0.">
 <meta name="twitter:image" content="https://postcard.gxanshu.in/img/og.png">
 
 <link rel="icon" href="icon.png">
@@ -160,7 +160,7 @@ p{text-wrap:pretty;}
 .btn-block{display:block;width:100%;text-align:center;padding:13px 20px;border-radius:11px;}
 
 /* Hero */
-.hero{padding:76px 24px 0;}
+.hero{padding:96px 24px 0;}
 .hero-row{display:flex;flex-wrap:wrap;gap:48px;align-items:center;}
 .hero-copy{flex:1 1 480px;min-width:280px;}
 .hero h1{margin:0;font-size:clamp(36px,5.6vw,64px);line-height:1.03;letter-spacing:-.035em;text-wrap:balance;}
@@ -298,12 +298,13 @@ pre{
 }
 </style>
 
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Postcard","applicationCategory":"CommunicationApplication","applicationSubCategory":"Email Client","operatingSystem":"Linux, GNOME","softwareVersion":"__VERSION__","url":"https://postcard.gxanshu.in/","license":"https://www.gnu.org/licenses/gpl-3.0.html","description":"A modern email client for GNOME, built on GTK 4, libadwaita and Python. IMAP/SMTP, GNOME Online Accounts, offline full-text search.","downloadUrl":"https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref","screenshot":"https://postcard.gxanshu.in/img/og.png","author":{"@type":"Person","name":"Anshu","url":"https://github.com/gxanshu"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Postcard","applicationCategory":"CommunicationApplication","applicationSubCategory":"Email Client","operatingSystem":"Linux, GNOME","softwareVersion":"__VERSION__","url":"https://postcard.gxanshu.in/","license":"https://www.gnu.org/licenses/gpl-3.0.html","description":"A modern email client for GNOME, built on GTK 4, libadwaita and Python. IMAP/SMTP, GNOME Online Accounts, a unified inbox, offline full-text search and one click unsubscribe.","downloadUrl":"https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref","screenshot":"https://postcard.gxanshu.in/img/og.png","author":{"@type":"Person","name":"Anshu","url":"https://github.com/gxanshu"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
 {"@type":"Question","name":"Is Postcard on Flathub?","acceptedAnswer":{"@type":"Answer","text":"No. It installs as a Flatpak from the project's GitHub releases, and flatpak update keeps it current like any other app."}},
 {"@type":"Question","name":"Does it work outside GNOME?","acceptedAnswer":{"@type":"Answer","text":"Yes. KDE, Xfce, anywhere Flatpak runs. GNOME just fits best, because Online Accounts, notifications, the keyring and the dark style all come for free."}},
 {"@type":"Question","name":"Which mail providers work?","acceptedAnswer":{"@type":"Answer","text":"Anything with IMAP and SMTP. Gmail, Fastmail, Zoho, Proton Mail Bridge, a mailbox on your own server. A Google account already in GNOME Settings is picked up without a password."}},
 {"@type":"Question","name":"What does it cost?","acceptedAnswer":{"@type":"Answer","text":"Nothing. GPL-3.0-or-later, no account to make, no telemetry. Your mail stays on your machine and your server."}},
+{"@type":"Question","name":"Can it start with my session?","acceptedAnswer":{"@type":"Answer","text":"Yes. Turn on Keep running in the background and Start at Login in Preferences. Postcard starts with no window, checks for mail on your sync interval and notifies you when something arrives."}},
 {"@type":"Question","name":"Is it ready for my main inbox?","acceptedAnswer":{"@type":"Answer","text":"I read my own mail in it every day, but it is still early. Keep your old client around for a week or two and file anything that breaks."}}]}</script>
 </head>
 
@@ -331,7 +332,6 @@ pre{
 <section class="hero wrap">
   <div class="hero-row">
     <div class="hero-copy">
-      <p class="eyebrow" style="margin-bottom:22px;">GTK 4 · libadwaita · Flatpak</p>
       <h1>A modern email client for GNOME.</h1>
       <p class="lede">Folders on the left, conversations in the middle, the message on the right. The layout you already know, rebuilt on GTK 4 and libadwaita. Nothing new to learn.</p>
       <div class="hero-actions">
@@ -348,15 +348,19 @@ pre{
 
 <section class="shot-band">
   <div class="inner">
-    <img class="shot" src="img/main-window.webp" width="1920" height="1222" fetchpriority="high" alt="Postcard on GNOME showing the three pane layout: folder list, conversation list and the HTML reader">
+    <img class="shot" src="img/main-window.webp" width="1867" height="1195" fetchpriority="high" alt="Postcard on GNOME showing every account in one sidebar, the conversation list and the HTML reader">
   </div>
 </section>
 
 <section id="features" class="features">
   <div class="inner">
-    <p class="eyebrow">What you get</p>
+    <p class="eyebrow">Features</p>
     <h2>Everything a mail client should do. Nothing it shouldn't.</h2>
     <div class="grid">
+      <div class="cell">
+        <h3>One inbox, every account</h3>
+        <p>All your addresses live in the same sidebar, folders sitting under the account they belong to. No switcher to remember, no going back and forth to find a mail.</p>
+      </div>
       <div class="cell">
         <h3>Threaded conversations</h3>
         <p>Replies stack into one thread. Archive, trash, move, and undo it when you got the wrong one.</p>
@@ -371,7 +375,7 @@ pre{
       </div>
       <div class="cell">
         <h3>Any IMAP or SMTP account</h3>
-        <p>Gmail, Fastmail, Proton Bridge, your own server. Add as many as you want. Passwords go in the system keyring.</p>
+        <p>Gmail, Fastmail, Proton Bridge, your own server. Add as many as you want. Host and port are filled in from your address for the providers people actually use, and passwords go in the system keyring.</p>
       </div>
       <div class="cell">
         <h3>Trackers stay blocked</h3>
@@ -379,7 +383,19 @@ pre{
       </div>
       <div class="cell">
         <h3>Drafts that don't vanish</h3>
-        <p>Reply, forward, Cc and Bcc, signatures, rich text. An Outbox holds the message until it really goes.</p>
+        <p>Reply, forward, Cc and Bcc, signatures, rich text. Pick which of your addresses it goes out from, let addresses you have written to before autocomplete, and an Outbox holds the message until it really goes.</p>
+      </div>
+      <div class="cell">
+        <h3>Leave a mailing list</h3>
+        <p>Lists get a banner with an Unsubscribe button. Where the list supports it, Postcard sends the request itself, after telling you which host it is about to talk to.</p>
+      </div>
+      <div class="cell">
+        <h3>Waits in the background</h3>
+        <p>Postcard can start hidden at login, check on your sync interval and notify you when mail lands. The desktop portal writes the autostart entry, so there is no file to edit.</p>
+      </div>
+      <div class="cell">
+        <h3>Acts like a desktop app</h3>
+        <p>A <span class="mono" style="font-size:13.5px;">mailto:</span> link opens the composer with the fields already filled. Attachments open in their default app, dates read like "2h ago", and senders get an avatar.</p>
       </div>
     </div>
   </div>
@@ -387,7 +403,7 @@ pre{
 
 <section id="look" class="night">
   <div class="inner">
-    <p class="eyebrow">A closer look</p>
+    <p class="eyebrow">Screenshots</p>
     <h2>Built to the GNOME HIG.</h2>
     <p class="lede">Adaptive layouts, boxed lists, real dialogs, and the system dark style everywhere. It fits your desktop because it is built the same way.</p>
     <div class="figs">
@@ -405,6 +421,10 @@ pre{
           <figcaption><strong>Preferences.</strong> A short list of switches. Notifications, remote images, sync interval.</figcaption>
         </figure>
       </div>
+      <figure style="flex:1 1 100%;">
+        <img src="img/mailing-list-unsubscribe.webp" width="1867" height="1188" loading="lazy" decoding="async" alt="The Postcard reader showing a mailing list banner with an Unsubscribe button, and the dialog naming the host the request goes to">
+        <figcaption><strong>One click unsubscribe.</strong> A newsletter gets a banner across the top of the message. Press the button and Postcard says which host it is about to ask, then asks for you.</figcaption>
+      </figure>
     </div>
   </div>
 </section>
@@ -460,7 +480,7 @@ pre{
 <section class="talk">
   <div class="inner split">
     <div class="split-main">
-      <p class="eyebrow">Straight talk</p>
+      <p class="eyebrow">Before you install</p>
       <h2>Written in the open, awkward parts included.</h2>
       <p>Postcard is under heavy development. It has bugs and rough edges. A bug report is the fastest way to get them fixed.</p>
       <p>AI tools help me type this code. That is written in the README rather than hidden away. The architecture, the review and the responsibility are mine, and every line was read before it shipped. Read the source and judge for yourself.</p>
@@ -504,6 +524,10 @@ pre{
       <div>
         <h3>What does it cost?</h3>
         <p>Nothing. GPL-3.0-or-later, no account to make, no telemetry. Your mail stays on your machine and your server.</p>
+      </div>
+      <div>
+        <h3>Can it start with my session?</h3>
+        <p>Yes. Turn on <strong>Keep running in the background</strong> and <strong>Start at Login</strong> in Preferences. Postcard comes up with no window, checks on your sync interval, and notifies you when mail arrives. Click the notification to open it.</p>
       </div>
       <div>
         <h3>Is it ready for my main inbox?</h3>

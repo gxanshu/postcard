@@ -3,11 +3,10 @@ import email
 import imaplib
 import logging
 import re
-import ssl
 from email import policy
 from typing import NamedTuple
 
-from . import NET_TIMEOUT_SECONDS
+from . import NET_TIMEOUT_SECONDS, ssl_context_for
 from .auth import MECHANISM_LOGIN, MECHANISM_XOAUTH2, Credential, xoauth2_response
 
 logger = logging.getLogger(__name__)
@@ -100,12 +99,7 @@ class ImapSession:
         self._imap: imaplib.IMAP4 | None = None
 
     def connect(self) -> str:
-        # imaplib's own default is ssl._create_stdlib_context(): check_hostname
-        # off, verify_mode CERT_NONE. Unlike urllib, imaplib and smtplib were
-        # never converted to verify by default, so the context has to be passed
-        # in -- without it any machine on the path can present its own
-        # certificate and read the password and the mail.
-        context = ssl.create_default_context()
+        context = ssl_context_for(self._host)
         if self._security == "starttls":
             self._imap = imaplib.IMAP4(
                 self._host, self._port, timeout=NET_TIMEOUT_SECONDS

@@ -36,8 +36,6 @@ RECENT_LIMIT = 50
 
 # RFC 8058: the body is the whole request, and the server matches it verbatim.
 ONE_CLICK_BODY = b"List-Unsubscribe=One-Click"
-FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
-UNSUBSCRIBE_TIMEOUT_SECONDS = 15
 
 # Gmail nests its special folders under an unselectable "[Gmail]" container.
 # It isn't a real mailbox, so it's hidden and its children sit at the top level.
@@ -341,10 +339,9 @@ def post_unsubscribe(url: str) -> None:
     request = urllib.request.Request(
         url,
         data=ONE_CLICK_BODY,
-        headers={"Content-Type": FORM_CONTENT_TYPE},
-        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
-    _unsubscribe_opener.open(request, timeout=UNSUBSCRIBE_TIMEOUT_SECONDS).close()
+    _unsubscribe_opener.open(request, timeout=15).close()
 
 
 def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:

@@ -87,8 +87,8 @@ class MessageView(Gtk.Box):
         on_load: Callable[[Email, LoadCallback], None],
         on_save_attachment: Callable[[Attachment], None],
         on_open_attachment: Callable[[Attachment], None],
+        on_unsubscribe: UnsubscribeCallback,
         on_rendered: Callable[["MessageView"], None] | None = None,
-        on_unsubscribe: UnsubscribeCallback | None = None,
         is_expanded: bool = False,
         should_load_remote_images: bool = False,
         avatars: AvatarLoader | None = None,
@@ -254,7 +254,7 @@ class MessageView(Gtk.Box):
     # read as one block on a newsletter -- which carries both far more often
     # than either alone.
     def _show_unsubscribe(self, target: Unsubscribe | None) -> None:
-        if target is None or self._on_unsubscribe is None:
+        if target is None:
             return
 
         banner = Adw.Banner(

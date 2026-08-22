@@ -11,5 +11,6 @@
     <file>style.css</file>
     <file alias="metainfo.xml">in.gxanshu.postcard.metainfo.xml</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/mail-archive-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/unread-only-symbolic.svg</file>
   </gresource>
 </gresources>

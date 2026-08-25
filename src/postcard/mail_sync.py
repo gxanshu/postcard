@@ -67,7 +67,7 @@ _ROLE_PATTERNS: tuple[tuple[re.Pattern[str], FolderRole], ...] = (
     (re.compile(r"^inbox$", re.IGNORECASE), FolderRole.INBOX),
     (re.compile(r"\bsent\b", re.IGNORECASE), FolderRole.SENT),
     (re.compile(r"\bdrafts?\b", re.IGNORECASE), FolderRole.DRAFTS),
-    (re.compile(r"\b(trash|deleted)\b", re.IGNORECASE), FolderRole.TRASH),
+    (re.compile(r"\b(trash|deleted|bin)\b", re.IGNORECASE), FolderRole.TRASH),
     (re.compile(r"\b(junk|spam)\b", re.IGNORECASE), FolderRole.JUNK),
     (re.compile(r"\b(archives?|all mail)\b", re.IGNORECASE), FolderRole.ARCHIVE),
     (re.compile(r"\b(starred|flagged)\b", re.IGNORECASE), FolderRole.STARRED),

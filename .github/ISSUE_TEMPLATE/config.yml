@@ -6,6 +6,3 @@ contact_links:
   - name: Installing, updating, or building from source
     url: https://github.com/gxanshu/postcard/blob/main/CONTRIBUTING.md
     about: How to install the Flatpak and set up a development environment.
-  - name: Reporting a security issue
-    url: https://github.com/gxanshu/postcard/blob/main/SECURITY.md
-    about: Security reports go through the tracker too — read this first for what to include and what never to paste.

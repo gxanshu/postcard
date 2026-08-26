@@ -1,4 +1,4 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Does my mail provider work?
     url: https://github.com/gxanshu/postcard#supported-providers

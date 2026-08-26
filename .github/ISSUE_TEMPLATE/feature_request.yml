@@ -2,23 +2,94 @@ name: Feature request
 description: Suggest something Postcard should do
 labels: [feature-request]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Postcard aims to be a small, classic three-pane mail client, so not
+        every idea will land, but a clear description of the problem behind
+        the idea makes it much easier to judge. Answer what you can.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I searched [existing issues](https://github.com/gxanshu/postcard/issues?q=is%3Aissue) and this isn't already requested.
+          required: true
+
   - type: textarea
     id: problem
     attributes:
       label: What's the problem?
-      description: What are you trying to do that Postcard makes hard or impossible?
+      description: What are you trying to do that Postcard makes hard or impossible? Describe the situation, not the solution.
+      placeholder: I get a lot of mailing list mail and I can't tell threads apart in the conversation list without opening each one.
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: What should it do instead?
+      label: What should Postcard do instead?
+      description: Your proposed behaviour, as concretely as you can put it.
+      placeholder: Show the mailing list name as a small tag on the conversation row, the way the unread dot is shown.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      description: A rough guess is fine.
+      options:
+        - Accounts and sign-in (adding an account, Online Accounts, passwords)
+        - Syncing and folders
+        - Reading mail (conversation list, reading pane, images)
+        - Attachments
+        - Composing and sending (composer, Outbox, signature)
+        - Search
+        - Notifications and running in the background
+        - Preferences and settings
+        - Window layout, theme, keyboard shortcuts, or appearance
+        - Provider support (a mail service that doesn't work today)
+        - Not sure
     validations:
       required: true
 
   - type: textarea
+    id: ui
+    attributes:
+      label: Where would it live in the UI?
+      description: |
+        If it needs a button, menu item, setting, or shortcut, say where you'd expect to find it.
+        Mockups or screenshots from other apps help a lot — drag images in here.
+      placeholder: A switch in Preferences → General, off by default.
+
+  - type: textarea
     id: alternatives
     attributes:
+      label: Workarounds and prior art
+      description: What do you do today instead? Does another mail client (Geary, Thunderbird, Evolution, Apple Mail…) handle this well?
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: How much does this matter to you?
+      options:
+        - Blocking — I can't use Postcard as my main client without it
+        - Annoying — I work around it regularly
+        - Nice to have
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      description: Entirely optional — the request is welcome either way. See [CONTRIBUTING.md](https://github.com/gxanshu/postcard/blob/main/CONTRIBUTING.md) if you're curious how the build works.
+      options:
+        - label: I'd be interested in implementing this myself.
+
+  - type: textarea
+    id: extra
+    attributes:
       label: Anything else?
-      description: Workarounds you use today, or how other mail clients handle this.

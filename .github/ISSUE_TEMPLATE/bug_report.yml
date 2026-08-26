@@ -1,12 +1,85 @@
 name: Bug report
-description: Something in Postcard is broken
+description: Something in Postcard is broken or behaves unexpectedly
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. The more of this you fill in, the less
+        back-and-forth it takes to fix.
+
+        **Please never paste passwords, app passwords, OAuth tokens, or the
+        contents of real messages**. This tracker is public.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I searched [existing issues](https://github.com/gxanshu/postcard/issues?q=is%3Aissue) and this isn't already reported.
+          required: true
+        - label: I'm on the latest release (`flatpak update`), or I've noted below why I'm not.
+          required: true
+
   - type: textarea
     id: what-happened
     attributes:
       label: What happened?
-      description: What you did, what you expected, what happened instead.
+      description: Describe the problem in a sentence or two.
+      placeholder: Opening a message with a PDF attachment closes the whole window.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps someone else can follow from a fresh start.
+      placeholder: |
+        1. Open Postcard with a Gmail account added
+        2. Select the Inbox
+        3. Click a message that has a PDF attached
+        4. The window disappears
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+      placeholder: The message opens in the reading pane with the PDF listed at the bottom.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      description: A rough guess is fine — pick "Not sure" if it doesn't fit.
+      options:
+        - Accounts and sign-in (adding an account, Online Accounts, passwords)
+        - Syncing and folders (missing mail, folder list, sync errors)
+        - Reading mail (conversation list, reading pane, images)
+        - Attachments
+        - Composing and sending (composer, Outbox, signature)
+        - Search
+        - Notifications and running in the background
+        - Preferences and settings
+        - Window layout, theme, or appearance
+        - Installing, updating, or building
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Most of the time
+        - Occasionally / hard to reproduce
+        - Happened once
     validations:
       required: true
 
@@ -14,23 +87,37 @@ body:
     id: version
     attributes:
       label: Postcard version
-      description: Shown in the app's About dialog, or `flatpak info in.gxanshu.postcard`.
+      description: Shown in the app's About dialog, or run `flatpak info in.gxanshu.postcard`.
+      placeholder: "1.10.1"
     validations:
       required: true
 
   - type: input
     id: environment
     attributes:
-      label: Distro and install method
-      placeholder: Fedora 43, Flatpak / built from source
+      label: Distro, desktop, and how you installed
+      placeholder: Fedora 43, GNOME 50, Flatpak from the releases page / built from source
     validations:
       required: true
+
+  - type: dropdown
+    id: account-type
+    attributes:
+      label: How does the affected account sign in?
+      description: Skip if the bug has nothing to do with an account.
+      options:
+        - Google via GNOME Online Accounts (OAuth)
+        - App password (Gmail, Yahoo…)
+        - Proton Mail Bridge
+        - Regular password over IMAP/SMTP
+        - Not sure
+        - Not related to an account
 
   - type: input
     id: provider
     attributes:
       label: Mail provider
-      description: If the bug involves an account. Never paste your password.
+      description: If you answered above, which provider? Server names are fine; credentials are not.
       placeholder: Gmail, Fastmail, self-hosted Dovecot…
 
   - type: textarea
@@ -38,6 +125,21 @@ body:
     attributes:
       label: Logs
       description: |
-        Output of `POSTCARD_LOG=debug flatpak run in.gxanshu.postcard`.
-        Check for email addresses or server names you'd rather not share.
+        Run `POSTCARD_LOG=debug flatpak run in.gxanshu.postcard`, reproduce the bug, and paste the output.
+        For a crash, `journalctl --user -b -o cat | grep -i postcard` catches the traceback too.
+        Skim it for email addresses or server names you'd rather not share.
       render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, screen recordings, when it started, or anything else that might matter. Attach files by dragging them in.
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Final check
+      options:
+        - label: I've checked that this report contains no passwords, tokens, or private message contents.
+          required: true

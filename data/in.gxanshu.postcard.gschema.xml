@@ -24,7 +24,7 @@
 		<key name="start-at-login" type="b">
 			<default>false</default>
 			<summary>Start Postcard at login</summary>
-			<description>Whether the desktop portal has been asked to start Postcard hidden at login. The portal owns the autostart entry; this only records its answer.</description>
+			<description>Whether Postcard has been set to start hidden at login. The desktop portal owns the autostart entry where it has one, otherwise Postcard writes it; this only records the result.</description>
 		</key>
 		<key name="background-notice-shown" type="b">
 			<default>false</default>

@@ -3,6 +3,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from .core import autostart
 from .window_types import SETTING_SYNC_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -21,9 +22,9 @@ SYNC_INTERVALS: tuple[tuple[int, str], ...] = (
 # Used when the stored value isn't one of the offered intervals.
 DEFAULT_SYNC_INTERVAL_MINUTES = 15
 
-# The Background portal owns the autostart .desktop file, so Postcard never
-# writes one itself. The portal has no way to read the current setting back,
-# so the "start-at-login" GSettings key is our record of what it last granted.
+# The Background portal owns the autostart .desktop file where it exists, and
+# core.autostart writes it on the desktops that have no such portal. Neither can
+# be read back, so the "start-at-login" key is our record of what was last set.
 PORTAL_NAME = "org.freedesktop.portal.Desktop"
 PORTAL_PATH = "/org/freedesktop/portal/desktop"
 BACKGROUND_INTERFACE = "org.freedesktop.portal.Background"
@@ -105,11 +106,8 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
         try:
             self._request_autostart(is_wanted)
         except GLib.Error:
-            logger.exception("could not reach the background portal")
-            self._settle_autostart(
-                self._settings.get_boolean(SETTING_START_AT_LOGIN),
-                _("Could not reach the desktop portal."),
-            )
+            logger.info("no background portal, writing the autostart entry instead")
+            self._write_autostart_entry(is_wanted)
 
     def _request_autostart(self, is_wanted: bool) -> None:
         bus = Gio.bus_get_sync(Gio.BusType.SESSION)
@@ -156,11 +154,22 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
         try:
             bus.call_finish(result)
         except GLib.Error:
-            logger.exception("background portal refused the autostart request")
+            logger.info("background portal refused, writing the autostart entry")
+            self._write_autostart_entry(self.autostart_row.get_active())
+
+    def _write_autostart_entry(self, is_wanted: bool) -> None:
+        """Fallback for desktops whose portal has no Background backend."""
+        directory = autostart.user_directory()
+        try:
+            autostart.set_entry(directory, is_enabled=is_wanted)
+        except OSError:
+            logger.exception("could not update the autostart entry in %s", directory)
             self._settle_autostart(
                 self._settings.get_boolean(SETTING_START_AT_LOGIN),
                 _("Could not change whether Postcard starts at login."),
             )
+            return
+        self._settle_autostart(is_wanted, "")
 
     def _on_autostart_response(
         self,

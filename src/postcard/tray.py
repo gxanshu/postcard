@@ -1,11 +1,7 @@
-"""The tray icon, spoken over D-Bus as a StatusNotifierItem.
+"""A tray icon for KDE and Waybar, spoken over D-Bus as a StatusNotifierItem.
 
-GNOME ships no StatusNotifierWatcher, so registration never happens there and
-the Background Apps menu stays the only handle on a hidden Postcard. KDE, and
-bars like Waybar on Hyprland, do run a watcher, and this item gives them the
-same handle. The protocol is hand-rolled with Gio.DBusConnection for the
-reason core/goa.py is: the usual client library (libappindicator) is GTK 3
-and not in the GNOME runtime.
+Hand-rolled like core/goa.py, because libappindicator is GTK 3 and the runtime
+does not have it. GNOME runs no watcher, so nothing shows up there.
 """
 
 import logging
@@ -14,15 +10,11 @@ from gettext import gettext as _
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# From the platform, like gi: pycairo has no stub-only pip package, so pyright
-# only resolves it on machines where the system copy ships its own stubs.
+# Comes from the platform like gi does, and pycairo has no stubs on pip.
 import cairo  # pyright: ignore[reportMissingImports]
 from gi.repository import Gio, GLib
 
 if TYPE_CHECKING:
-    # Only for the annotation: importing Gtk here would need a require_version
-    # gate, and application.py has already set the version by the time this
-    # module is loaded.
     from gi.repository import Gtk
 
 logger = logging.getLogger(__name__)
@@ -34,9 +26,8 @@ ITEM_INTERFACE = "org.kde.StatusNotifierItem"
 ITEM_PATH = "/StatusNotifierItem"
 MENU_PATH = "/StatusNotifierItem/Menu"
 
-# Hosts hide Passive items on their own, and that is how this icon is shown
-# and hidden: the watcher only forgets an item when its bus name dies, and
-# this item lives under the application's own name.
+# How the icon hides: a watcher only drops an item when its bus name dies, and
+# ours is the app's, so we go Passive instead and let hosts hide it.
 STATUS_SHOWN = "Active"
 STATUS_HIDDEN = "Passive"
 
@@ -72,8 +63,6 @@ ITEM_XML = """
 </node>
 """
 
-# The right-click menu, in the com.canonical.dbusmenu flavour every
-# StatusNotifier host expects.
 MENU_XML = """
 <node>
   <interface name="com.canonical.dbusmenu">
@@ -126,7 +115,6 @@ MENU_LABELS = {
     SYNC_ITEM_ID: _("Refresh Inbox"),
     QUIT_ITEM_ID: _("Quit"),
 }
-# The menu never changes, so its revision never has to move.
 MENU_REVISION = 1
 
 ITEM_PROPERTIES = {
@@ -194,12 +182,11 @@ def _badged_icon(count: int) -> tuple[int, int, bytes] | None:
 
 
 def _network_order_argb(surface: cairo.ImageSurface) -> bytes:
-    """Cairo's machine-word ARGB32 (BGRA bytes here) to network-order ARGB.
+    """Cairo's ARGB32 (BGRA bytes on this machine) to the ARGB order SNI wants.
 
-    ICON_SIZE is a multiple of 4, so the stride carries no row padding.
+    ICON_SIZE is a multiple of 4, so rows carry no stride padding.
     """
-    # ponytail: pixels stay premultiplied -- invisible on a 24px bar. Undo it
-    # per pixel if a host ever draws the icon large enough to matter.
+    # ponytail: pixels stay premultiplied, which no one can see on a 24px bar.
     raw = bytes(surface.get_data())
     argb = bytearray(raw)
     argb[0::4], argb[1::4], argb[2::4], argb[3::4] = (
@@ -271,14 +258,14 @@ class Tray:
     def _on_watcher_appeared(
         self, bus: Gio.DBusConnection, _name: str, _owner: str
     ) -> None:
-        # Fires again after every bar restart, which needs a fresh registration.
+        # Fires again when the bar restarts, and we have to register again.
         bus.call(
             WATCHER_NAME,
             WATCHER_PATH,
             WATCHER_NAME,
             "RegisterStatusNotifierItem",
-            # The connection's unique name; a org.kde.StatusNotifierItem-* name
-            # would need an --own-name the sandbox cannot wildcard.
+            # Our unique name: the usual org.kde.StatusNotifierItem-* one needs
+            # an --own-name that Flatpak cannot wildcard.
             GLib.Variant("(s)", (bus.get_unique_name(),)),
             None,
             Gio.DBusCallFlags.NONE,
@@ -306,8 +293,8 @@ class Tray:
         _parameters: GLib.Variant,
         invocation: Gio.DBusMethodInvocation,
     ) -> None:
-        # Middle click opens too. ContextMenu never arrives -- hosts render
-        # the Menu property themselves.
+        # Middle click opens it too. ContextMenu never arrives, hosts draw the
+        # Menu property themselves.
         if method in ("Activate", "SecondaryActivate"):
             self._activate(MENU_ACTIONS[OPEN_ITEM_ID])
         invocation.return_value(None)
@@ -322,8 +309,8 @@ class Tray:
     ) -> GLib.Variant:
         if name == "Status":
             return GLib.Variant("s", self._status)
-        # A set IconName wins over IconPixmap in every host, so the name goes
-        # blank while a badge is up.
+        # Every host prefers IconName over IconPixmap, so blank it out while
+        # there is a badge to show.
         if name == "IconName":
             return GLib.Variant("s", "" if self._badge else APP_ID)
         if name == "IconPixmap":
@@ -371,9 +358,8 @@ class Tray:
         if scope == "app":
             target = self._app
         else:
-            # A hidden window still answers its actions, so it is only
-            # un-hidden when there is none to find -- a tray refresh should not
-            # put the window back on screen.
+            # A hidden window still answers its actions, so only build one when
+            # there is none. Refreshing from the tray should not pop it open.
             target = self._action_window()
             if target is None:
                 self._app.activate()
@@ -382,8 +368,7 @@ class Tray:
         if found is not None:
             found.activate(None)
 
-    # Only the main window carries an action map -- a composer is a plain
-    # Adw.Window -- so the interface is the filter.
+    # Only the main window has actions; a composer is a plain Adw.Window.
     def _action_window(self) -> Gio.ActionMap | None:
         return next(
             (w for w in self._app.get_windows() if isinstance(w, Gio.ActionMap)), None

@@ -37,8 +37,6 @@ class PostcardApplication(Adw.Application):
         self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
         self._should_start_hidden = False
 
-        # The tray icon is the handle on a window that hides on close, so it
-        # follows the same switch that makes the window do that.
         self.tray = Tray(self)
 
         # For autostart: build the window (so the sync timer runs) but skip

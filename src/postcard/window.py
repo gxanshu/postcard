@@ -482,8 +482,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         return self._settings.get_string("signature-text").strip()
 
     def _on_compose_clicked(self, *_args: object) -> None:
-        # Reachable from the tray with no account, where there is nothing to
-        # compose from -- the window it takes to add one is already presented.
+        # The tray can reach this before any account exists.
         if self._account is None:
             return
         sig = self._signature_text()

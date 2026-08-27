@@ -14,6 +14,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 from .composer_window import composer_for_mailto
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
+from .tray import Tray
 from .window import PostcardMainWindow
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,15 @@ class PostcardApplication(Adw.Application):
         self.db = Database()
         self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
         self._should_start_hidden = False
+
+        # The tray icon is the handle on a window that hides on close, so it
+        # follows the same switch that makes the window do that.
+        self._tray = Tray(
+            on_open=self.activate,
+            on_compose=self._compose_from_tray,
+            on_sync=self._sync_from_tray,
+            on_quit=self.quit,
+        )
 
         # For autostart: build the window (so the sync timer runs) but skip
         # presenting it. The Background portal puts this flag in the autostart
@@ -67,6 +77,34 @@ class PostcardApplication(Adw.Application):
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
         self._load_css()
+        self._tray.start()
+        self.settings.connect(
+            "changed::run-in-background", self._on_run_in_background_changed
+        )
+        self._tray.set_shown(self.settings.get_boolean("run-in-background"))
+
+    def _on_run_in_background_changed(self, settings: Gio.Settings, key: str) -> None:
+        self._tray.set_shown(settings.get_boolean(key))
+
+    def set_tray_unread(self, count: int) -> None:
+        self._tray.set_unread(count)
+
+    def _compose_from_tray(self) -> None:
+        win = self._main_window()
+        # Nothing to compose from without an account, so the window it takes
+        # to add one is the best that can be offered.
+        if win is None or not win.compose_new():
+            self.activate()
+
+    def _sync_from_tray(self) -> None:
+        win = self._main_window()
+        if win is not None:
+            win.sync_all()
+
+    def _main_window(self) -> PostcardMainWindow | None:
+        return next(
+            (w for w in self.get_windows() if isinstance(w, PostcardMainWindow)), None
+        )
 
     def do_handle_local_options(self, options: GLib.VariantDict) -> int:
         self._should_start_hidden = options.contains("hidden")
@@ -93,9 +131,7 @@ class PostcardApplication(Adw.Application):
     # A mailto: link opens the composer and nothing else; the main window is
     # only presented when there is no account to compose from.
     def _open_mailto(self, uri: str) -> None:
-        win = next(
-            (w for w in self.get_windows() if isinstance(w, PostcardMainWindow)), None
-        )
+        win = self._main_window()
         if win is not None:
             win.open_mailto(uri)
             return

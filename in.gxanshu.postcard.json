@@ -13,7 +13,8 @@
     "--filesystem=xdg-config/autostart:create",
     "--talk-name=org.freedesktop.secrets",
     "--talk-name=org.gnome.OnlineAccounts",
-    "--talk-name=org.gnome.Settings"
+    "--talk-name=org.gnome.Settings",
+    "--talk-name=org.kde.StatusNotifierWatcher"
   ],
   "cleanup": [
     "/include",

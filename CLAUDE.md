@@ -51,7 +51,7 @@ Never log the `args` tuple of a network worker thread — the account password i
 Two layers, and the boundary matters:
 
 - **`src/postcard/core/`** — UI-agnostic logic, no GTK widgets. Sub-packages: `models/` (Account, Folder, Email, Conversation, Attachment as `GObject.Object`s so `Gio.ListStore` accepts them, plus `MessageHeader` as a plain dataclass), `store/database.py` (all SQLite), `net/` (`imap_session.py`, `smtp_session.py`, `errors.py` — thin stdlib `imaplib`/`smtplib` wrappers), `mime/message_parser.py`, plus `threader.py`, `compose.py`, `secrets.py`. This is where testable logic belongs.
-- **`src/postcard/*.py`** — the GTK layer. `application.py` (Adw.Application, app actions/accelerators), the main window (below), and per-view modules (`composer_window.py`, `message_view.py`, `conversation_row.py`, dialogs, `mail_sync.py`).
+- **`src/postcard/*.py`** — the GTK layer. `application.py` (Adw.Application, app actions/accelerators), the main window (below), and per-view modules (`composer_window.py`, `message_view.py`, `conversation_row.py`, dialogs, `mail_sync.py`, `tray.py`).
 
 ### The main window is one class
 
@@ -109,6 +109,10 @@ An account is either typed in by hand or imported from GNOME Online Accounts; `a
 `core/goa.py` reads GOA over raw D-Bus with `Gio.DBusProxy` — `Goa-1.0.typelib` is **not** in the GNOME runtime, only on the host, so `gi.require_version("Goa", "1")` would raise inside the Flatpak. Tokens are fetched live on every operation rather than copied into the keyring, since they expire hourly. This needs `--talk-name=org.gnome.OnlineAccounts` in the manifest, plus `--talk-name=org.gnome.Settings` for the dialog's "Open Online Accounts" button.
 
 **Only OAuth accounts are imported** — in practice Google. A GOA "Email Server" account is plain IMAP/SMTP, which the Add Account dialog already does and tests, so importing it would buy nothing but the typing; `mail_accounts()` flags it `is_oauth2` False and the dialog points at Add Account instead. Microsoft 365 and Exchange come back `is_mail_supported` False: GOA's Microsoft token carries Graph-only scopes (`mail.readwrite`, `mail.send`) with no `IMAP.AccessAsUser.All`, so there is no IMAP server to point at. Neither kind is hidden, so the dialog can always say why a row is unavailable.
+
+### The tray icon
+
+`tray.py` is a StatusNotifierItem plus a minimal `com.canonical.dbusmenu`, hand-rolled over `Gio.DBusConnection` for the same reason `core/goa.py` is (the usual client library, libappindicator, is GTK 3 and not in the runtime). It registers with `org.kde.StatusNotifierWatcher` under the connection's *unique* bus name — a well-known `org.kde.StatusNotifierItem-*` name would need an `--own-name` that Flatpak wildcards can't express — and re-registers whenever the watcher reappears (bar restarts). It shows and hides by flipping `Status` between `Active`/`Passive` with a `NewStatus` signal instead of deregistering, because the watcher only forgets an item when its bus name dies, and ours is the application's. Visibility follows `run-in-background` (wired in `application.py`). The unread badge is the app icon re-rendered with cairo and pushed as `IconPixmap` — SNI has no count field, and hosts prefer `IconName`, so the name is blanked while a badge is up; the count is the sum of inbox-role folder badges, pushed from the end of `_reload_folders`, which every mutation path already runs through. GNOME ships no watcher, so nothing appears there and the Background Apps menu stays the only handle; the manifest needs `--talk-name=org.kde.StatusNotifierWatcher`.
 
 ## The website
 

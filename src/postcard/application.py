@@ -91,9 +91,7 @@ class PostcardApplication(Adw.Application):
         return Adw.Application.do_handle_local_options(self, options)
 
     def do_activate(self) -> None:
-        win = self.props.active_window or PostcardMainWindow(
-            self, self.db, self.settings
-        )
+        win = self._main_window() or PostcardMainWindow(self, self.db, self.settings)
         if self._should_start_hidden:
             # Only the launch activation stays hidden; later ones raise it.
             self._should_start_hidden = False
@@ -165,8 +163,8 @@ class PostcardApplication(Adw.Application):
 
     def on_open_mail(self, _action: Gio.SimpleAction, param: GLib.Variant) -> None:
         self.do_activate()
-        win = self.props.active_window
-        if isinstance(win, PostcardMainWindow):
+        win = self._main_window()
+        if win is not None:
             folder_id, uid = param.unpack()
             win.open_email(folder_id, uid)
 

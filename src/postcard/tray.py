@@ -371,17 +371,23 @@ class Tray:
         if scope == "app":
             target = self._app
         else:
-            # A win.* action needs a window, and the tray outlives every one.
-            # Only the main window carries an action map -- a composer is a
-            # plain Adw.Window -- so the interface is the filter.
-            self._app.activate()
-            target = next(
-                (w for w in self._app.get_windows() if isinstance(w, Gio.ActionMap)),
-                None,
-            )
+            # A hidden window still answers its actions, so it is only
+            # un-hidden when there is none to find -- a tray refresh should not
+            # put the window back on screen.
+            target = self._action_window()
+            if target is None:
+                self._app.activate()
+                target = self._action_window()
         found = target.lookup_action(name) if target is not None else None
         if found is not None:
             found.activate(None)
+
+    # Only the main window carries an action map -- a composer is a plain
+    # Adw.Window -- so the interface is the filter.
+    def _action_window(self) -> Gio.ActionMap | None:
+        return next(
+            (w for w in self._app.get_windows() if isinstance(w, Gio.ActionMap)), None
+        )
 
     def _menu_property(
         self,

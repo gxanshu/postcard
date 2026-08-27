@@ -449,6 +449,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._account = None
             self._current_folder = None
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
+            self._push_tray_unread([])
             return
         if self._account is None:
             self._load_mail_view()

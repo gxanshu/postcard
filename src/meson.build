@@ -45,6 +45,7 @@ postcard_sources = [
   'postcard/online_accounts_dialog.py',
   'postcard/composer_window.py',
   'postcard/preferences_dialog.py',
+  'postcard/tray.py',
   'postcard/mail_sync.py',
   'postcard/folder_row.py',
 ]

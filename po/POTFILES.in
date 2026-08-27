@@ -11,6 +11,7 @@ src/postcard/mail_sync.py
 src/postcard/message_view.py
 src/postcard/online_accounts_dialog.py
 src/postcard/preferences_dialog.py
+src/postcard/tray.py
 src/postcard/window.py
 src/ui/account-dialog.blp
 src/ui/accounts-dialog.blp

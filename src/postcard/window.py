@@ -10,6 +10,7 @@ from email.utils import parseaddr
 from gettext import gettext as _
 from gettext import ngettext
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
@@ -50,6 +51,9 @@ from .window_types import (
     OutboxResult,
     PendingMove,
 )
+
+if TYPE_CHECKING:
+    from .application import PostcardApplication
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +449,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._account = None
             self._current_folder = None
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
+            self._push_tray_unread([])
             return
         if self._account is None:
             self._load_mail_view()
@@ -477,6 +482,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         return self._settings.get_string("signature-text").strip()
 
     def _on_compose_clicked(self, *_args: object) -> None:
+        # The tray can reach this before any account exists.
+        if self._account is None:
+            return
         sig = self._signature_text()
         self._open_composer(body=compose.signature_block(sig) if sig else "")
 
@@ -1415,6 +1423,20 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             row = self._folder_rows.get(folder.id)
             if row is not None:
                 row.bind(folder, self._unread_badge(folder))
+
+        self._push_tray_unread(folders)
+
+    def _push_tray_unread(self, folders: list[Folder]) -> None:
+        app = cast("PostcardApplication | None", self.get_application())
+        if app is None:
+            return
+        app.tray.set_unread(
+            sum(
+                self._unread_badge(folder)
+                for folder in folders
+                if mail_sync.role_for_folder(folder.name) is mail_sync.FolderRole.INBOX
+            )
+        )
 
     def _rebuild_folder_tree(self, accounts: list[Account]) -> None:
         # Preserve the selection by folder id, not row index — pruning stale

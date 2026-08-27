@@ -14,6 +14,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 from .composer_window import composer_for_mailto
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
+from .tray import Tray
 from .window import PostcardMainWindow
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,8 @@ class PostcardApplication(Adw.Application):
         self.db = Database()
         self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
         self._should_start_hidden = False
+
+        self.tray = Tray(self)
 
         # For autostart: build the window (so the sync timer runs) but skip
         # presenting it. The Background portal puts this flag in the autostart
@@ -67,15 +70,26 @@ class PostcardApplication(Adw.Application):
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
         self._load_css()
+        self.tray.start()
+        self.settings.connect(
+            "changed::run-in-background", self._on_run_in_background_changed
+        )
+        self.tray.set_shown(self.settings.get_boolean("run-in-background"))
+
+    def _on_run_in_background_changed(self, settings: Gio.Settings, key: str) -> None:
+        self.tray.set_shown(settings.get_boolean(key))
+
+    def _main_window(self) -> PostcardMainWindow | None:
+        return next(
+            (w for w in self.get_windows() if isinstance(w, PostcardMainWindow)), None
+        )
 
     def do_handle_local_options(self, options: GLib.VariantDict) -> int:
         self._should_start_hidden = options.contains("hidden")
         return Adw.Application.do_handle_local_options(self, options)
 
     def do_activate(self) -> None:
-        win = self.props.active_window or PostcardMainWindow(
-            self, self.db, self.settings
-        )
+        win = self._main_window() or PostcardMainWindow(self, self.db, self.settings)
         if self._should_start_hidden:
             # Only the launch activation stays hidden; later ones raise it.
             self._should_start_hidden = False
@@ -93,9 +107,7 @@ class PostcardApplication(Adw.Application):
     # A mailto: link opens the composer and nothing else; the main window is
     # only presented when there is no account to compose from.
     def _open_mailto(self, uri: str) -> None:
-        win = next(
-            (w for w in self.get_windows() if isinstance(w, PostcardMainWindow)), None
-        )
+        win = self._main_window()
         if win is not None:
             win.open_mailto(uri)
             return
@@ -149,8 +161,8 @@ class PostcardApplication(Adw.Application):
 
     def on_open_mail(self, _action: Gio.SimpleAction, param: GLib.Variant) -> None:
         self.do_activate()
-        win = self.props.active_window
-        if isinstance(win, PostcardMainWindow):
+        win = self._main_window()
+        if win is not None:
             folder_id, uid = param.unpack()
             win.open_email(folder_id, uid)
 

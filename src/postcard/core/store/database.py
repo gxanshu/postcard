@@ -83,6 +83,9 @@ MIGRATIONS = [
     # _create_tables, which runs on every launch: no indexed column is ever
     # updated, so once is enough and a rebuild costs the whole table.
     "INSERT INTO emails_fts(emails_fts) VALUES ('rebuild')",
+    # No backfill: empty already means "sign in as the email address", which is
+    # what every account predating this column was doing.
+    "ALTER TABLE accounts ADD COLUMN username TEXT NOT NULL DEFAULT ''",
 ]
 
 
@@ -205,6 +208,7 @@ class Database:
             smtp_port=row["smtp_port"],
             imap_security=row["imap_security"],
             smtp_security=row["smtp_security"],
+            username=row["username"],
             goa_id=row["goa_id"],
         )
 
@@ -222,6 +226,7 @@ class Database:
         smtp_port: int,
         imap_security: str = SECURITY_TLS,
         smtp_security: str | None = None,
+        username: str = "",
         goa_id: str = "",
     ) -> Account:
         if smtp_security is None:
@@ -234,8 +239,8 @@ class Database:
             """
             INSERT INTO accounts
                 (email, display_name, imap_host, imap_port, smtp_host, smtp_port,
-                 imap_security, smtp_security, goa_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 imap_security, smtp_security, username, goa_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 email,
@@ -246,6 +251,7 @@ class Database:
                 smtp_port,
                 imap_security,
                 smtp_security,
+                username,
                 goa_id,
             ),
         )

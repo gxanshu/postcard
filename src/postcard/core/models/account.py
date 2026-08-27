@@ -42,6 +42,7 @@ class Account(GObject.Object):
         smtp_port: int,
         imap_security: str = "tls",
         smtp_security: str = "tls",
+        username: str = "",
         goa_id: str = "",
     ) -> None:
         super().__init__()
@@ -54,6 +55,9 @@ class Account(GObject.Object):
         self.smtp_port: int = smtp_port
         self.imap_security: str = imap_security
         self.smtp_security: str = smtp_security
+        # The name the server wants at sign-in, when that is not the address the
+        # mail is addressed to. Empty means the two are the same.
+        self.username: str = username
         # Set when the account came from GNOME Online Accounts, which is then
         # where its credentials live instead of the keyring.
         self.goa_id: str = goa_id
@@ -62,3 +66,12 @@ class Account(GObject.Object):
     def short_label(self) -> str:
         # Free to be a nickname: outgoing mail puts email in From:, never this.
         return self.display_name.strip() or self.email.partition("@")[0]
+
+    @property
+    def login_name(self) -> str:
+        """What to sign in with: the address, unless the server wants its own.
+
+        Accounts saved before there was a username field have it empty, so the
+        fallback is also what keeps those signing in unchanged.
+        """
+        return self.username or self.email

@@ -8,16 +8,18 @@ from postcard.core.models.account import (
 )
 
 
-def account(display_name: str) -> Account:
-    return Account(
-        id=1,
-        email="ada@example.com",
-        display_name=display_name,
-        imap_host="imap.example.com",
-        imap_port=993,
-        smtp_host="smtp.example.com",
-        smtp_port=587,
-    )
+def account(display_name: str = "Ada", **overrides) -> Account:
+    """An Account with its required fields filled in, to vary one of them."""
+    fields = {
+        "id": 1,
+        "email": "ada@example.com",
+        "display_name": display_name,
+        "imap_host": "imap.example.com",
+        "imap_port": 993,
+        "smtp_host": "smtp.example.com",
+        "smtp_port": 587,
+    }
+    return Account(**(fields | overrides))
 
 
 def test_parses_a_plain_port() -> None:
@@ -68,3 +70,16 @@ def test_short_label_falls_back_to_the_local_part() -> None:
 
 def test_short_label_ignores_a_whitespace_only_display_name() -> None:
     assert account("   ").short_label == "ada"
+
+
+def test_an_account_signs_in_as_its_email_address_by_default() -> None:
+    # Also the state of every account saved before there was a username column.
+    assert account().login_name == "ada@example.com"
+
+
+def test_a_username_overrides_the_email_address_for_sign_in() -> None:
+    # The address you send from need not be the name the server knows you by:
+    # a preferred alias is rarely the login for the mailbox behind it.
+    signed_in = account(email="ada.lovelace@example.com", username="lovelace.a")
+    assert signed_in.login_name == "lovelace.a"
+    assert signed_in.email == "ada.lovelace@example.com"

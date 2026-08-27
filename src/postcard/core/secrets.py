@@ -47,4 +47,4 @@ def credential_for(account: Account) -> Credential | None:
         return goa.credential(account.goa_id)
 
     password = lookup_password(account.id)
-    return Credential(account.email, password) if password else None
+    return Credential(account.login_name, password) if password else None

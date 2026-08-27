@@ -89,6 +89,17 @@ def test_an_account_remembers_the_online_account_it_came_from(db):
     assert (listed_typed_in.id, listed_typed_in.goa_id) == (typed_in.id, "")
 
 
+def test_an_account_remembers_the_username_it_signs_in_with(db):
+    db.save_account("a@x", "A", "imap.x", 993, "smtp.x", 587, username="a.short")
+    db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
+
+    named, unnamed = db.accounts()
+    assert (named.username, named.login_name) == ("a.short", "a.short")
+    # Left blank, the address is the login -- which is what every account
+    # written before the username column has, so they sign in unchanged.
+    assert (unnamed.username, unnamed.login_name) == ("", "b@x")
+
+
 def test_an_explicit_smtp_security_wins(db):
     account = db.save_account(
         "a@x", "A", "imap.x", 993, "smtp.x", 465, smtp_security="starttls"

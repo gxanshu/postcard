@@ -303,7 +303,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._reschedule_sync()
         if self._is_online:
-            self.sync_all(in_background=True)
+            self._sync_all(in_background=True)
 
     def _setup_sidebar_resize(
         self,
@@ -481,15 +481,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         return self._settings.get_string("signature-text").strip()
 
     def _on_compose_clicked(self, *_args: object) -> None:
-        self.compose_new()
-
-    def compose_new(self) -> bool:
-        """A blank composer; False when there is no account to send from."""
+        # Reachable from the tray with no account, where there is nothing to
+        # compose from -- the window it takes to add one is already presented.
         if self._account is None:
-            return False
+            return
         sig = self._signature_text()
         self._open_composer(body=compose.signature_block(sig) if sig else "")
-        return True
 
     def _on_reply_clicked(self, *_args: object) -> None:
         self._open_reply(should_reply_all=False)
@@ -1433,7 +1430,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         app = cast("PostcardApplication | None", self.get_application())
         if app is None:
             return
-        app.set_tray_unread(
+        app.tray.set_unread(
             sum(
                 self._unread_badge(folder)
                 for folder in folders
@@ -1658,7 +1655,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_refresh_clicked(self, *_args: object) -> None:
         # Not in the background, so this is also the way past the sync cooldown
         # on the open folder.
-        self.sync_all()
+        self._sync_all()
 
     # --- the reading pane: thread, bodies, and attachments ----------------
 
@@ -2117,7 +2114,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # naming; the rest get their inbox.
     # ponytail: one thread per account at once, which is fine for a handful --
     # queue them if someone turns up with twenty.
-    def sync_all(self, in_background: bool = False) -> None:
+    def _sync_all(self, in_background: bool = False) -> None:
         open_folder = self._current_folder
         for account in self._accounts.values():
             self._drain_outbox(account)
@@ -2143,7 +2140,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     def _on_sync_tick(self) -> bool:
         if self._accounts and self._is_online:
-            self.sync_all(in_background=True)
+            self._sync_all(in_background=True)
         return True
 
     # Runs on the worker thread: network only, no Gtk/database access.
@@ -2379,7 +2376,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_banner_retry(self, _banner: Adw.Banner) -> None:
         self.connection_banner.set_revealed(False)
         if self._accounts:
-            self.sync_all()
+            self._sync_all()
 
     # network-changed fires on any change; act only on real online/offline flips.
     def _on_network_changed(
@@ -2393,7 +2390,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         self.connection_banner.set_revealed(False)
         if self._accounts:
-            self.sync_all()
+            self._sync_all()
 
     def _notify_background(self) -> None:
         # Once per install, not once per close: the notice explains why the app

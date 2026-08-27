@@ -39,12 +39,7 @@ class PostcardApplication(Adw.Application):
 
         # The tray icon is the handle on a window that hides on close, so it
         # follows the same switch that makes the window do that.
-        self._tray = Tray(
-            on_open=self.activate,
-            on_compose=self._compose_from_tray,
-            on_sync=self._sync_from_tray,
-            on_quit=self.quit,
-        )
+        self.tray = Tray(self)
 
         # For autostart: build the window (so the sync timer runs) but skip
         # presenting it. The Background portal puts this flag in the autostart
@@ -77,29 +72,14 @@ class PostcardApplication(Adw.Application):
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
         self._load_css()
-        self._tray.start()
+        self.tray.start()
         self.settings.connect(
             "changed::run-in-background", self._on_run_in_background_changed
         )
-        self._tray.set_shown(self.settings.get_boolean("run-in-background"))
+        self.tray.set_shown(self.settings.get_boolean("run-in-background"))
 
     def _on_run_in_background_changed(self, settings: Gio.Settings, key: str) -> None:
-        self._tray.set_shown(settings.get_boolean(key))
-
-    def set_tray_unread(self, count: int) -> None:
-        self._tray.set_unread(count)
-
-    def _compose_from_tray(self) -> None:
-        win = self._main_window()
-        # Nothing to compose from without an account, so the window it takes
-        # to add one is the best that can be offered.
-        if win is None or not win.compose_new():
-            self.activate()
-
-    def _sync_from_tray(self) -> None:
-        win = self._main_window()
-        if win is not None:
-            win.sync_all()
+        self.tray.set_shown(settings.get_boolean(key))
 
     def _main_window(self) -> PostcardMainWindow | None:
         return next(

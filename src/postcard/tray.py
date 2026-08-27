@@ -10,14 +10,20 @@ and not in the GNOME runtime.
 
 import logging
 import math
-from collections.abc import Callable
 from gettext import gettext as _
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 # From the platform, like gi: pycairo has no stub-only pip package, so pyright
 # only resolves it on machines where the system copy ships its own stubs.
 import cairo  # pyright: ignore[reportMissingImports]
 from gi.repository import Gio, GLib
+
+if TYPE_CHECKING:
+    # Only for the annotation: importing Gtk here would need a require_version
+    # gate, and application.py has already set the version by the time this
+    # module is loaded.
+    from gi.repository import Gtk
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +63,6 @@ ITEM_XML = """
     <method name="ContextMenu">
       <arg name="x" type="i" direction="in"/>
       <arg name="y" type="i" direction="in"/>
-    </method>
-    <method name="Scroll">
-      <arg name="delta" type="i" direction="in"/>
-      <arg name="orientation" type="s" direction="in"/>
     </method>
     <signal name="NewIcon"/>
     <signal name="NewStatus">
@@ -103,11 +105,6 @@ MENU_XML = """
       <arg name="id" type="i" direction="in"/>
       <arg name="needUpdate" type="b" direction="out"/>
     </method>
-    <method name="AboutToShowGroup">
-      <arg name="ids" type="ai" direction="in"/>
-      <arg name="updatesNeeded" type="ai" direction="out"/>
-      <arg name="idErrors" type="ai" direction="out"/>
-    </method>
   </interface>
 </node>
 """
@@ -117,6 +114,12 @@ OPEN_ITEM_ID = 1
 COMPOSE_ITEM_ID = 2
 SYNC_ITEM_ID = 3
 QUIT_ITEM_ID = 4
+MENU_ACTIONS = {
+    OPEN_ITEM_ID: "app.focus-mail",
+    COMPOSE_ITEM_ID: "win.compose",
+    SYNC_ITEM_ID: "win.refresh",
+    QUIT_ITEM_ID: "app.quit",
+}
 MENU_LABELS = {
     OPEN_ITEM_ID: _("Open Postcard"),
     COMPOSE_ITEM_ID: _("Compose"),
@@ -133,10 +136,6 @@ ITEM_PROPERTIES = {
     "ToolTip": GLib.Variant("(sa(iiay)ss)", (APP_ID, [], "Postcard", "")),
     "ItemIsMenu": GLib.Variant("b", False),
     "Menu": GLib.Variant("o", MENU_PATH),
-}
-MENU_PROPERTIES = {
-    "Version": GLib.Variant("u", 3),
-    "Status": GLib.Variant("s", "normal"),
 }
 
 
@@ -195,30 +194,20 @@ def _badged_icon(count: int) -> tuple[int, int, bytes] | None:
 
 
 def _network_order_argb(surface: cairo.ImageSurface) -> bytes:
-    """Repack pixels for the wire.
+    """Cairo's machine-word ARGB32 (BGRA bytes here) to network-order ARGB.
 
-    Cairo keeps premultiplied ARGB in machine words; the tray protocol wants
-    plain ARGB bytes in network order.
+    ICON_SIZE is a multiple of 4, so the stride carries no row padding.
     """
-    width, height = surface.get_width(), surface.get_height()
-    stride = surface.get_stride()
-    data = surface.get_data()
-    argb = bytearray(width * height * 4)
-    position = 0
-    for row in range(height):
-        start = row * stride
-        pixels = memoryview(data)[start : start + width * 4].cast("I")
-        for pixel in pixels:
-            alpha = pixel >> 24
-            red = (pixel >> 16) & 0xFF
-            green = (pixel >> 8) & 0xFF
-            blue = pixel & 0xFF
-            if alpha not in (0, 255):
-                red = red * 255 // alpha
-                green = green * 255 // alpha
-                blue = blue * 255 // alpha
-            argb[position : position + 4] = (alpha, red, green, blue)
-            position += 4
+    # ponytail: pixels stay premultiplied -- invisible on a 24px bar. Undo it
+    # per pixel if a host ever draws the icon large enough to matter.
+    raw = bytes(surface.get_data())
+    argb = bytearray(raw)
+    argb[0::4], argb[1::4], argb[2::4], argb[3::4] = (
+        raw[3::4],
+        raw[2::4],
+        raw[1::4],
+        raw[0::4],
+    )
     return bytes(argb)
 
 
@@ -232,21 +221,8 @@ def _menu_layout() -> GLib.Variant:
 
 
 class Tray:
-    def __init__(
-        self,
-        *,
-        on_open: Callable[[], None],
-        on_compose: Callable[[], None],
-        on_sync: Callable[[], None],
-        on_quit: Callable[[], None],
-    ) -> None:
-        self._on_open = on_open
-        self._menu_handlers = {
-            OPEN_ITEM_ID: on_open,
-            COMPOSE_ITEM_ID: on_compose,
-            SYNC_ITEM_ID: on_sync,
-            QUIT_ITEM_ID: on_quit,
-        }
+    def __init__(self, app: "Gtk.Application") -> None:
+        self._app = app
         self._bus: Gio.DBusConnection | None = None
         self._status = STATUS_HIDDEN
         self._unread = 0
@@ -330,10 +306,10 @@ class Tray:
         _parameters: GLib.Variant,
         invocation: Gio.DBusMethodInvocation,
     ) -> None:
-        # Middle click opens too. ContextMenu never arrives -- hosts render the
-        # Menu property themselves -- and scrolling means nothing to a mailbox.
+        # Middle click opens too. ContextMenu never arrives -- hosts render
+        # the Menu property themselves.
         if method in ("Activate", "SecondaryActivate"):
-            self._on_open()
+            self._activate(MENU_ACTIONS[OPEN_ITEM_ID])
         invocation.return_value(None)
 
     def _item_property(
@@ -385,13 +361,27 @@ class Tray:
             invocation.return_value(GLib.Variant("(ai)", ([],)))
         elif method == "AboutToShow":
             invocation.return_value(GLib.Variant("(b)", (False,)))
-        elif method == "AboutToShowGroup":
-            invocation.return_value(GLib.Variant("(aiai)", ([], [])))
 
     def _on_menu_event(self, item_id: int, event: str) -> None:
-        handler = self._menu_handlers.get(item_id)
-        if event == "clicked" and handler is not None:
-            handler()
+        if event == "clicked" and item_id in MENU_ACTIONS:
+            self._activate(MENU_ACTIONS[item_id])
+
+    def _activate(self, action: str) -> None:
+        scope, _sep, name = action.partition(".")
+        if scope == "app":
+            target = self._app
+        else:
+            # A win.* action needs a window, and the tray outlives every one.
+            # Only the main window carries an action map -- a composer is a
+            # plain Adw.Window -- so the interface is the filter.
+            self._app.activate()
+            target = next(
+                (w for w in self._app.get_windows() if isinstance(w, Gio.ActionMap)),
+                None,
+            )
+        found = target.lookup_action(name) if target is not None else None
+        if found is not None:
+            found.activate(None)
 
     def _menu_property(
         self,
@@ -401,4 +391,6 @@ class Tray:
         _interface: str,
         name: str,
     ) -> GLib.Variant:
-        return MENU_PROPERTIES[name]
+        if name == "Version":
+            return GLib.Variant("u", 3)
+        return GLib.Variant("s", "normal")

@@ -202,9 +202,18 @@ class ImapSession:
         STATUS rather than SELECT + SEARCH UNSEEN: one command, and it leaves
         the currently selected mailbox alone.
         """
-        status, payload = self._require_imap().status(
-            _quote_mailbox(mailbox), "(UNSEEN)"
-        )
+        try:
+            status, payload = self._require_imap().status(
+                _quote_mailbox(mailbox), "(UNSEEN)"
+            )
+        except imaplib.IMAP4.abort:
+            # A dropped connection, not one mailbox refusing: it has to end the
+            # sync rather than be skipped once per remaining folder.
+            raise
+        except imaplib.IMAP4.error as error:
+            raise ImapError(
+                f"could not read the status of {mailbox}: {error}"
+            ) from error
         if status != STATUS_OK:
             raise ImapError(f"could not read the status of {mailbox}: {payload}")
         first = payload[0] if payload else None

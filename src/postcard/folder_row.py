@@ -1,7 +1,6 @@
 from gi.repository import Adw, Gtk
 
 from . import mail_sync
-from .core.models.account import Account
 from .core.models.folder import Folder
 
 
@@ -66,15 +65,19 @@ class FolderRow(Gtk.Box):
     # The same widget also draws the account headings the folders sit under, so
     # bind() above has to undo whatever this sets -- rows are recycled for both.
     def bind_account(
-        self, account: Account, tree_list_row: Gtk.TreeListRow, is_syncing: bool
+        self, label: str, tree_list_row: Gtk.TreeListRow, is_syncing: bool
     ) -> None:
         self._expandable = tree_list_row
         self._icon.set_from_icon_name("avatar-default-symbolic")
-        self._name_label.set_label(account.email)
+        self.set_account_label(label)
         self._name_label.add_css_class("heading")
         self._spinner_slot.set_visible(True)
         self.set_syncing(is_syncing)
         self._badge.set_visible(False)
+
+    # Also called on its own when the display-name preference is toggled.
+    def set_account_label(self, label: str) -> None:
+        self._name_label.set_label(label)
 
     # Only account rows use this; the window calls it as syncs start and finish.
     def set_syncing(self, is_syncing: bool) -> None:

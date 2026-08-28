@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 SETTING_FOLDER_WIDTH = "folder-sidebar-width"
 SETTING_CONVERSATION_WIDTH = "conversation-sidebar-width"
+SETTING_ACCOUNT_DISPLAY_NAME = "show-account-display-name"
 
 # Move is the one action carrying a parameter (the destination folder name), so
 # it is registered on its own wherever these are.
@@ -205,6 +206,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._avatars = AvatarLoader(self._settings)
         self._avatar_handler = self._settings.connect(
             "changed::load-sender-avatars", lambda *_: self._refresh_conversations()
+        )
+        self._account_label_handler = self._settings.connect(
+            f"changed::{SETTING_ACCOUNT_DISPLAY_NAME}",
+            lambda *_: self._relabel_accounts(),
         )
 
         # Accounts with a sync in flight. A set, not a flag: every account syncs
@@ -432,6 +437,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._network.disconnect(self._network_handler)
         self._settings.disconnect(self._interval_handler)
         self._settings.disconnect(self._avatar_handler)
+        self._settings.disconnect(self._account_label_handler)
         self._avatars.shutdown()
         if self._sync_timer_id:
             GLib.source_remove(self._sync_timer_id)
@@ -1398,12 +1404,24 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if isinstance(entry, Account):
             self._account_rows[entry.id] = row
             is_syncing = entry.id in self._syncing_account_ids
-            row.bind_account(entry, tree_list_row, is_syncing)
+            row.bind_account(self._account_label(entry), tree_list_row, is_syncing)
             return
 
         assert isinstance(entry, Folder)
         self._folder_rows[entry.id] = row
         row.bind(entry, self._unread_badge(entry))
+
+    def _account_label(self, account: Account) -> str:
+        if not self._settings.get_boolean(SETTING_ACCOUNT_DISPLAY_NAME):
+            return account.email
+        return account.display_name.strip() or account.email
+
+    def _relabel_accounts(self) -> None:
+        # Only the rows on screen; the rest pick the new label up when bound.
+        for account_id, row in self._account_rows.items():
+            account = self._accounts.get(account_id)
+            if account is not None:
+                row.set_account_label(self._account_label(account))
 
     def _inbox_folders(self) -> list[Folder]:
         return [

@@ -16,6 +16,11 @@
 			<summary>Load sender avatars</summary>
 			<description>Fetch sender pictures from Gravatar, falling back to the sender's website icon. This tells those services who emails you.</description>
 		</key>
+		<key name="show-account-display-name" type="b">
+			<default>false</default>
+			<summary>Show account names in the sidebar</summary>
+			<description>Show each account's display name in the folder sidebar instead of its email address.</description>
+		</key>
 		<key name="run-in-background" type="b">
 			<default>false</default>
 			<summary>Keep running in the background</summary>

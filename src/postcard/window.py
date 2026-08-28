@@ -2577,6 +2577,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         self._is_online = is_available
         if not is_available:
+            # The pooled connections are on sockets that are already gone, but
+            # nothing says so until a command times out on one.
+            mail_sync.close_sessions()
             self._show_offline_banner()
             return
         self.connection_banner.set_revealed(False)

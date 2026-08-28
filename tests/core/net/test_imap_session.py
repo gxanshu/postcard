@@ -1,3 +1,4 @@
+import imaplib
 import ssl
 
 import pytest
@@ -46,6 +47,36 @@ def connect(monkeypatch, imap: FakeImap) -> ImapSession:
     session = ImapSession("imap.example.com", 993)
     session.connect()
     return session
+
+
+def test_a_connection_that_answers_noop_is_alive(monkeypatch):
+    imap = FakeImap()
+    imap.noop = lambda: ("OK", [b""])
+
+    assert connect(monkeypatch, imap).is_alive() is True
+
+
+def _raising(error: Exception):
+    def noop():
+        raise error
+
+    return noop
+
+
+@pytest.mark.parametrize(
+    "noop",
+    [
+        lambda: ("NO", [b"try again later"]),
+        lambda: ("BAD", [b"unknown command"]),
+        _raising(OSError("connection reset")),
+        _raising(imaplib.IMAP4.abort("socket error: EOF")),
+    ],
+)
+def test_a_connection_that_does_not_answer_a_noop_is_not_alive(monkeypatch, noop):
+    imap = FakeImap()
+    imap.noop = noop
+
+    assert connect(monkeypatch, imap).is_alive() is False
 
 
 def test_search_all_uids_uses_uid_search_all_and_returns_the_uids(monkeypatch):

@@ -83,7 +83,14 @@ rather than starting a `window_*.py` module for it.
 
 ### Threading model (critical)
 
-**All network I/O runs on a `threading.Thread(daemon=True)`; results are marshalled back to the main thread with `GLib.idle_add`.** The worker function does network only — it must never touch the database or GTK widgets, and that includes reading `self._account`: resolve that on the main thread and pass it in. Credentials are the exception, and deliberately so: `secrets.credential_for` blocks on IPC, and for a GNOME Online Account that can mean a token refresh over the network, so it is called *inside* the worker. Both backends (libsecret, GOA over D-Bus) are thread-safe and touch neither the database nor GTK. The `_on_*` callback that `idle_add` schedules runs on the main loop and is the only place that mutates the DB or UI. Follow this pattern for any new network action (see `_start_sync`/`_sync_worker`/`_on_sync_done` in `window.py`). Hand the worker a frozen snapshot rather than a live object the main thread might mutate — `FlagChange` and `BodyRequest` in `window_types.py` are the examples. IMAP/SMTP sessions are opened and torn down per operation, not pooled.
+**All network I/O runs on a `threading.Thread(daemon=True)`; results are marshalled back to the main thread with `GLib.idle_add`.** The worker function does network only — it must never touch the database or GTK widgets, and that includes reading `self._account`: resolve that on the main thread and pass it in. Credentials are the exception, and deliberately so: `secrets.credential_for` blocks on IPC, and for a GNOME Online Account that can mean a token refresh over the network, so it is called *inside* the worker. Both backends (libsecret, GOA over D-Bus) are thread-safe and touch neither the database nor GTK. The `_on_*` callback that `idle_add` schedules runs on the main loop and is the only place that mutates the DB or UI. Follow this pattern for any new network action (see `_start_sync`/`_sync_worker`/`_on_sync_done` in `window.py`). Hand the worker a frozen snapshot rather than a live object the main thread might mutate — `FlagChange` and `BodyRequest` in `window_types.py` are the examples. IMAP connections are pooled one per account by `mail_sync._pooled_session` — use it
+rather than building an `ImapSession`. An operation holds the connection for its whole
+run (imaplib is not re-entrant); one that arrives while it is busy opens its own rather
+than queueing behind a sync, so a click never waits on a background sync. Every
+operation must still `select()` its own mailbox, since a pooled session carries the last
+one. `close_sessions()` drops connections — on account removal, on going offline, and
+after a failure a caller swallowed rather than raising (see `move_messages`), since the
+pool can only discard what it sees fail. SMTP stays per-operation.
 
 ### No account is a real state
 

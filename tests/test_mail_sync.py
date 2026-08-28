@@ -28,6 +28,7 @@ from postcard.mail_sync import (
     inbox_name,
     is_outgoing_folder,
     mailbox_with_role,
+    move_messages,
     parent_mailbox_name,
     role_for_folder,
     sent_folder,
@@ -49,6 +50,15 @@ def account(smtp_host: str = "", smtp_port: int = 0) -> Account:
         smtp_host=smtp_host,
         smtp_port=smtp_port,
     )
+
+
+@pytest.fixture(autouse=True)
+def empty_pool():
+    # Every test signs in as account id 1, the pool's key, so the first double
+    # pooled would otherwise answer every later test's commands.
+    mail_sync.close_sessions()
+    yield
+    mail_sync.close_sessions()
 
 
 @pytest.fixture
@@ -267,6 +277,9 @@ class FakeImapSession:
 
     def sign_in(self, credential):
         pass
+
+    def is_alive(self):
+        return True
 
     def list_folders(self):
         return type(self).mailboxes
@@ -658,3 +671,154 @@ def test_flagging_nothing_sends_no_command(storing_imap):
     set_flag()
 
     assert storing_imap.stores == []
+
+
+# --- connection pool --------------------------------------------------------
+
+
+class CountingSession(FakeImapSession):
+    """An IMAP server that records how often it was connected to and left."""
+
+    connects = 0
+    logouts = 0
+    alive = True
+    sign_in_fails = False
+    select_fails = False
+    move_fails = False
+
+    def connect(self):
+        type(self).connects += 1
+
+    def sign_in(self, credential):
+        if type(self).sign_in_fails:
+            raise ImapError("authentication failed")
+
+    def is_alive(self):
+        return type(self).alive
+
+    def logout(self):
+        type(self).logouts += 1
+
+    def select(self, mailbox, is_readonly=True):
+        if type(self).select_fails:
+            raise ImapError("could not open INBOX")
+        return 0
+
+    def move(self, uid, destination):
+        if type(self).move_fails:
+            raise ImapError(f"could not move {uid} to {destination}")
+        return "77"
+
+
+@pytest.fixture
+def pooled(monkeypatch):
+    CountingSession.connects = 0
+    CountingSession.logouts = 0
+    CountingSession.alive = True
+    CountingSession.sign_in_fails = False
+    CountingSession.select_fails = False
+    CountingSession.move_fails = False
+    monkeypatch.setattr(mail_sync, "ImapSession", CountingSession)
+    return CountingSession
+
+
+@pytest.fixture
+def probing(monkeypatch):
+    """Probe on every reuse, however recently the connection was last used."""
+    monkeypatch.setattr(mail_sync, "PROBE_IDLE_SECONDS", 0)
+
+
+def test_a_second_operation_reuses_the_first_s_connection(pooled):
+    fetch_mailbox(account(), CREDENTIAL)
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 1
+
+
+def test_a_connection_the_server_hung_up_on_is_reopened(pooled, probing):
+    fetch_mailbox(account(), CREDENTIAL)
+    pooled.alive = False
+
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 2
+
+
+def test_a_connection_just_used_is_not_probed(pooled):
+    fetch_mailbox(account(), CREDENTIAL)
+    pooled.alive = False  # a probe would report it dead and reconnect
+
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 1
+
+
+def test_a_failed_operation_does_not_go_back_in_the_pool(pooled):
+    pooled.select_fails = True
+    with pytest.raises(ImapError):
+        fetch_mailbox(account(), CREDENTIAL)
+    pooled.select_fails = False
+
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 2
+
+
+def test_a_move_that_fails_does_not_go_back_in_the_pool(pooled):
+    # move_messages reports the failure instead of raising, so the pool cannot
+    # see it -- it has to be told.
+    pooled.move_fails = True
+    assert move_messages(account(), CREDENTIAL, "INBOX", ["4"], "Archive").error
+    pooled.move_fails = False
+
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 2
+
+
+def test_a_connection_that_cannot_sign_in_is_logged_out(pooled):
+    pooled.sign_in_fails = True
+
+    with pytest.raises(ImapError):
+        fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.logouts == 1
+
+
+def test_an_operation_arriving_while_the_connection_is_busy_opens_its_own(pooled):
+    fetch_mailbox(account(), CREDENTIAL)
+    entry = mail_sync._pool[account().id]
+
+    with entry.lock:  # as another operation mid-command would hold it
+        fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 2
+    assert pooled.logouts == 1  # the spare was closed, not pooled
+    assert entry.session is not None  # the pooled connection was left alone
+
+
+def test_removing_an_account_drops_its_connection(pooled):
+    fetch_mailbox(account(), CREDENTIAL)
+    mail_sync.close_sessions(account().id)
+
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert pooled.connects == 2
+
+
+def test_removing_an_account_mid_operation_does_not_pool_the_connection(
+    monkeypatch, pooled
+):
+    class ClosingSession(CountingSession):
+        logouts = 0
+
+        def search_all_uids(self):
+            mail_sync.close_sessions(account().id)
+            return set()
+
+    monkeypatch.setattr(mail_sync, "ImapSession", ClosingSession)
+
+    fetch_mailbox(account(), CREDENTIAL)
+
+    assert mail_sync._pool[account().id].session is None
+    assert ClosingSession.logouts == 1

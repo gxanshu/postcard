@@ -2,6 +2,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gtk
 
+from . import mail_sync
 from .account_dialog import PostcardAccountDialog
 from .core import secrets
 from .core.store.database import Database
@@ -48,6 +49,7 @@ class PostcardAccountsDialog(Adw.Dialog):
     def _on_remove_clicked(self, _button: Gtk.Button, account_id: int) -> None:
         self._db.delete_account(account_id)
         secrets.clear_password(account_id)
+        mail_sync.close_sessions(account_id)
         self._reload()
 
     def _on_add_clicked(self, _button: Gtk.Button) -> None:

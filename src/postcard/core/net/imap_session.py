@@ -134,6 +134,15 @@ class ImapSession:
         except imaplib.IMAP4.error as error:
             raise ImapError(str(error)) from error
 
+    def is_alive(self) -> bool:
+        # A server that hung up on an idle connection says nothing about it
+        # until the next command, so probe before reusing one.
+        try:
+            status, _payload = self._require_imap().noop()
+        except (OSError, imaplib.IMAP4.error):
+            return False
+        return status == STATUS_OK
+
     def logout(self) -> None:
         # Runs from a `finally:` on every operation, so it must not raise and
         # mask the error that is already on its way out. Logged at debug

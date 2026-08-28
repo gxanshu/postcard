@@ -1,8 +1,11 @@
 import logging
 import re
+import threading
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
@@ -22,6 +25,7 @@ from .core.net.imap_session import (
     ATTR_NOSELECT,
     GMAIL_CAPABILITY,
     FetchedHeader,
+    ImapError,
     ImapSession,
     MailboxInfo,
     decode_mailbox_name,
@@ -106,6 +110,111 @@ class MoveResult:
     error: str | None = None
 
 
+# How long a pooled connection may sit idle before it is probed with a NOOP.
+# Back-to-back operations run on a socket the one before them just used, where
+# the probe is pure latency; an idle connection may have been hung up on.
+PROBE_IDLE_SECONDS = 10.0
+
+
+@dataclass
+class _Pooled:
+    """One account's slot in the connection pool."""
+
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    session: ImapSession | None = None
+    used_at: float = 0.0
+    # Bumped by close_sessions, so an operation still running against a dropped
+    # account logs its connection out instead of storing it in a stale slot.
+    generation: int = 0
+
+
+_pool: dict[int, _Pooled] = {}
+_pool_lock = threading.Lock()
+
+
+def _signed_in(account: Account, credential: Credential) -> ImapSession:
+    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
+    session.connect()
+    try:
+        session.sign_in(credential)
+    except Exception:
+        # Connected but not authenticated: without this the server keeps the
+        # half-open session until its own idle timeout.
+        session.logout()
+        raise
+    return session
+
+
+@contextmanager
+def _pooled_session(account: Account, credential: Credential) -> Iterator[ImapSession]:
+    """This account's IMAP connection, opened and signed in if it has none.
+
+    A handshake plus a LOGIN per operation was most of the latency of a sync
+    and nearly all of opening one message. imaplib is not re-entrant, so an
+    operation holds the connection for its whole run; one that arrives while
+    it is busy opens its own rather than queueing behind a sync.
+    """
+    with _pool_lock:
+        entry = _pool.setdefault(account.id, _Pooled())
+        generation = entry.generation
+
+    is_pooled = entry.lock.acquire(blocking=False)
+    session = None
+    if is_pooled:
+        with _pool_lock:
+            session, entry.session = entry.session, None
+            idle_seconds = time.monotonic() - entry.used_at
+        if session is not None and idle_seconds > PROBE_IDLE_SECONDS:
+            # Dropped rather than logged out: the LOGOUT would go to the very
+            # socket that just failed to answer and block for the timeout again.
+            session = session if session.is_alive() else None
+
+    try:
+        if session is None:
+            session = _signed_in(account, credential)
+            logger.debug("opened an IMAP connection for %s", account.email)
+        else:
+            logger.debug("reusing the IMAP connection for %s", account.email)
+
+        try:
+            yield session
+        except Exception:
+            # An interrupted command can leave a reply half-read on the socket.
+            session.logout()
+            raise
+
+        is_kept = False
+        with _pool_lock:
+            if is_pooled and entry.generation == generation:
+                entry.session = session
+                entry.used_at = time.monotonic()
+                is_kept = True
+        if not is_kept:
+            # A spare opened for a busy account, or one whose account went
+            # while it worked. Logged out here, outside the pool lock.
+            session.logout()
+    finally:
+        if is_pooled:
+            entry.lock.release()
+
+
+def close_sessions(account_id: int | None = None) -> None:
+    """Drop pooled connections -- one account's, or every one.
+
+    Dropped rather than logged out: the caller is usually the main thread,
+    where a LOGOUT to a server that stopped answering blocks for the socket
+    timeout. The slot itself stays, so an operation already holding this
+    account's connection keeps its lock and cannot open a second one beside it.
+    """
+    with _pool_lock:
+        ids = list(_pool) if account_id is None else [account_id]
+        for one in ids:
+            entry = _pool.get(one)
+            if entry is not None:
+                entry.session = None
+                entry.generation += 1
+
+
 def inbox_name(folders: list[str]) -> str:
     """The server's inbox mailbox. IMAP calls it INBOX but servers vary the
     casing (Yahoo lists it as "Inbox"), so match by role and fall back to the
@@ -120,25 +229,19 @@ def fetch_mailbox(
     limit: int = RECENT_LIMIT,
     offset: int = 0,
 ) -> SyncResult:
-    """Connect, log in, and return the folder list + recent headers.
+    """Return the folder list + recent headers, over this account's connection.
 
     `folder` selects which mailbox to pull headers from; None means the inbox.
     `offset` pages backwards: 0 is the newest `limit`, `limit` is the page
     before that (used to load older mail on scroll).
     """
-    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
-    session.connect()
-
-    try:
-        session.sign_in(credential)
+    with _pooled_session(account, credential) as session:
         mailboxes = session.list_folders()
         target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
         all_uids = session.search_all_uids() if offset == 0 else None
         raw = session.fetch_recent_headers(exists, limit, offset)
         counts = _unread_counts(session, mailboxes, target) if offset == 0 else {}
-    finally:
-        session.logout()
 
     messages = [_to_message_header(fetched) for fetched in raw]
 
@@ -161,6 +264,8 @@ def _unread_counts(
     Only the target mailbox is fetched, so without this every other folder's
     badge stays at whatever the last visit left behind. A folder that won't
     answer is skipped rather than failing the sync -- the counts are a garnish.
+    Only ImapError, though: a broken connection has to end the sync rather than
+    be reported once per remaining folder and then handed back to the pool.
     """
     counts: dict[str, int] = {}
     for mailbox in mailboxes:
@@ -170,7 +275,7 @@ def _unread_counts(
             continue
         try:
             counts[mailbox.name] = session.unseen_count(mailbox.name)
-        except Exception:
+        except ImapError:
             logger.warning(
                 "could not read the unread count of %s", mailbox.name, exc_info=True
             )
@@ -207,16 +312,10 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
 def fetch_full_message(
     account: Account, credential: Credential, folder_name: str, uid: str
 ) -> bytes:
-    """Connect, login, open one folder, and download a single full message"""
-    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
-    session.connect()
-
-    try:
-        session.sign_in(credential)
+    """Open one folder and download a single full message."""
+    with _pooled_session(account, credential) as session:
         session.select(folder_name)
         return session.fetch_message(uid)
-    finally:
-        session.logout()
 
 
 def server_uids(mails: Iterable[Email]) -> list[str]:
@@ -247,14 +346,9 @@ def set_flag(
     """
     if not uids:
         return
-    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
-    session.connect()
-    try:
-        session.sign_in(credential)
+    with _pooled_session(account, credential) as session:
         session.select(folder_name, is_readonly=False)
         session.store_flags(",".join(uids), flag, should_add)
-    finally:
-        session.logout()
 
 
 def move_messages(
@@ -264,20 +358,23 @@ def move_messages(
     uids: list[str],
     destination: str,
 ) -> MoveResult:
-    """Move every message in a conversation to another mailbox."""
-    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
-    session.connect()
-    try:
-        session.sign_in(credential)
+    """Move every message in a conversation to another mailbox.
+
+    A failure part-way is reported rather than raised, because the caller has
+    to know which UIDs made it across.
+    """
+    with _pooled_session(account, credential) as session:
         session.select(folder_name, is_readonly=False)
         destination_uids = []
         for index, uid in enumerate(uids):
             try:
                 destination_uids.append(session.move(uid, destination))
             except Exception as error:
+                # Swallowing it here hides the failure from the pool, which
+                # would then hand on a connection that may have a half-read
+                # reply on the socket. Drop it explicitly instead.
+                close_sessions(account.id)
                 return MoveResult(destination_uids, index, str(error))
-    finally:
-        session.logout()
     return MoveResult(destination_uids)
 
 
@@ -356,11 +453,7 @@ def post_unsubscribe(url: str) -> None:
 
 
 def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:
-    session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
-    session.connect()
-
-    try:
-        session.sign_in(credential)
+    with _pooled_session(account, credential) as session:
         if session.has_capability(GMAIL_CAPABILITY):
             return
         sent = mailbox_with_role(
@@ -372,8 +465,6 @@ def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> Non
             )
             return
         session.append(sent, raw)
-    finally:
-        session.logout()
 
 
 # Cached because the sidebar classifies every folder of every account several

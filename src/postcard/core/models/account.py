@@ -57,3 +57,8 @@ class Account(GObject.Object):
         # Set when the account came from GNOME Online Accounts, which is then
         # where its credentials live instead of the keyring.
         self.goa_id: str = goa_id
+
+    @property
+    def short_label(self) -> str:
+        # Free to be a nickname: outgoing mail puts email in From:, never this.
+        return self.display_name.strip() or self.email.partition("@")[0]

@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from collections.abc import Sequence
+from datetime import datetime
 
 from gi.repository import GLib
 
@@ -45,6 +46,18 @@ def _arrival_key(mail: Email) -> int:
         return int(mail.server_id or "")
     except ValueError:
         return 2**31 - 1
+
+
+def _sent_key(mail: Email) -> float:
+    # A UID only counts up within one mailbox, so ordering a mixed list by
+    # _arrival_key interleaves accounts by unrelated counters. Unlike a UID, a
+    # Date header is written by the sender: an unreadable one sorts *last*, so
+    # junk with "Date: whenever" can't pin itself to the top of every inbox.
+    # astimezone matches format_date, which reads a zone-less stamp as local.
+    try:
+        return datetime.fromisoformat(mail.date).astimezone().timestamp()
+    except (TypeError, ValueError):
+        return 0.0
 
 
 # Schema changes since the first release, applied in order. How many have run
@@ -395,40 +408,51 @@ class Database:
                 ],
             )
 
-    def conversations_in_folder(self, folder_id: int) -> list[Conversation]:
-        """Group a folder's emails into threads, newest thread first."""
-        rows = self._conn.execute(
-            f"SELECT {_EMAIL_COLUMNS} FROM emails WHERE folder_id = ?", (folder_id,)
-        ).fetchall()
-        return self._conversations_from_rows(rows)
+    def conversations_in_folders(self, folder_ids: Sequence[int]) -> list[Conversation]:
+        """Group the folders' emails into threads, newest thread first."""
+        if not folder_ids:
+            return []
 
-    def search_conversations(self, folder_id: int, query: str) -> list[Conversation]:
-        """Full-text search a folder; return each matching conversation whole.
+        places = ",".join("?" * len(folder_ids))
+        rows = self._conn.execute(
+            f"SELECT {_EMAIL_COLUMNS} FROM emails WHERE folder_id IN ({places})",
+            tuple(folder_ids),
+        ).fetchall()
+        return self._conversations_from_rows(rows, is_multi_folder=len(folder_ids) > 1)
+
+    def search_conversations(
+        self, folder_ids: Sequence[int], query: str
+    ) -> list[Conversation]:
+        """Full-text search the folders; return each matching conversation whole.
 
         The subquery narrows to the threads a message matched in, so a search
-        builds only those. Selecting the folder and filtering afterwards made
-        every keystroke cost the same as opening the folder.
+        builds only those. Selecting the folders and filtering afterwards made
+        every keystroke cost the same as opening them.
         """
+        if not folder_ids:
+            return []
+
         match = _fts_query(query)
         if not match:
-            return self.conversations_in_folder(folder_id)
+            return self.conversations_in_folders(folder_ids)
 
+        places = ",".join("?" * len(folder_ids))
         rows = self._conn.execute(
             f"""
             SELECT {_EMAIL_COLUMNS} FROM emails
-            WHERE folder_id = ? AND COALESCE(conversation_id, id) IN (
+            WHERE folder_id IN ({places}) AND COALESCE(conversation_id, id) IN (
                 SELECT COALESCE(e.conversation_id, e.id)
                 FROM emails_fts f
                 JOIN emails e ON e.id = f.rowid
-                WHERE e.folder_id = ? AND emails_fts MATCH ?
+                WHERE e.folder_id IN ({places}) AND emails_fts MATCH ?
             )
             """,
-            (folder_id, folder_id, match),
+            (*folder_ids, *folder_ids, match),
         ).fetchall()
-        return self._conversations_from_rows(rows)
+        return self._conversations_from_rows(rows, is_multi_folder=len(folder_ids) > 1)
 
     def _conversations_from_rows(
-        self, rows: Sequence[sqlite3.Row]
+        self, rows: Sequence[sqlite3.Row], *, is_multi_folder: bool
     ) -> list[Conversation]:
         groups: dict[int, list[Email]] = {}
         for row in rows:
@@ -440,7 +464,8 @@ class Database:
         for mails in groups.values():
             mails.sort(key=_arrival_key)  # oldest first, so .latest is right
             conversations.append(Conversation(mails))
-        conversations.sort(key=lambda c: _arrival_key(c.latest), reverse=True)
+        thread_key = _sent_key if is_multi_folder else _arrival_key
+        conversations.sort(key=lambda c: thread_key(c.latest), reverse=True)
         return conversations
 
     def unread_count_in_folder(self, folder_id: int) -> int:

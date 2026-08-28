@@ -58,6 +58,13 @@ class ConversationRow(Gtk.Box):
         self._preview_label.add_css_class("dim-label")
         bottom.append(self._preview_label)
 
+        self._account_label = Gtk.Label(
+            xalign=1, ellipsize=Pango.EllipsizeMode.END, max_width_chars=12
+        )
+        self._account_label.add_css_class("dim-label")
+        self._account_label.add_css_class("caption")
+        bottom.append(self._account_label)
+
         self._unread_dot = Gtk.Image.new_from_icon_name("media-record-symbolic")
         self._unread_dot.set_pixel_size(10)
         self._unread_dot.set_valign(Gtk.Align.CENTER)
@@ -68,7 +75,9 @@ class ConversationRow(Gtk.Box):
     # In an outgoing folder the sender of every message is the account itself,
     # so the row names the recipient instead -- and falls back to the sender for
     # mail that predates the recipient columns.
-    def bind(self, conversation: Conversation, is_outgoing: bool) -> None:
+    def bind(
+        self, conversation: Conversation, is_outgoing: bool, account_label: str
+    ) -> None:
         subject = conversation.subject
         if conversation.count > 1:
             subject = f"{subject}  ({conversation.count})"
@@ -88,6 +97,8 @@ class ConversationRow(Gtk.Box):
         self._date_label.set_label(mail_sync.format_date(conversation.date))
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)
+        self._account_label.set_label(account_label)
+        self._account_label.set_visible(bool(account_label))
         self._unread_dot.set_visible(conversation.is_unread)
 
         # CSS class names, not Python identifiers: they have to match the

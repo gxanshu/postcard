@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from enum import StrEnum
+from functools import lru_cache
 from gettext import gettext as _
 
 from .core.models.account import Account
-from .core.models.conversation import Conversation
+from .core.models.email import Email
 from .core.models.folder import Folder
 
 # Re-exported: callers reach MessageHeader through mail_sync, which is where it
@@ -218,15 +219,15 @@ def fetch_full_message(
         session.logout()
 
 
-def server_uids(conversation: Conversation) -> list[str]:
-    """The IMAP UIDs of a conversation's messages, skipping any without one.
+def server_uids(mails: Iterable[Email]) -> list[str]:
+    """The IMAP UIDs of these messages, skipping any without one.
 
     A locally saved copy (a Sent message, before the next sync confirms it)
     has no UID, and imaplib silently drops a None argument -- which would send
     a UID-less "UID STORE +FLAGS (...)" and get a BAD back. There is nothing
     on the server to act on yet, so leave those out.
     """
-    return [mail.server_id for mail in conversation.emails if mail.server_id]
+    return [mail.server_id for mail in mails if mail.server_id]
 
 
 def set_flag(
@@ -375,6 +376,10 @@ def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> Non
         session.logout()
 
 
+# Cached because the sidebar classifies every folder of every account several
+# times per reload (badges, the unified inbox, the tray count), and a folder
+# name is a stable key.
+@lru_cache(maxsize=512)
 def role_for_folder(name: str) -> FolderRole:
     """Classify a mailbox by name.
 

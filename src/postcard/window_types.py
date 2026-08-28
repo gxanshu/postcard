@@ -28,6 +28,9 @@ FOLDER_SYNC_COOLDOWN_SECONDS = 60
 
 SECONDS_PER_MINUTE = 60
 
+# Negative so it can never collide with a SQLite rowid.
+ALL_INBOXES_ID = -1
+
 # Gtk.Stack child names, matching the ids in main-window.blp.
 PAGE_MAIL = "mail"
 PAGE_NO_ACCOUNT = "no-account"
@@ -80,11 +83,10 @@ class PendingMove:
     fails part-way reports how many succeeded, and the tail is restored by
     slicing all four at the same point.
 
-    timeout_id is the GLib source that commits the move once the undo window
-    closes; cancelling the move means removing that source.
-
-    account is carried, not read at commit time: the undo window outlives an
-    account switch, and these UIDs only mean anything on their own server.
+    account and source are carried, not read at commit time: the undo window
+    outlives a folder change, and these UIDs only mean anything on their own
+    server. One move across several mailboxes makes one of these per mailbox,
+    all sharing the window's single undo timer.
     """
 
     account: Account
@@ -94,4 +96,3 @@ class PendingMove:
     source: Folder
     dest: Folder
     tombstones: list[tuple[int, str]]
-    timeout_id: int

@@ -3,8 +3,21 @@ from postcard.core.models.account import (
     SECURITY_OPTIONS,
     SECURITY_STARTTLS,
     SECURITY_TLS,
+    Account,
     parse_port,
 )
+
+
+def account(display_name: str) -> Account:
+    return Account(
+        id=1,
+        email="ada@example.com",
+        display_name=display_name,
+        imap_host="imap.example.com",
+        imap_port=993,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+    )
 
 
 def test_parses_a_plain_port() -> None:
@@ -43,3 +56,15 @@ def test_security_options_match_the_dialog_combo_order() -> None:
     # account-dialog.blp lists ["TLS", "STARTTLS"] and the dialog indexes this
     # tuple with get_selected(), so the order is load-bearing.
     assert SECURITY_OPTIONS == (SECURITY_TLS, SECURITY_STARTTLS)
+
+
+def test_short_label_prefers_the_display_name() -> None:
+    assert account("Ada").short_label == "Ada"
+
+
+def test_short_label_falls_back_to_the_local_part() -> None:
+    assert account("").short_label == "ada"
+
+
+def test_short_label_ignores_a_whitespace_only_display_name() -> None:
+    assert account("   ").short_label == "ada"

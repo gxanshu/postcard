@@ -238,14 +238,14 @@ def test_a_namespace_root_does_not_count_as_a_parent():
 
 
 def test_server_uids_collects_every_uid():
-    assert server_uids(conversation("4", "9")) == ["4", "9"]
+    assert server_uids(conversation("4", "9").emails) == ["4", "9"]
 
 
 def test_server_uids_skips_messages_the_server_has_never_seen():
     # imaplib silently drops a None argument, which would send a UID-less
     # "UID STORE +FLAGS (...)" and come back BAD.
-    assert server_uids(conversation("4", None, "9")) == ["4", "9"]
-    assert server_uids(conversation(None)) == []
+    assert server_uids(conversation("4", None, "9").emails) == ["4", "9"]
+    assert server_uids(conversation(None).emails) == []
 
 
 class FakeImapSession:

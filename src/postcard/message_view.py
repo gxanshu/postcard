@@ -78,6 +78,37 @@ def release_anchor() -> None:
     _anchor = None
 
 
+def _build_names(email: Email, delivered_to: str) -> Gtk.Box:
+    names = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER
+    )
+    sender = Gtk.Label(label=email.sender, xalign=0, ellipsize=Pango.EllipsizeMode.END)
+    sender.add_css_class("heading")
+    names.append(sender)
+
+    if email.sender_address:
+        address = Gtk.Label(
+            label=email.sender_address,
+            xalign=0,
+            ellipsize=Pango.EllipsizeMode.END,
+            selectable=True,
+        )
+        address.add_css_class("caption")
+        address.add_css_class("sender-address")
+        names.append(address)
+
+    if delivered_to:
+        recipient = Gtk.Label(
+            label=_("to {address}").format(address=delivered_to),
+            xalign=0,
+            ellipsize=Pango.EllipsizeMode.END,
+        )
+        recipient.add_css_class("caption")
+        recipient.add_css_class("dim-label")
+        names.append(recipient)
+    return names
+
+
 class MessageView(Gtk.Box):
     __gtype_name__ = "PostcardMessageView"
 
@@ -91,6 +122,7 @@ class MessageView(Gtk.Box):
         on_rendered: Callable[["MessageView"], None] | None = None,
         is_expanded: bool = False,
         should_load_remote_images: bool = False,
+        delivered_to: str = "",
         avatars: AvatarLoader | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -126,26 +158,7 @@ class MessageView(Gtk.Box):
         if avatars is not None and email.sender_address:
             avatars.load(email.sender_address, avatar.set_custom_image)
 
-        names = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER
-        )
-        sender = Gtk.Label(
-            label=email.sender, xalign=0, ellipsize=Pango.EllipsizeMode.END
-        )
-        sender.add_css_class("heading")
-        names.append(sender)
-
-        if email.sender_address:
-            address = Gtk.Label(
-                label=email.sender_address,
-                xalign=0,
-                ellipsize=Pango.EllipsizeMode.END,
-                selectable=True,
-            )
-            address.add_css_class("caption")
-            address.add_css_class("sender-address")
-            names.append(address)
-        header.append(names)
+        header.append(_build_names(email, delivered_to))
 
         date = Gtk.Label(
             label=mail_sync.format_date(email.date), xalign=1, valign=Gtk.Align.CENTER

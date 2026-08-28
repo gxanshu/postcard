@@ -414,10 +414,41 @@ def test_conversations_are_newest_first_by_uid_not_by_local_id(db, folder):
     incoming(db, folder.id, "9", subject="Newer")
     incoming(db, folder.id, "2", subject="Older")
 
-    assert [c.subject for c in db.conversations_in_folder(folder.id)] == [
+    assert [c.subject for c in db.conversations_in_folders([folder.id])] == [
         "Newer",
         "Older",
     ]
+
+
+def test_conversations_from_several_folders_are_ordered_by_date_not_uid(db, folder):
+    # The second account's inbox is at UID 3 while the first is past 1000, so
+    # UID order would put the older message first.
+    other = db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
+    other_inbox = db.get_or_create_folder(other.id, "INBOX")
+    incoming(db, folder.id, "1001", subject="Older", date="2026-08-01T09:00:00+00:00")
+    incoming(db, other_inbox.id, "3", subject="Newer", date="2026-08-02T09:00:00+00:00")
+
+    merged = db.conversations_in_folders([folder.id, other_inbox.id])
+
+    assert [c.subject for c in merged] == ["Newer", "Older"]
+
+
+def test_an_unreadable_date_sorts_as_the_newest(db, folder):
+    other = db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
+    other_inbox = db.get_or_create_folder(other.id, "INBOX")
+    incoming(db, folder.id, "1", subject="Dated", date="2026-08-01T09:00:00+00:00")
+    incoming(db, other_inbox.id, "1", subject="Undated", date="not a date")
+
+    merged = db.conversations_in_folders([folder.id, other_inbox.id])
+
+    assert [c.subject for c in merged] == ["Undated", "Dated"]
+
+
+def test_both_loaders_return_nothing_for_no_folders(db, folder):
+    incoming(db, folder.id, "1")
+
+    assert db.conversations_in_folders([]) == []
+    assert db.search_conversations([], "lunch") == []
 
 
 def test_reassign_conversations_groups_a_reply_with_its_parent(db, folder):
@@ -428,7 +459,7 @@ def test_reassign_conversations_groups_a_reply_with_its_parent(db, folder):
 
     db.reassign_conversations(folder.id)
 
-    (conversation,) = db.conversations_in_folder(folder.id)
+    (conversation,) = db.conversations_in_folders([folder.id])
     assert conversation.count == 2
     # Sorted oldest first, so .latest is genuinely the newest message.
     assert conversation.latest.subject == "Re: Lunch"
@@ -440,7 +471,7 @@ def test_unthreaded_emails_stay_separate_conversations(db, folder):
 
     db.reassign_conversations(folder.id)
 
-    assert len(db.conversations_in_folder(folder.id)) == 2
+    assert len(db.conversations_in_folders([folder.id])) == 2
 
 
 # --- search -----------------------------------------------------------------
@@ -462,7 +493,7 @@ def test_search_matches_a_subject_prefix(db, folder):
     incoming(db, folder.id, "1", subject="Lunch plans")
     incoming(db, folder.id, "2", subject="Invoice")
 
-    results = db.search_conversations(folder.id, "lun")
+    results = db.search_conversations([folder.id], "lun")
 
     assert [c.subject for c in results] == ["Lunch plans"]
 
@@ -470,27 +501,39 @@ def test_search_matches_a_subject_prefix(db, folder):
 def test_search_requires_every_word_to_match(db, folder):
     incoming(db, folder.id, "1", subject="Lunch plans")
 
-    assert db.search_conversations(folder.id, "lunch plans") != []
-    assert db.search_conversations(folder.id, "lunch invoice") == []
+    assert db.search_conversations([folder.id], "lunch plans") != []
+    assert db.search_conversations([folder.id], "lunch invoice") == []
 
 
 def test_search_matches_the_sender_and_preview(db, folder):
     incoming(db, folder.id, "1", subject="Lunch")
-    assert db.search_conversations(folder.id, "ada") != []
-    assert db.search_conversations(folder.id, "one") != []
+    assert db.search_conversations([folder.id], "ada") != []
+    assert db.search_conversations([folder.id], "one") != []
 
 
 def test_an_empty_search_returns_everything(db, folder):
     incoming(db, folder.id, "1")
     incoming(db, folder.id, "2", subject="Invoice")
 
-    assert len(db.search_conversations(folder.id, "")) == 2
-    assert len(db.search_conversations(folder.id, "   ")) == 2
+    assert len(db.search_conversations([folder.id], "")) == 2
+    assert len(db.search_conversations([folder.id], "   ")) == 2
 
 
 def test_a_quoted_search_term_does_not_break_fts(db, folder):
     incoming(db, folder.id, "1", subject="Lunch")
-    assert db.search_conversations(folder.id, 'say "hi"') == []
+    assert db.search_conversations([folder.id], 'say "hi"') == []
+
+
+def test_search_across_folders_matches_only_inside_them(db, folder):
+    work = db.get_or_create_folder(folder.account_id, "Work")
+    archive = db.get_or_create_folder(folder.account_id, "Archive")
+    incoming(db, folder.id, "1", subject="Lunch plans")
+    incoming(db, work.id, "1", subject="Lunch menu")
+    incoming(db, archive.id, "1", subject="Lunch elsewhere")
+
+    results = db.search_conversations([folder.id, work.id], "lunch")
+
+    assert sorted(c.subject for c in results) == ["Lunch menu", "Lunch plans"]
 
 
 def test_matching_one_email_returns_its_whole_conversation(db, folder):
@@ -506,7 +549,7 @@ def test_matching_one_email_returns_its_whole_conversation(db, folder):
     )
     db.reassign_conversations(folder.id)
 
-    (conversation,) = db.search_conversations(folder.id, "dessert")
+    (conversation,) = db.search_conversations([folder.id], "dessert")
 
     assert conversation.count == 2
 

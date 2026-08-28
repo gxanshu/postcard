@@ -34,6 +34,7 @@ from .folder_row import FolderRow
 from .message_view import LoadCallback, MessageView
 from .online_accounts_dialog import PostcardOnlineAccountsDialog
 from .window_types import (
+    ALL_INBOXES_ID,
     FOLDER_SYNC_COOLDOWN_SECONDS,
     MAIL_ACTIONS,
     MOVE_UNDO_MS,
@@ -153,9 +154,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             600,
         )
 
-        # The account owning the selected folder. None until _load_mail_view
-        # runs, which __init__ skips when there are no accounts yet, so read it
-        # through a guard clause -- background callbacks can fire before then.
+        # The account owning the selected folder, or the first one while All
+        # Inboxes is selected -- it is what a new composer starts from, never
+        # where a message is acted on. None until _load_mail_view runs, which
+        # __init__ skips when there are no accounts yet, so read it through a
+        # guard clause -- background callbacks can fire before then.
         self._account: Account | None = None
         # Every account, by id.
         self._accounts: dict[int, Account] = {}
@@ -166,7 +169,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._rendered_id: int | None = None
         self._suppress_folder_refresh: bool = False
         self._selection_update_in_progress: bool = False
-        self._pending_move: PendingMove | None = None
+        # One entry per source mailbox of the same move, all committed (or
+        # undone) together by the single timer below.
+        self._pending_moves: list[PendingMove] = []
+        self._pending_move_timeout: int = 0
         self._pending_toast: Adw.Toast | None = None
         # Source UIDs stay protected while an optimistic move is pending or
         # its worker is in flight.  Completed moves remain protected until a
@@ -251,6 +257,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # fetch, keyed by folder id.
         self._remote_unread_counts: dict[int, int] = {}
 
+        # Every folder in the sidebar, by id, so a message can be routed to
+        # the account that owns it rather than to whichever folder is open.
+        self._folders_by_id: dict[int, Folder] = {}
+
         # Boxes of the rows currently on screen, keyed by folder id, so
         # _reload_folders can refresh them without rebuilding the tree.
         self._folder_rows: dict[int, FolderRow] = {}
@@ -264,7 +274,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._account_roots: dict[int, list[Folder]] = {}
         self._folder_children: dict[int, list[Folder]] = {}
 
-        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=Account)
+        # Built once, and never a database row: the sidebar keeps selecting
+        # this object, and _is_unified compares against it by identity.
+        self._all_inboxes_row: Folder = Folder(
+            id=ALL_INBOXES_ID,
+            account_id=0,
+            name=_("All Inboxes"),
+            icon_name="mail-unread-symbolic",
+        )
+
+        # Accounts and the All Inboxes row share the top level of the tree.
+        self._folder_root_store: Gio.ListStore = Gio.ListStore(item_type=GObject.Object)
         self._folder_tree_model: Gtk.TreeListModel = Gtk.TreeListModel.new(
             self._folder_root_store,
             False,
@@ -501,7 +521,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             or self._active_view.raw is None
         ):
             return
-        account = self._account
+        account = self._account_for_reply()
         if account is None:
             return
         headers = email.message_from_bytes(self._active_view.raw, policy=policy.default)
@@ -521,7 +541,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             else "",
             subject=compose.reply_subject(str(headers["Subject"] or "")),
             body=body,
+            account=account,
         )
+
+    # Reply and forward go out from the account the message arrived on, not
+    # from whichever folder happens to be open.
+    def _account_for_reply(self) -> Account | None:
+        conversation = self._selected_conversation()
+        if conversation is None:
+            return self._account
+        account, _folder = self._origin(conversation.latest) or (None, None)
+        return account or self._account
 
     def _on_forward_clicked(self, *_args: object) -> None:
         if (
@@ -540,14 +570,17 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             _original_text(parsed),
             signature=self._signature_text(),
         )
-        self._open_composer(subject=subject, body=body)
+        self._open_composer(
+            subject=subject, body=body, account=self._account_for_reply()
+        )
 
     # Open the composer for a mailto: link handed to us by the desktop.
-    def open_mailto(self, uri: str) -> None:
-        if self._account is None:
+    def open_mailto(self, uri: str, account: Account | None = None) -> None:
+        account = account or self._account
+        if account is None:
             return
         composer = composer_for_mailto(
-            self.get_application(), self._db, self._account, self._settings, uri
+            self.get_application(), self._db, account, self._settings, uri
         )
         composer.connect("finished", self._on_composer_finished)
         composer.present()
@@ -558,9 +591,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         subject: str = "",
         body: str = "",
         cc: str = "",
-        bcc: str = "",
+        account: Account | None = None,
     ) -> None:
-        account = self._account
+        account = account or self._account
         if account is None:
             return
         composer = PostcardComposerWindow(
@@ -571,7 +604,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             subject=subject,
             body=body,
             cc=cc,
-            bcc=bcc,
         )
         composer.connect("finished", self._on_composer_finished)
         composer.present()
@@ -581,8 +613,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         keep_id = selected.id if selected is not None else None
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
-        if self._account is not None:
-            self._drain_outbox(self._account)
+        # Any account can have queued mail: the composer picks its own.
+        for account in self._accounts.values():
+            self._drain_outbox(account)
 
     # --- read/unread, star, and the row context menu ----------------------
 
@@ -660,6 +693,33 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         selected = self._selected_conversations()
         return selected[0] if len(selected) == 1 else None
 
+    # Not necessarily the folder that happens to be open -- that is the point.
+    def _origin(self, mail: Email) -> tuple[Account, Folder] | None:
+        folder = self._folders_by_id.get(mail.folder_id)
+        if folder is None:
+            return None
+        account = self._accounts.get(folder.account_id)
+        return None if account is None else (account, folder)
+
+    # One bucket per mailbox. The unified list mixes accounts, and a UID only
+    # means something on its own server.
+    def _mails_by_folder(
+        self, conversations: list[Conversation]
+    ) -> list[tuple[Account, Folder, list[Email]]]:
+        buckets: dict[int, list[Email]] = {}
+        for conversation in conversations:
+            for mail in conversation.emails:
+                buckets.setdefault(mail.folder_id, []).append(mail)
+
+        groups: list[tuple[Account, Folder, list[Email]]] = []
+        for mails in buckets.values():
+            origin = self._origin(mails[0])
+            if origin is None:
+                continue
+            account, folder = origin
+            groups.append((account, folder, mails))
+        return groups
+
     def _on_toggle_read(self, _action: Gio.SimpleAction, _param: object) -> None:
         conversations = self._selected_conversations()
         if conversations:
@@ -721,17 +781,21 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         write(dict.fromkeys(originals, value))
         self._after_flag_change(conversations)
-        uids = [
-            uid
-            for conversation in conversations
-            for uid in mail_sync.server_uids(conversation)
-        ]
-        self._run_flag_worker(
-            uids,
-            flag,
-            should_add=not value if is_flag_inverted else value,
-            revert=revert,
-        )
+
+        # ponytail: one mailbox failing reverts the whole selection, as the
+        # single-folder version always did; per-bucket revert if it matters.
+        for account, folder, bucket in self._mails_by_folder(conversations):
+            change = FlagChange(
+                folder_name=folder.name,
+                uids=tuple(mail_sync.server_uids(bucket)),
+                flag=flag,
+                should_add=not value if is_flag_inverted else value,
+            )
+            threading.Thread(
+                target=self._flag_worker,
+                args=(account, change, revert),
+                daemon=True,
+            ).start()
 
     # Update badges and the list after a flag change, keeping this
     # conversation selected (so the reader doesn't reload).
@@ -739,26 +803,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         keep_id = conversations[0].id if len(conversations) == 1 else None
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
-
-    def _run_flag_worker(
-        self, uids: list[str], flag: str, should_add: bool, revert: Callable[[], None]
-    ) -> None:
-        account = self._account
-        folder = self._current_folder
-        if account is None or folder is None:
-            return
-        change = FlagChange(
-            folder_name=folder.name,
-            uids=tuple(uids),
-            flag=flag,
-            should_add=should_add,
-        )
-        thread = threading.Thread(
-            target=self._flag_worker,
-            args=(account, change, revert),
-            daemon=True,
-        )
-        thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access.
     def _flag_worker(
@@ -886,7 +930,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         actions = Gio.Menu()
         actions.append(self._archive_label(), "context.archive")
         actions.append(_("Delete"), "context.trash")
-        actions.append_submenu(_("Move to"), self._build_move_menu("context"))
+        source = self._move_source(selected)
+        if source is not None:
+            actions.append_submenu(
+                _("Move to"), self._build_move_menu("context", *source)
+            )
         menu.append_section(None, actions)
 
         return menu
@@ -930,16 +978,21 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._move_to(conversations[0], param)
 
     def _move_to(self, conversation: Conversation, param: GLib.Variant) -> None:
-        dest = self._find_folder_by_name(param.get_string())
-        if dest is not None:
-            conversations = self._selected_conversations() or [conversation]
-            count = len(conversations)
-            title = ngettext(
-                "Moved to {name}",
-                "Moved {n} conversations to {name}",
-                count,
-            ).format(n=count, name=dest.name)
-            self._start_move(conversations, dest, title)
+        conversations = self._selected_conversations() or [conversation]
+        source = self._move_source(conversations)
+        if source is None:
+            return
+        account, _source_id = source
+        dest = self._find_folder_by_name(param.get_string(), account)
+        if dest is None:
+            return
+        count = len(conversations)
+        title = ngettext(
+            "Moved to {name}",
+            "Moved {n} conversations to {name}",
+            count,
+        ).format(n=count, name=dest.name)
+        self._start_move(conversations, {account.id: dest}, title)
 
     def _start_move_by_role(
         self, role: mail_sync.FolderRole, conversation: Conversation | None = None
@@ -949,10 +1002,26 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             conversations = [conversation]
         if not conversations:
             return
-        dest = self._folder_with_role(role)
-        if dest is None:
-            self._toast(_("No {role} folder found.").format(role=role))
+
+        dests: dict[int, Folder] = {}
+        missing: list[str] = []
+        for account, source, _mails in self._mails_by_folder(conversations):
+            if account.id in dests:
+                continue
+            dest = self._folder_with_role(role, account, source.id)
+            if dest is None:
+                missing.append(account.email)
+            else:
+                dests[account.id] = dest
+        if missing:
+            self._toast(
+                _("No {role} folder for {account}.").format(
+                    role=role, account=", ".join(missing)
+                )
+            )
+        if not dests:
             return
+
         count = len(conversations)
         if role == mail_sync.FolderRole.ARCHIVE:
             title = ngettext("Archived", "Archived {n} conversations", count).format(
@@ -966,16 +1035,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             title = ngettext("Deleted", "Deleted {n} conversations", count).format(
                 n=count
             )
-        self._start_move(conversations, dest, title)
+        self._start_move(conversations, dests, title)
 
-    def _folder_with_role(self, role: mail_sync.FolderRole) -> Folder | None:
-        if self._account is None:
-            return None
-        current_id = self._current_folder.id if self._current_folder else None
+    def _folder_with_role(
+        self, role: mail_sync.FolderRole, account: Account, exclude_id: int
+    ) -> Folder | None:
         matches = [
             folder
-            for folder in self._db.folders_for_account(self._account.id)
-            if folder.id != current_id
+            for folder in self._db.folders_for_account(account.id)
+            if folder.id != exclude_id
             and mail_sync.role_for_folder(folder.name) == role
         ]
         if role == mail_sync.FolderRole.ARCHIVE:
@@ -988,46 +1056,57 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                     return folder
         return matches[0] if matches else None
 
-    def _find_folder_by_name(self, name: str) -> Folder | None:
-        if self._account is None:
-            return None
-        for folder in self._db.folders_for_account(self._account.id):
+    def _find_folder_by_name(self, name: str, account: Account) -> Folder | None:
+        for folder in self._db.folders_for_account(account.id):
             if folder.name == name:
                 return folder
         return None
 
-    # Move a conversation optimistically: update the DB and drop it from the
+    # Move conversations optimistically: update the DB and drop them from the
     # list now, then run the real IMAP MOVE ~5s later. An Undo toast cancels the
-    # server move if clicked before then.
+    # server move if clicked before then. dests names one destination per
+    # account, since a folder id only means something on its own server.
     def _start_move(
-        self, conversations: list[Conversation], dest: Folder, verb: str
+        self, conversations: list[Conversation], dests: dict[int, Folder], verb: str
     ) -> None:
-        account = self._account
-        source = self._current_folder
-        if account is None or source is None or dest.id == source.id:
+        self._commit_pending_moves()
+
+        moves: list[PendingMove] = []
+        for account, source, mails in self._mails_by_folder(conversations):
+            dest = dests.get(account.id)
+            if dest is None or dest.id == source.id:
+                continue
+            # Pair each mail with its UID in one pass so the "has a UID"
+            # narrowing survives into email_ids/uids/originals, which stay
+            # index-aligned. A locally saved copy has no UID yet -- see
+            # mail_sync.server_uids.
+            mails_with_uids = [
+                (mail, mail.server_id) for mail in mails if mail.server_id is not None
+            ]
+            uids = [uid for _, uid in mails_with_uids]
+            moves.append(
+                PendingMove(
+                    account=account,
+                    email_ids=[mail.id for mail, _ in mails_with_uids],
+                    uids=uids,
+                    originals=[
+                        (mail.id, source.id, uid) for mail, uid in mails_with_uids
+                    ],
+                    source=source,
+                    dest=dest,
+                    tombstones=[(source.id, uid) for uid in uids],
+                )
+            )
+        if not moves:
             return
 
-        self._commit_pending_move()
-
-        # Pair each mail with its UID in one pass so the "has a UID" narrowing
-        # survives into email_ids/uids/originals, which stay index-aligned.
-        # A locally saved copy has no UID yet -- see mail_sync.server_uids.
-        mails_with_uids = [
-            (mail, mail.server_id)
-            for conversation in conversations
-            for mail in conversation.emails
-            if mail.server_id is not None
-        ]
-        email_ids = [mail.id for mail, _ in mails_with_uids]
-        uids = [uid for _, uid in mails_with_uids]
-        originals = [(mail.id, source.id, uid) for mail, uid in mails_with_uids]
-        tombstones = [(source.id, uid) for uid in uids]
-        self._db.move_emails(email_ids, dest.id)
-        for tombstone in tombstones:
-            state = self._move_tombstones.setdefault(
-                tombstone, {"active": 0, "awaiting": 0}
-            )
-            state["active"] += 1
+        for move in moves:
+            self._db.move_emails(move.email_ids, move.dest.id)
+            for tombstone in move.tombstones:
+                state = self._move_tombstones.setdefault(
+                    tombstone, {"active": 0, "awaiting": 0}
+                )
+                state["active"] += 1
 
         self._reload_folders()
         self._refresh_conversations()
@@ -1035,48 +1114,39 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         toast = Adw.Toast(title=verb, button_label=_("Undo"))
         toast.connect("button-clicked", self._on_undo_move)
         self._pending_toast = toast
-        self._pending_move = PendingMove(
-            account=account,
-            email_ids=email_ids,
-            uids=uids,
-            originals=originals,
-            source=source,
-            dest=dest,
-            tombstones=tombstones,
-            timeout_id=GLib.timeout_add(MOVE_UNDO_MS, self._on_move_timeout),
+        self._pending_moves = moves
+        self._pending_move_timeout = GLib.timeout_add(
+            MOVE_UNDO_MS, self._on_move_timeout
         )
         self.toast_overlay.add_toast(toast)
 
-    def _on_undo_move(self, _toast: Adw.Toast) -> None:
-        pending = self._pending_move
-        if pending is None:
-            return
-        GLib.source_remove(pending.timeout_id)
-        self._pending_move = None
+    def _clear_pending_moves(self) -> list[PendingMove]:
+        if self._pending_move_timeout:
+            GLib.source_remove(self._pending_move_timeout)
+            self._pending_move_timeout = 0
+        moves, self._pending_moves = self._pending_moves, []
         self._pending_toast = None
-        self._restore_move(pending)
+        return moves
 
-    # The undo window elapsed — actually send the move to the server.
+    def _on_undo_move(self, _toast: Adw.Toast) -> None:
+        for pending in self._clear_pending_moves():
+            self._restore_move(pending)
+
+    # The undo window elapsed — actually send the moves to the server. The
+    # timer id is cleared first: returning False already removed the source.
     def _on_move_timeout(self) -> bool:
-        pending = self._pending_move
-        self._pending_move = None
-        self._pending_toast = None
-        if pending is not None:
+        self._pending_move_timeout = 0
+        for pending in self._clear_pending_moves():
             self._run_move_worker(pending)
         return False
 
-    # A newer action arrived: send the previous pending move now instead of
-    # waiting for its timer.
-    def _commit_pending_move(self) -> None:
-        pending = self._pending_move
-        if pending is None:
-            return
-        GLib.source_remove(pending.timeout_id)
-        self._pending_move = None
+    # A newer action arrived: send the previous pending moves now instead of
+    # waiting for their timer.
+    def _commit_pending_moves(self) -> None:
         if self._pending_toast is not None:
             self._pending_toast.dismiss()
-            self._pending_toast = None
-        self._run_move_worker(pending)
+        for pending in self._clear_pending_moves():
+            self._run_move_worker(pending)
 
     def _restore_move(self, pending: PendingMove) -> None:
         self._db.reconcile_moved_emails(pending.originals)
@@ -1193,15 +1263,26 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 
-    # A menu of every folder except the current one, each targeting the given
-    # action prefix (the toolbar uses win.move and context menus use context.move).
-    def _build_move_menu(self, action_prefix: str = "win") -> Gio.Menu:
+    # None when the selection spans accounts: folder names differ per server,
+    # so a cross-account Move to... menu would be guesswork.
+    def _move_source(
+        self, conversations: list[Conversation]
+    ) -> tuple[Account, int] | None:
+        buckets = self._mails_by_folder(conversations)
+        if len({account.id for account, _folder, _mails in buckets}) != 1:
+            return None
+        account, folder, _mails = buckets[0]
+        return account, folder.id
+
+    # A menu of every folder of `account` except the one being moved out of,
+    # each targeting the given action prefix (the toolbar uses win.move and
+    # context menus use context.move).
+    def _build_move_menu(
+        self, action_prefix: str, account: Account, source_id: int
+    ) -> Gio.Menu:
         menu = Gio.Menu()
-        if self._account is None:
-            return menu
-        current_id = self._current_folder.id if self._current_folder else None
-        for folder in self._db.folders_for_account(self._account.id):
-            if folder.id == current_id:
+        for folder in self._db.folders_for_account(account.id):
+            if folder.id == source_id:
                 continue
             label = mail_sync.display_name_for_folder(
                 folder.name, folder.display_delimiter
@@ -1277,15 +1358,32 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._folder_rows[entry.id] = row
         row.bind(entry, self._unread_badge(entry))
 
+    def _inbox_folders(self) -> list[Folder]:
+        return [
+            folder
+            for folder in self._folders_by_id.values()
+            if mail_sync.role_for_folder(folder.name) is mail_sync.FolderRole.INBOX
+        ]
+
+    def _view_folders(self) -> list[Folder]:
+        if self._is_unified():
+            return self._inbox_folders()
+        return [] if self._current_folder is None else [self._current_folder]
+
+    def _is_unified(self) -> bool:
+        return self._current_folder is self._all_inboxes_row
+
     def _unread_badge(self, folder: Folder) -> int:
         """What the sidebar shows next to a folder.
 
-        Only the open folder's messages are synced, so its local count is the
+        Only the folders on screen are synced, so their local count is the
         accurate one -- and it drops the moment a message is read. Every other
         folder shows what the server last reported, since local rows there are
         whatever an earlier visit happened to leave behind.
         """
-        if self._current_folder is not None and folder.id == self._current_folder.id:
+        if folder.id == ALL_INBOXES_ID:
+            return sum(self._unread_badge(inbox) for inbox in self._inbox_folders())
+        if any(shown.id == folder.id for shown in self._view_folders()):
             return self._db.unread_count_in_folder(folder.id)
         remote = self._remote_unread_counts.get(folder.id)
         if remote is None:
@@ -1307,13 +1405,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if isinstance(expander, Gtk.TreeExpander):
             expander.set_list_row(None)
 
-    # Select the first account's inbox, or its first folder if we can't spot one.
+    # Select All Inboxes, else the first account's inbox, else its first folder.
     def _select_inbox_row(self) -> None:
         target = -1
         for position, folder in self._folder_positions():
             if target < 0:
                 target = position
-            if mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX:
+            if (
+                folder.id == ALL_INBOXES_ID
+                or mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX
+            ):
                 target = position
                 break
         if target < 0:
@@ -1348,13 +1449,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
 
         folder = tree_list_row.get_item()
-        # SingleSelection autoselects row 0, which is an account heading.
+        # Account headings sit in the same model and aren't somewhere to click.
         if not isinstance(folder, Folder):
             return
         previous = self._current_folder
         self._current_folder = folder
-        self._account = self._accounts[folder.account_id]
-        self.move_button.set_menu_model(self._build_move_menu())
+        # All Inboxes belongs to no account, so Compose falls back to the first.
+        self._account = self._accounts.get(folder.account_id) or next(
+            iter(self._accounts.values()), None
+        )
         self._update_archive_button()
         if self._suppress_folder_refresh:
             return
@@ -1363,10 +1466,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # selection-changed for the same folder, which would loop. A folder
         # synced moments ago is left alone: clicking back and forth between two
         # of them otherwise refetches both every time.
-        changed = previous is None or previous.id != folder.id
-        age = time.monotonic() - self._folder_sync_times.get(folder.id, 0.0)
-        if changed and self._is_online and age >= FOLDER_SYNC_COOLDOWN_SECONDS:
-            self._start_sync(self._account, in_background=True, folder_name=folder.name)
+        if (previous is not None and previous.id == folder.id) or not self._is_online:
+            return
+        for shown in self._view_folders():
+            age = time.monotonic() - self._folder_sync_times.get(shown.id, 0.0)
+            if age >= FOLDER_SYNC_COOLDOWN_SECONDS:
+                self._start_sync(
+                    self._accounts[shown.account_id],
+                    in_background=True,
+                    folder_name=shown.name,
+                )
 
     # Rebuilding the tree destroys every row, which resets the user's
     # expand/collapse state, so only rebuild when the accounts, the folders or
@@ -1380,6 +1489,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             for account in accounts
             for folder in self._db.folders_for_account(account.id)
         ]
+        self._folders_by_id = {folder.id: folder for folder in folders}
         # Two kinds of branch: top-level folders hang off their account, the
         # rest off their parent folder.
         self._account_roots = {}
@@ -1401,7 +1511,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # SQLite reuses the rowid of a deleted folder, so anything keyed by
         # folder id has to go when the folder does -- otherwise a new account
         # inherits the old one's badge, cooldown and paging state.
-        live_ids = {folder.id for folder in folders}
+        live_ids = {folder.id for folder in folders} | {ALL_INBOXES_ID}
         for cache in (
             self._loaded_counts,
             self._folders_with_more_mail,
@@ -1413,13 +1523,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         # Nothing is selected on a first run, or after the open folder was
         # pruned along with its account. An account row can't stand in: it is
-        # only a heading, so the list would sit empty with no way back.
+        # only a heading, so the list would sit empty with no way back. All
+        # Inboxes is in live_ids because it is not a database row -- it leaves
+        # the sidebar in _rebuild_folder_tree instead, with the second account.
         if self._current_folder is not None and self._current_folder.id not in live_ids:
             self._current_folder = None
         if self._current_folder is None:
             self._select_inbox_row()
 
-        for folder in folders:
+        # All Inboxes rides along; _folder_rows only holds it while it is shown.
+        for folder in (*folders, self._all_inboxes_row):
             row = self._folder_rows.get(folder.id)
             if row is not None:
                 row.bind(folder, self._unread_badge(folder))
@@ -1442,18 +1555,26 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Preserve the selection by folder id, not row index — pruning stale
         # folders shifts the indices. Re-selecting is suppressed so it doesn't
         # rebuild the conversation list; callers refresh that explicitly.
-        keep_id = self._current_folder.id if self._current_folder else None
+        keep = self._current_folder
 
         self._suppress_folder_refresh = True
 
         self._folder_rows.clear()
         self._account_rows.clear()
         self._folder_root_store.remove_all()
+        # With a single account it would just be that account's Inbox again.
+        if len(accounts) > 1:
+            self._folder_root_store.append(self._all_inboxes_row)
+        elif keep is self._all_inboxes_row:
+            keep = None
         for account in accounts:
             self._folder_root_store.append(account)
 
-        if keep_id is not None:
-            self._select_folder_by_id(keep_id)
+        # Row 0 can now be the All Inboxes row rather than an ignored account
+        # heading, so filling the store has already moved _current_folder.
+        self._current_folder = keep
+        if keep is not None:
+            self._select_folder_by_id(keep.id)
 
         self._suppress_folder_refresh = False
 
@@ -1465,33 +1586,31 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # --- the conversation list: contents, search, and paging --------------
 
-    # Rebuild the conversation list from the current folder, applying the
+    # Rebuild the conversation list from the folders on screen, applying the
     # search query if one is typed. Called on folder change and search change.
     # keep_id re-selects that conversation if it's still in the list, so a mail
     # action can refresh without reloading the reader.
     def _refresh_conversations(self, keep_id: int | None = None) -> None:
-        folder = self._current_folder
-        if folder is None:
+        if self._current_folder is None:
             return
 
         vadjustment = self.conversation_scroller.get_vadjustment()
         scroll_position = vadjustment.get_value() if vadjustment else 0.0
 
-        matches = self._matching_conversations(folder, keep_id)
+        matches = self._matching_conversations(keep_id)
         self._replace_conversations(matches, keep_id)
         self._show_list_or_placeholder()
         self._update_reader()
         self._restore_scroll(vadjustment, scroll_position)
 
-    def _matching_conversations(
-        self, folder: Folder, keep_id: int | None
-    ) -> list[Conversation]:
-        """The folder's conversations, narrowed by the search box and filter."""
+    def _matching_conversations(self, keep_id: int | None) -> list[Conversation]:
+        """The conversations on screen, narrowed by the search box and filter."""
+        folder_ids = [folder.id for folder in self._view_folders()]
         query = self.search_entry.get_text().strip()
         matches = (
-            self._db.search_conversations(folder.id, query)
+            self._db.search_conversations(folder_ids, query)
             if query
-            else self._db.conversations_in_folder(folder.id)
+            else self._db.conversations_in_folders(folder_ids)
         )
 
         if not self.unread_button.get_active():
@@ -1532,7 +1651,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _show_list_or_placeholder(self) -> None:
         if self._conversation_store.get_n_items() > 0:
             page = PAGE_LIST
-        elif self._is_current_account_syncing():
+        elif self._is_view_syncing():
             page = PAGE_LOADING
         else:
             page = PAGE_EMPTY
@@ -1588,26 +1707,24 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.conversation_list.set_model(self._selection)
         self.conversation_list.set_factory(self._build_conversation_factory())
 
-    # Scrolling to the bottom pulls the next-older page for the current folder,
-    # if the last sync said there's more to fetch.
+    # Scrolling to the bottom pulls the next-older page for every folder on
+    # screen that the last sync said has more to fetch, each at its own offset.
     def _on_list_edge_reached(
         self, _scroller: Gtk.ScrolledWindow, pos: Gtk.PositionType
     ) -> None:
-        if pos != Gtk.PositionType.BOTTOM:
+        if pos != Gtk.PositionType.BOTTOM or not self._is_online:
             return
-        folder = self._current_folder
-        if folder is None or not self._is_online:
+        if self._is_view_syncing():
             return
-        if self._is_current_account_syncing():
-            return
-        if not self._folders_with_more_mail.get(folder.id, False):
-            return
-        self._start_sync(
-            self._accounts[folder.account_id],
-            in_background=True,
-            folder_name=folder.name,
-            offset=self._loaded_counts.get(folder.id, 0),
-        )
+        for folder in self._view_folders():
+            if not self._folders_with_more_mail.get(folder.id, False):
+                continue
+            self._start_sync(
+                self._accounts[folder.account_id],
+                in_background=True,
+                folder_name=folder.name,
+                offset=self._loaded_counts.get(folder.id, 0),
+            )
 
     # (position, n_items) come from the signal; we just re-read the current
     # selection, so the parameters are ignored.
@@ -1638,11 +1755,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             conversation = item.get_item()
             assert isinstance(row, ConversationRow)
             assert isinstance(conversation, Conversation)
-            folder = self._current_folder
+            account, folder = self._origin(conversation.latest) or (None, None)
             row.bind(
                 conversation,
                 is_outgoing=folder is not None
                 and mail_sync.is_outgoing_folder(folder.name),
+                account_label=account.short_label
+                if account is not None and self._is_unified()
+                else "",
             )
 
         factory.connect("setup", on_setup)
@@ -1699,6 +1819,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _update_action_buttons(self, selected: list[Conversation]) -> None:
         self._set_mail_actions_enabled(True)
 
+        # Built per selection rather than per folder change: the menu lists one
+        # account's folders, and a selection spanning accounts gets no menu.
+        source = self._move_source(selected)
+        menu = Gio.Menu() if source is None else self._build_move_menu("win", *source)
+        self.move_button.set_menu_model(menu)
+        self._set_actions_enabled(("move",), source is not None)
+        self.move_button.set_sensitive(source is not None)
+
         if any(conversation.is_unread for conversation in selected):
             self.mark_read_button.set_icon_name("mail-read-symbolic")
             self.mark_read_button.set_tooltip_text(_("Mark Read"))
@@ -1730,6 +1858,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._clear_thread()
 
         should_load_remote_images = self._settings.get_boolean("load-remote-images")
+        # A conversation never spans folders, so one lookup covers the thread.
+        account, folder = self._origin(conversation.latest) or (None, None)
+        # In an outgoing folder the account is the sender; who it actually went
+        # to is in the Details section.
+        is_outgoing = folder is not None and mail_sync.is_outgoing_folder(folder.name)
+        delivered_to = "" if account is None or is_outgoing else account.email
         emails = list(reversed(conversation.emails))
         for index, mail in enumerate(emails):
             is_newest = index == 0
@@ -1742,6 +1876,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 on_unsubscribe=self._on_unsubscribe,
                 is_expanded=is_newest,
                 should_load_remote_images=should_load_remote_images,
+                delivered_to=delivered_to,
                 avatars=self._avatars,
             )
             self.thread_box.append(view)
@@ -1768,11 +1903,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             callback(None, _("This message hasn't finished syncing yet."))
             return
 
-        account = self._account
-        folder = self._current_folder
-        if account is None or folder is None:
-            callback(None, _("No account is open."))
+        origin = self._origin(mail)
+        if origin is None:
+            callback(None, _("This message's mailbox is no longer available."))
             return
+        account, folder = origin
 
         request = BodyRequest(
             email_id=mail.id, uid=mail.server_id, folder_name=folder.name
@@ -1911,7 +2046,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if target.url:
                 Gtk.UriLauncher(uri=target.url).launch(self, None, None)
             else:
-                self.open_mailto(target.mailto)
+                self.open_mailto(target.mailto, self._account_for_reply())
             return
 
         # A one-click POST cannot be taken back, and its address comes out of a
@@ -2110,21 +2245,18 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         thread.start()
 
-    # Send and fetch for every account. The open folder is the one folder worth
-    # naming; the rest get their inbox.
+    # Send and fetch for every account. The folders on screen are the ones
+    # worth naming; the rest get their inbox.
     # ponytail: one thread per account at once, which is fine for a handful --
     # queue them if someone turns up with twenty.
     def _sync_all(self, in_background: bool = False) -> None:
-        open_folder = self._current_folder
+        open_names = {folder.account_id: folder.name for folder in self._view_folders()}
         for account in self._accounts.values():
             self._drain_outbox(account)
-            folder_name = (
-                open_folder.name
-                if open_folder is not None and open_folder.account_id == account.id
-                else None
-            )
             self._start_sync(
-                account, in_background=in_background, folder_name=folder_name
+                account,
+                in_background=in_background,
+                folder_name=open_names.get(account.id),
             )
 
     # Refresh on a timer using the configured interval (0 = manual only).
@@ -2422,7 +2554,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self.refresh_button.set_sensitive(not self._syncing_account_ids)
 
     # Each account row spins on its own, but the conversation list only waits
-    # on the one whose folder is open.
-    def _is_current_account_syncing(self) -> bool:
-        folder = self._current_folder
-        return folder is not None and folder.account_id in self._syncing_account_ids
+    # on the accounts behind the folders it is showing.
+    def _is_view_syncing(self) -> bool:
+        return any(
+            folder.account_id in self._syncing_account_ids
+            for folder in self._view_folders()
+        )

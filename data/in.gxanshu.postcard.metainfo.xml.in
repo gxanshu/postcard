@@ -59,6 +59,27 @@
   </screenshots>
 
   <releases>
+    <release version="1.11.0" date="2026-08-28">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>An All Inboxes view that puts new mail from every account in one list</li>
+          <li>A tray icon with an unread badge, for desktops that show one (KDE, Xfce and
+          friends)</li>
+          <li>Accounts can now be named in the sidebar by their display name instead of
+          their address</li>
+          <li>Quit is now in the main menu</li>
+          <li>Mail opens faster — the IMAP connection is kept alive between operations</li>
+          <li>Start at Login now falls back to an autostart file where the desktop portal
+          does not answer (Xfce, Cinnamon, MATE, LXQt, Budgie)</li>
+          <li>Fix a Bin or Deleted Items folder not being recognised as trash</li>
+          <li>Fix a crash when right-clicking a conversation</li>
+          <li>Fix moves, flag changes and the Outbox acting on the wrong account in the
+          unified view</li>
+          <li>Fix the conversation list shifting after a refresh</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.10.1" date="2026-08-22">
       <description translate="no">
         <p>New in this release:</p>

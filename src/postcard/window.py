@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Graphene, Gtk
 
 from . import mail_sync, message_view
 from .account_dialog import PostcardAccountDialog
@@ -864,6 +864,23 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if position == Gtk.INVALID_LIST_POSITION:
             return
 
+        conversation = self._conversation_store.get_item(position)
+        if not isinstance(conversation, Conversation):
+            return
+
+        # Anchor the menu to the list rather than to the row, and take the
+        # click point while the row is still on screen: selecting below marks
+        # an unread conversation read, which resplices the store and can leave
+        # the row widget unparented -- popping up over that aborts in C.
+        row_widget = gesture.get_widget()
+        if row_widget is None:
+            return
+        is_row_shown, point = row_widget.compute_point(
+            self.conversation_list, Graphene.Point().init(x, y)
+        )
+        if not is_row_shown:
+            return
+
         if not self._selection.is_selected(position):
             self._selection_update_in_progress = True
             try:
@@ -873,20 +890,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 self._selection_update_in_progress = False
             self._update_reader()
 
-        conversation = self._conversation_store.get_item(position)
-        if not isinstance(conversation, Conversation):
-            return
-
-        # A gesture detached from its widget has nothing to anchor the popover
-        # to; that can't happen while the row is on screen, but set_parent(None)
-        # would abort in C rather than raise, so bail out here instead.
-        row_widget = gesture.get_widget()
-        if row_widget is None:
-            return
-
         popover = Gtk.PopoverMenu()
         popover.insert_action_group("context", self._context_actions())
-        popover.set_parent(row_widget)
+        popover.set_parent(self.conversation_list)
         popover.set_menu_model(self._context_menu(conversation))
         popover.set_has_arrow(False)
         # GtkModelButton activates its action after closing the popover, so keep
@@ -894,7 +900,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
 
         rect = Gdk.Rectangle()
-        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        rect.x, rect.y, rect.width, rect.height = int(point.x), int(point.y), 1, 1
         popover.set_pointing_to(rect)
         popover.popup()
 

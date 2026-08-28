@@ -1,8 +1,15 @@
+from datetime import datetime
+
 import pytest
 
 from postcard.core.models.email import Email
 from postcard.core.models.message_header import MessageHeader
-from postcard.core.store.database import Database, _arrival_key, _fts_query
+from postcard.core.store.database import (
+    Database,
+    _arrival_key,
+    _fts_query,
+    _sent_key,
+)
 
 
 @pytest.fixture
@@ -21,7 +28,7 @@ def folder(db):
     return db.get_or_create_folder(account.id, "INBOX")
 
 
-def _email(*, server_id: str | None) -> Email:
+def _email(*, server_id: str | None = None, date: str = "") -> Email:
     """A bare Email, for the pure helpers that only read one field off it."""
     return Email(
         id=1,
@@ -30,7 +37,7 @@ def _email(*, server_id: str | None) -> Email:
         sender="a@x",
         subject="s",
         preview="",
-        date="",
+        date=date,
         is_unread=False,
     )
 
@@ -409,6 +416,13 @@ def test_arrival_key_sorts_uid_less_messages_newest():
     assert _arrival_key(_email(server_id="")) == newest
 
 
+def test_a_zone_less_date_is_read_as_local_time():
+    # "-0000" means "zone unknown", and parses naive. format_date shows it
+    # as local time, so the ordering has to agree with the label.
+    local = datetime(2026, 8, 1, 9, 0).astimezone().timestamp()
+    assert _sent_key(_email(date="2026-08-01T09:00:00")) == local
+
+
 def test_conversations_are_newest_first_by_uid_not_by_local_id(db, folder):
     # Load-on-scroll backfill gives *older* mail a *newer* local id.
     incoming(db, folder.id, "9", subject="Newer")
@@ -433,7 +447,9 @@ def test_conversations_from_several_folders_are_ordered_by_date_not_uid(db, fold
     assert [c.subject for c in merged] == ["Newer", "Older"]
 
 
-def test_an_unreadable_date_sorts_as_the_newest(db, folder):
+def test_an_unreadable_date_sorts_last(db, folder):
+    # The Date header is the sender's to write, so an unreadable one must not
+    # buy a permanent place at the top of the merged list.
     other = db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
     other_inbox = db.get_or_create_folder(other.id, "INBOX")
     incoming(db, folder.id, "1", subject="Dated", date="2026-08-01T09:00:00+00:00")
@@ -441,7 +457,7 @@ def test_an_unreadable_date_sorts_as_the_newest(db, folder):
 
     merged = db.conversations_in_folders([folder.id, other_inbox.id])
 
-    assert [c.subject for c in merged] == ["Undated", "Dated"]
+    assert [c.subject for c in merged] == ["Dated", "Undated"]
 
 
 def test_both_loaders_return_nothing_for_no_folders(db, folder):

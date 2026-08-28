@@ -50,12 +50,14 @@ def _arrival_key(mail: Email) -> int:
 
 def _sent_key(mail: Email) -> float:
     # A UID only counts up within one mailbox, so ordering a mixed list by
-    # _arrival_key interleaves accounts by unrelated counters. An unreadable
-    # date sorts as the newest, the same way _arrival_key treats a missing UID.
+    # _arrival_key interleaves accounts by unrelated counters. Unlike a UID, a
+    # Date header is written by the sender: an unreadable one sorts *last*, so
+    # junk with "Date: whenever" can't pin itself to the top of every inbox.
+    # astimezone matches format_date, which reads a zone-less stamp as local.
     try:
-        return datetime.fromisoformat(mail.date).timestamp()
+        return datetime.fromisoformat(mail.date).astimezone().timestamp()
     except (TypeError, ValueError):
-        return float("inf")
+        return 0.0
 
 
 # Schema changes since the first release, applied in order. How many have run
@@ -450,7 +452,7 @@ class Database:
         return self._conversations_from_rows(rows, is_multi_folder=len(folder_ids) > 1)
 
     def _conversations_from_rows(
-        self, rows: Sequence[sqlite3.Row], *, is_multi_folder: bool = False
+        self, rows: Sequence[sqlite3.Row], *, is_multi_folder: bool
     ) -> list[Conversation]:
         groups: dict[int, list[Email]] = {}
         for row in rows:

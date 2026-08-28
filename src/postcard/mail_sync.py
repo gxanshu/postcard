@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from enum import StrEnum
+from functools import lru_cache
 from gettext import gettext as _
 
 from .core.models.account import Account
@@ -375,6 +376,10 @@ def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> Non
         session.logout()
 
 
+# Cached because the sidebar classifies every folder of every account several
+# times per reload (badges, the unified inbox, the tray count), and a folder
+# name is a stable key.
+@lru_cache(maxsize=512)
 def role_for_folder(name: str) -> FolderRole:
     """Classify a mailbox by name.
 

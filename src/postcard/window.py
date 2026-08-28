@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 from email import policy
 from email.utils import parseaddr
+from functools import partial
 from gettext import gettext as _
 from gettext import ngettext
 from pathlib import Path
@@ -78,6 +79,16 @@ def _register(
     )
     action.connect("activate", handler)
     target.add_action(action)
+
+
+# Takes the count late: _start_move only knows how many conversations it could
+# really move once it has bucketed them.
+def _move_title(role: mail_sync.FolderRole, n: int) -> str:
+    if role is mail_sync.FolderRole.ARCHIVE:
+        return ngettext("Archived", "Archived {n} conversations", n).format(n=n)
+    if role is mail_sync.FolderRole.INBOX:
+        return ngettext("Unarchived", "Unarchived {n} conversations", n).format(n=n)
+    return ngettext("Deleted", "Deleted {n} conversations", n).format(n=n)
 
 
 # ponytail: quotes are flattened to text; inlining the original's real HTML
@@ -199,6 +210,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Accounts with a sync in flight. A set, not a flag: every account syncs
         # on the same tick.
         self._syncing_account_ids: set[int] = set()
+        # Same, for the Outbox: queued mail is only deleted once SMTP confirms
+        # it, so a second drain over the same rows would send them twice.
+        self._draining_account_ids: set[int] = set()
         self._sync_timer_id = 0
         self._interval_handler = self._settings.connect(
             f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
@@ -435,7 +449,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def open_email(self, folder_id: int, uid: str) -> None:
         if self._account is None:
             return
-        self._select_folder_by_id(folder_id)
+        # All Inboxes already shows it; switching would drop the user out of
+        # the unified view to open mail that was on screen either way.
+        if all(folder.id != folder_id for folder in self._view_folders()):
+            self._select_folder_by_id(folder_id)
 
         store = self._conversation_store
         for index in range(store.get_n_items()):
@@ -775,7 +792,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 setattr(mail, field, values[mail.id])
                 save(mail.id, values[mail.id])
 
+        # One shared revert across the buckets, and only the first failure runs
+        # it: it undoes the whole selection, so a second one would just reload
+        # and toast again. Called from idle_add handlers, so main thread only.
+        is_reverted = False
+
         def revert() -> None:
+            nonlocal is_reverted
+            if is_reverted:
+                return
+            is_reverted = True
             write(originals)
             self._after_flag_change(conversations)
 
@@ -785,9 +811,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # ponytail: one mailbox failing reverts the whole selection, as the
         # single-folder version always did; per-bucket revert if it matters.
         for account, folder, bucket in self._mails_by_folder(conversations):
+            # Nothing on the server to flag (a locally saved copy with no UID
+            # yet), and signing in to say so could fail and revert the rest.
+            uids = tuple(mail_sync.server_uids(bucket))
+            if not uids:
+                continue
             change = FlagChange(
                 folder_name=folder.name,
-                uids=tuple(mail_sync.server_uids(bucket)),
+                uids=uids,
                 flag=flag,
                 should_add=not value if is_flag_inverted else value,
             )
@@ -992,13 +1023,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         dest = self._find_folder_by_name(param.get_string(), account)
         if dest is None:
             return
-        count = len(conversations)
-        title = ngettext(
-            "Moved to {name}",
-            "Moved {n} conversations to {name}",
-            count,
-        ).format(n=count, name=dest.name)
-        self._start_move(conversations, {account.id: dest}, title)
+        self._start_move(
+            conversations,
+            {account.id: dest},
+            lambda n: ngettext(
+                "Moved to {name}",
+                "Moved {n} conversations to {name}",
+                n,
+            ).format(n=n, name=dest.name),
+        )
 
     def _start_move_by_role(
         self, role: mail_sync.FolderRole, conversation: Conversation | None = None
@@ -1028,20 +1061,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not dests:
             return
 
-        count = len(conversations)
-        if role == mail_sync.FolderRole.ARCHIVE:
-            title = ngettext("Archived", "Archived {n} conversations", count).format(
-                n=count
-            )
-        elif role == mail_sync.FolderRole.INBOX:
-            title = ngettext(
-                "Unarchived", "Unarchived {n} conversations", count
-            ).format(n=count)
-        else:
-            title = ngettext("Deleted", "Deleted {n} conversations", count).format(
-                n=count
-            )
-        self._start_move(conversations, dests, title)
+        self._start_move(conversations, dests, partial(_move_title, role))
 
     def _folder_with_role(
         self, role: mail_sync.FolderRole, account: Account, exclude_id: int
@@ -1073,10 +1093,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # server move if clicked before then. dests names one destination per
     # account, since a folder id only means something on its own server.
     def _start_move(
-        self, conversations: list[Conversation], dests: dict[int, Folder], verb: str
+        self,
+        conversations: list[Conversation],
+        dests: dict[int, Folder],
+        verb: Callable[[int], str],
     ) -> None:
-        self._commit_pending_moves()
-
         moves: list[PendingMove] = []
         for account, source, mails in self._mails_by_folder(conversations):
             dest = dests.get(account.id)
@@ -1089,6 +1110,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             mails_with_uids = [
                 (mail, mail.server_id) for mail in mails if mail.server_id is not None
             ]
+            if not mails_with_uids:
+                continue
             uids = [uid for _, uid in mails_with_uids]
             moves.append(
                 PendingMove(
@@ -1106,6 +1129,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not moves:
             return
 
+        # Only now that this move is real: an action that moved nothing must
+        # leave the previous move's undo window running.
+        self._commit_pending_moves()
+
         for move in moves:
             self._db.move_emails(move.email_ids, move.dest.id)
             for tombstone in move.tombstones:
@@ -1117,7 +1144,19 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._reload_folders()
         self._refresh_conversations()
 
-        toast = Adw.Toast(title=verb, button_label=_("Undo"))
+        # Only the conversations a bucket actually took with it: a selection can
+        # span an account whose destination folder is missing.
+        moved_ids = {email_id for move in moves for email_id in move.email_ids}
+        moved = sum(
+            any(mail.id in moved_ids for mail in conversation.emails)
+            for conversation in conversations
+        )
+
+        # High priority: a normal toast queues behind whatever is on screen (a
+        # "no such folder" warning, say), and its 5s wait is the whole undo
+        # window -- Undo would appear only once the move had already gone out.
+        toast = Adw.Toast(title=verb(moved), button_label=_("Undo"))
+        toast.set_priority(Adw.ToastPriority.HIGH)
         toast.connect("button-clicked", self._on_undo_move)
         self._pending_toast = toast
         self._pending_moves = moves
@@ -1142,12 +1181,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # timer id is cleared first: returning False already removed the source.
     def _on_move_timeout(self) -> bool:
         self._pending_move_timeout = 0
-        for pending in self._clear_pending_moves():
-            self._run_move_worker(pending)
+        self._commit_pending_moves()
         return False
 
-    # A newer action arrived: send the previous pending moves now instead of
-    # waiting for their timer.
+    # The undo window is over, either by elapsing or because a newer action
+    # closed it early.
     def _commit_pending_moves(self) -> None:
         if self._pending_toast is not None:
             self._pending_toast.dismiss()
@@ -1274,8 +1312,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _move_source(
         self, conversations: list[Conversation]
     ) -> tuple[Account, int] | None:
+        # Keyed by folder, not by account: the menu excludes the folder being
+        # moved out of, and _start_move skips any bucket already sitting in the
+        # destination, so two source folders would silently move only one.
         buckets = self._mails_by_folder(conversations)
-        if len({account.id for account, _folder, _mails in buckets}) != 1:
+        if len({folder.id for _account, folder, _mails in buckets}) != 1:
             return None
         account, folder, _mails = buckets[0]
         return account, folder.id
@@ -1828,10 +1869,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Built per selection rather than per folder change: the menu lists one
         # account's folders, and a selection spanning accounts gets no menu.
         source = self._move_source(selected)
-        menu = Gio.Menu() if source is None else self._build_move_menu("win", *source)
-        self.move_button.set_menu_model(menu)
-        self._set_actions_enabled(("move",), source is not None)
         self.move_button.set_sensitive(source is not None)
+        if source is not None:
+            self.move_button.set_menu_model(self._build_move_menu("win", *source))
 
         if any(conversation.is_unread for conversation in selected):
             self.mark_read_button.set_icon_name("mail-read-symbolic")
@@ -1866,10 +1906,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         should_load_remote_images = self._settings.get_boolean("load-remote-images")
         # A conversation never spans folders, so one lookup covers the thread.
         account, folder = self._origin(conversation.latest) or (None, None)
-        # In an outgoing folder the account is the sender; who it actually went
-        # to is in the Details section.
+        # Which of my accounts got this -- the reader's version of the list
+        # row's account label, so it appears where that does: only while
+        # several inboxes are merged, and never in an outgoing folder, where
+        # the account is the sender and the real recipient is under Details.
         is_outgoing = folder is not None and mail_sync.is_outgoing_folder(folder.name)
-        delivered_to = "" if account is None or is_outgoing else account.email
+        delivered_to = (
+            account.email
+            if account is not None and self._is_unified() and not is_outgoing
+            else ""
+        )
         emails = list(reversed(conversation.emails))
         for index, mail in enumerate(emails):
             is_newest = index == 0
@@ -2113,6 +2159,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # --- syncing, the Outbox, and the connection banner -------------------
 
     def _drain_outbox(self, account: Account) -> None:
+        if account.id in self._draining_account_ids:
+            return
+
         outbox = next(
             (
                 folder
@@ -2137,6 +2186,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if not jobs:
             return
 
+        self._draining_account_ids.add(account.id)
         thread = threading.Thread(
             target=self._outbox_worker,
             args=(account, jobs),
@@ -2157,6 +2207,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             logger.warning(
                 "could not sign in to %s; the Outbox stays queued", account.email
             )
+            # Still report back, so the account isn't left marked as draining.
+            GLib.idle_add(self._on_outbox_drained, account, [])
             return
 
         results: list[OutboxResult] = []
@@ -2182,6 +2234,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     # under the account that sent, not the open one; dropping a stale one would
     # leave the mail in the Outbox to go out twice.
     def _on_outbox_drained(self, account: Account, results: list[OutboxResult]) -> bool:
+        self._draining_account_ids.discard(account.id)
         sent: Folder | None = None
         sent_count = 0
         for result in results:

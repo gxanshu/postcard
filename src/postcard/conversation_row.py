@@ -76,7 +76,7 @@ class ConversationRow(Gtk.Box):
     # so the row names the recipient instead -- and falls back to the sender for
     # mail that predates the recipient columns.
     def bind(
-        self, conversation: Conversation, is_outgoing: bool, account_label: str = ""
+        self, conversation: Conversation, is_outgoing: bool, account_label: str
     ) -> None:
         subject = conversation.subject
         if conversation.count > 1:

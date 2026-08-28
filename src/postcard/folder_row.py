@@ -25,8 +25,12 @@ class FolderRow(Gtk.Box):
         self.append(self._name_label)
 
         # Adw.Spinner spins whenever it is visible -- no start/stop to track.
+        # It lives in a fixed-size slot so an account row keeps the same width
+        # between syncs; hiding the spinner itself shifts the whole sidebar.
+        self._spinner_slot = Gtk.Box(width_request=16, height_request=16, visible=False)
         self._spinner = Adw.Spinner(visible=False)
-        self.append(self._spinner)
+        self._spinner_slot.append(self._spinner)
+        self.append(self._spinner_slot)
 
         self._badge = Gtk.Label()
         self._badge.add_css_class("dim-label")
@@ -54,6 +58,7 @@ class FolderRow(Gtk.Box):
         )
         self._name_label.remove_css_class("heading")
         self._expandable = None
+        self._spinner_slot.set_visible(False)
         self.set_syncing(False)
         self._badge.set_label(str(unread_count))
         self._badge.set_visible(unread_count > 0)
@@ -67,6 +72,7 @@ class FolderRow(Gtk.Box):
         self._icon.set_from_icon_name("avatar-default-symbolic")
         self._name_label.set_label(account.email)
         self._name_label.add_css_class("heading")
+        self._spinner_slot.set_visible(True)
         self.set_syncing(is_syncing)
         self._badge.set_visible(False)
 

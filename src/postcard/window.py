@@ -1522,6 +1522,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                     self._accounts[shown.account_id],
                     in_background=True,
                     folder_name=shown.name,
+                    # Every other folder's badge is a STATUS round trip, and
+                    # switching folders shouldn't wait on them; the poll timer
+                    # and a manual refresh still bring them up to date.
+                    should_count_unread=False,
                 )
 
     # Rebuilding the tree destroys every row, which resets the user's
@@ -2288,6 +2292,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         in_background: bool = False,
         folder_name: str | None = None,
         offset: int = 0,
+        should_count_unread: bool = True,
     ) -> None:
         # Don't pile background syncs (folder clicks, the poll timer) on top of
         # one already running for the same account.
@@ -2299,7 +2304,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.conversation_stack.set_visible_child_name(PAGE_LOADING)
         thread = threading.Thread(
             target=self._sync_worker,
-            args=(account, folder_name, offset),
+            args=(account, folder_name, offset, should_count_unread),
             daemon=True,
         )
         thread.start()
@@ -2340,6 +2345,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         account: Account,
         folder_name: str | None,
         offset: int = 0,
+        should_count_unread: bool = True,
     ) -> None:
         credential = secrets.credential_for(account)
         if credential is None:
@@ -2354,7 +2360,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         try:
             result = mail_sync.fetch_mailbox(
-                account, credential, folder_name, offset=offset
+                account,
+                credential,
+                folder_name,
+                offset=offset,
+                should_count_unread=should_count_unread,
             )
         except Exception as error:
             logger.exception(

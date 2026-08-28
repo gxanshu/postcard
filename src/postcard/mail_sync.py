@@ -228,12 +228,15 @@ def fetch_mailbox(
     folder: str | None = None,
     limit: int = RECENT_LIMIT,
     offset: int = 0,
+    should_count_unread: bool = True,
 ) -> SyncResult:
     """Return the folder list + recent headers, over this account's connection.
 
     `folder` selects which mailbox to pull headers from; None means the inbox.
     `offset` pages backwards: 0 is the newest `limit`, `limit` is the page
     before that (used to load older mail on scroll).
+    `should_count_unread` refreshes the badges of the folders this sync isn't
+    fetching, which costs a STATUS round trip each -- see _unread_counts.
     """
     with _pooled_session(account, credential) as session:
         mailboxes = session.list_folders()
@@ -241,7 +244,8 @@ def fetch_mailbox(
         exists = session.select(target)
         all_uids = session.search_all_uids() if offset == 0 else None
         raw = session.fetch_recent_headers(exists, limit, offset)
-        counts = _unread_counts(session, mailboxes, target) if offset == 0 else {}
+        should_count = should_count_unread and offset == 0
+        counts = _unread_counts(session, mailboxes, target) if should_count else {}
 
     messages = [_to_message_header(fetched) for fetched in raw]
 

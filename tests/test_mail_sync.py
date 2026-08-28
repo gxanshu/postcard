@@ -389,6 +389,15 @@ def test_paging_older_mail_does_not_re_poll_the_counts(counting_imap):
     assert counting_imap.asked == []
 
 
+def test_a_sync_that_opts_out_does_not_poll_the_counts(counting_imap):
+    # A folder click syncs the folder it opens; the badges of the ones it
+    # doesn't are a STATUS round trip each, and the switch shouldn't wait.
+    result = mail_sync.fetch_mailbox(account(), CREDENTIAL, should_count_unread=False)
+
+    assert result.unread_counts == {}
+    assert counting_imap.asked == []
+
+
 # --- raw wire headers -> display-ready MessageHeader ------------------------
 
 

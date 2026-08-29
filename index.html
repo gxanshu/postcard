@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Postcard - a modern email client for GNOME</title>
+<meta name="description" content="Postcard is a modern email client for GNOME. GTK 4, libadwaita, IMAP/SMTP and GNOME Online Accounts, a unified inbox, offline search, and one click unsubscribe. Install the Flatpak in one click.">
+<meta name="keywords" content="email client for GNOME, best email client for GNOME, GNOME mail app, GTK4 email client, libadwaita mail, Linux IMAP client, Flatpak email client, unified inbox, one click unsubscribe">
+<link rel="canonical" href="https://postcard.gxanshu.in/">
+
+<meta property="og:title" content="Postcard — a modern email client for GNOME">
+<meta property="og:description" content="A native GNOME mail app on GTK 4 and libadwaita. A unified inbox, conversations, offline search, GNOME Online Accounts. Free and GPL-3.0.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://postcard.gxanshu.in/">
+<meta property="og:image" content="https://postcard.gxanshu.in/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Postcard — a modern email client for GNOME">
+<meta name="twitter:description" content="A native GNOME mail app on GTK 4 and libadwaita. A unified inbox, conversations, offline search, GNOME Online Accounts. Free and GPL-3.0.">
+<meta name="twitter:image" content="https://postcard.gxanshu.in/img/og.png">
+
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="theme-color" content="#3584e4">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+
+<style>
+@font-face{font-family:'Adwaita Sans';font-style:normal;font-display:swap;font-weight:400;src:local('Adwaita Sans'),url(https://cdn.jsdelivr.net/fontsource/fonts/adwaita-sans@latest/latin-400-normal.woff2) format('woff2');}
+@font-face{font-family:'Adwaita Sans';font-style:normal;font-display:swap;font-weight:500;src:local('Adwaita Sans'),url(https://cdn.jsdelivr.net/fontsource/fonts/adwaita-sans@latest/latin-500-normal.woff2) format('woff2');}
+@font-face{font-family:'Adwaita Sans';font-style:normal;font-display:swap;font-weight:600;src:local('Adwaita Sans'),url(https://cdn.jsdelivr.net/fontsource/fonts/adwaita-sans@latest/latin-600-normal.woff2) format('woff2');}
+@font-face{font-family:'Adwaita Sans';font-style:normal;font-display:swap;font-weight:700;src:local('Adwaita Sans'),url(https://cdn.jsdelivr.net/fontsource/fonts/adwaita-sans@latest/latin-700-normal.woff2) format('woff2');}
+@font-face{font-family:'Adwaita Mono';font-style:normal;font-display:swap;font-weight:400;src:local('Adwaita Mono'),url(https://cdn.jsdelivr.net/fontsource/fonts/adwaita-mono@latest/latin-400-normal.woff2) format('woff2');}
+
+/* Adwaita named palette. Dark values are the GNOME dark style equivalents,
+   swapped in one block so nothing below hardcodes a colour. */
+:root{
+  --bg:#ffffff;
+  --band:#f6f5f4;
+  --surface:#ffffff;
+  --fg:#1d1b20;
+  --muted:#5e5c64;
+  --dim:#77767b;
+  --line:#e0ddd9;
+  --line-strong:#d4d0cc;
+  --accent:#3584e4;
+  --accent-hover:#2b76d0;
+  --link:#1c71d8;
+  --tint:#f5f9fe;
+  --hover:#f4f2f0;
+  --code-bg:#241f31;
+  --code-fg:#e7e5e2;
+  --night:#1c1c1c;
+  --night-line:#3d3d3d;
+  --night-muted:#b5b3b0;
+  --foot:#161616;
+  --heart:#e01b24;
+  --shadow:0 30px 70px rgba(0,0,0,.22);
+  --shadow-sm:0 24px 56px rgba(0,0,0,.5);
+  --sans:'Adwaita Sans','Cantarell',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'Adwaita Mono',ui-monospace,'Cascadia Mono',monospace;
+  --wrap:1140px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#242424;
+    --band:#1c1c1c;
+    --surface:#303030;
+    --fg:#fafafb;
+    --muted:#c0bfbc;
+    --dim:#9a9996;
+    --line:#3d3d3d;
+    --line-strong:#4d4d4d;
+    --accent:#3584e4;
+    --accent-hover:#4a90e6;
+    --link:#78aeed;
+    --tint:#22303f;
+    --hover:#3a3a3a;
+    --night:#171717;
+    --night-line:#333333;
+    --foot:#101010;
+    --heart:#f66151;
+    --shadow:0 30px 70px rgba(0,0,0,.5);
+  }
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
+img{display:block;max-width:100%;height:auto;}
+a{color:var(--link);text-decoration:none;}
+a:hover{text-decoration:underline;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto;}
+  *{transition:none!important;}
+}
+
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px;}
+/* .inner is .wrap without padding, for sections that already pad themselves. */
+.inner{max-width:var(--wrap);margin:0 auto;}
+.mono{font-family:var(--mono);}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dim);margin:0 0 14px;
+}
+h1,h2,h3{letter-spacing:-.025em;font-weight:700;}
+h2{font-size:clamp(28px,3.4vw,38px);margin:0 0 12px;}
+h3{font-size:17px;margin:0 0 8px;}
+p{text-wrap:pretty;}
+
+/* The Adwaita stripe, top and tail. */
+.stripe{height:5px;background:repeating-linear-gradient(45deg,#3584e4 0 9px,var(--bg) 9px 18px,#e01b24 18px 27px,var(--bg) 27px 36px);}
+.stripe-foot{background:repeating-linear-gradient(45deg,#3584e4 0 9px,var(--foot) 9px 18px,#e01b24 18px 27px,var(--foot) 27px 36px);}
+
+.skip{position:absolute;left:-9999px;}
+.skip:focus{left:16px;top:16px;z-index:60;background:var(--surface);color:var(--fg);padding:10px 16px;border-radius:8px;border:1px solid var(--line-strong);}
+
+/* Header */
+.site-head{
+  position:sticky;top:0;z-index:40;
+  background:color-mix(in srgb,var(--bg) 86%,transparent);
+  backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line);
+}
+.site-head nav{height:58px;display:flex;align-items:center;gap:14px;}
+.brand{font-weight:700;font-size:16px;letter-spacing:-.01em;}
+.badge{
+  font-family:var(--mono);font-size:11px;color:var(--dim);
+  border:1px solid var(--line);border-radius:6px;padding:2px 6px;
+}
+.nav-links{display:flex;align-items:center;gap:22px;font-size:14.5px;margin-left:auto;}
+.nav-links a{color:var(--muted);}
+.nav-links .pill{
+  background:var(--accent);color:#fff;padding:8px 16px;border-radius:99px;font-weight:600;
+}
+.nav-links .pill:hover{background:var(--accent-hover);text-decoration:none;}
+
+/* Buttons */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  font-size:16px;font-weight:700;padding:14px 26px;border-radius:12px;
+  min-height:48px;font-family:inherit;cursor:pointer;
+}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.14);}
+.btn-primary:hover{background:var(--accent-hover);color:#fff;text-decoration:none;}
+.btn-flat{
+  background:var(--surface);color:var(--fg);font-weight:600;
+  border:1px solid var(--line-strong);
+}
+.btn-flat:hover{background:var(--hover);color:var(--fg);text-decoration:none;}
+.heart{color:var(--heart);}
+.btn-block{display:block;width:100%;text-align:center;padding:13px 20px;border-radius:11px;}
+
+/* Hero */
+.hero{padding:96px 24px 0;}
+.hero-row{display:flex;flex-wrap:wrap;gap:48px;align-items:center;}
+.hero-copy{flex:1 1 480px;min-width:280px;}
+.hero h1{margin:0;font-size:clamp(36px,5.6vw,64px);line-height:1.03;letter-spacing:-.035em;text-wrap:balance;}
+.hero .lede{margin:24px 0 0;font-size:19px;line-height:1.55;color:var(--muted);max-width:38em;}
+.hero-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px;}
+.hero-note{margin:18px 0 0;font-size:13.5px;color:var(--dim);}
+.hero-art{flex:0 1 260px;display:flex;justify-content:center;}
+.hero-art img{width:min(200px,44vw);filter:drop-shadow(0 18px 34px rgba(53,132,228,.22));}
+
+.shot-band{padding:64px 24px 0;background:linear-gradient(180deg,var(--bg) 0 42%,var(--band) 42% 100%);}
+.shot-band .inner{max-width:1180px;}
+.shot{width:100%;border-radius:14px;border:1px solid var(--line-strong);box-shadow:var(--shadow);}
+
+/* Features */
+.features{background:var(--band);padding:80px 24px 90px;}
+.features h2{margin-bottom:40px;max-width:16em;}
+.grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(288px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:14px;overflow:hidden;
+}
+.cell{background:var(--surface);padding:28px 26px;}
+.cell p{margin:0;font-size:15px;line-height:1.55;color:var(--muted);}
+
+/* Screenshots, dark */
+.night{background:var(--night);color:#fff;padding:88px 24px;}
+.night h2{color:#fff;}
+.night .eyebrow{color:var(--night-muted);}
+.night .lede{margin:0 0 44px;font-size:17px;line-height:1.55;color:var(--night-muted);max-width:44em;}
+.figs{display:flex;flex-wrap:wrap;gap:26px;}
+.fig-col{flex:1.35 1 460px;min-width:280px;display:flex;flex-direction:column;gap:26px;}
+figure{margin:0;flex:1 1 340px;min-width:280px;}
+figure img{width:100%;border-radius:12px;border:1px solid var(--night-line);box-shadow:var(--shadow-sm);}
+figcaption{margin-top:14px;font-size:14.5px;color:var(--night-muted);}
+figcaption strong{color:#fff;font-weight:600;}
+
+/* Under the hood */
+.hood{background:var(--bg);padding:84px 24px;border-bottom:1px solid var(--line);}
+.split{display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start;}
+.split-main{flex:1 1 420px;min-width:280px;}
+.split-side{flex:1 1 320px;min-width:280px;}
+.hood p{margin:0 0 16px;font-size:16.5px;line-height:1.6;color:var(--muted);}
+.hood h2{max-width:14em;margin-bottom:18px;font-size:clamp(26px,3vw,34px);}
+blockquote{
+  margin:0 0 22px;background:var(--code-bg);color:var(--code-fg);
+  border-radius:14px;padding:26px;font-family:var(--mono);
+  font-size:14.5px;line-height:1.65;
+}
+/* Fixed 2x2: with auto-fit the four cells can land as 3 + 1 and leave a hole. */
+.grid-sm{
+  display:grid;grid-template-columns:repeat(2,1fr);
+  gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:12px;overflow:hidden;
+}
+.grid-sm div{background:var(--surface);padding:18px 20px;}
+.grid-sm p{margin:0;font-size:13.5px;line-height:1.5;color:var(--dim);}
+.grid-sm strong{display:block;margin-bottom:4px;font-size:14px;color:var(--fg);}
+
+/* Install */
+.install{background:var(--bg);padding:88px 24px;}
+.install .lede{margin:0 0 40px;font-size:17px;line-height:1.55;color:var(--muted);max-width:42em;}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:20px;align-items:stretch;}
+.card{
+  border:1px solid var(--line-strong);border-radius:16px;padding:28px 26px;
+  display:flex;flex-direction:column;background:var(--surface);
+}
+.card-pick{border:2px solid var(--accent);background:var(--tint);}
+.card .tag{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);}
+.card-pick .tag{color:var(--link);}
+.card h3{margin:12px 0 8px;font-size:19px;}
+.card p{margin:0 0 22px;font-size:15px;line-height:1.55;color:var(--muted);}
+.card .fill{flex:1;}
+.card .after{margin:14px 0 0;font-size:13.5px;line-height:1.5;color:var(--muted);}
+pre{
+  margin:0 0 16px;background:var(--code-bg);color:var(--code-fg);
+  border-radius:11px;padding:16px;font-family:var(--mono);
+  font-size:12.5px;line-height:1.6;white-space:pre-wrap;word-break:break-all;flex:1;
+}
+.install .foot-note{margin:26px 0 0;font-size:14px;color:var(--dim);}
+
+/* Straight talk */
+.talk{background:var(--band);border-top:1px solid var(--line);padding:80px 24px;}
+.talk .split{align-items:flex-start;}
+.talk h2{margin-bottom:18px;font-size:clamp(26px,3vw,32px);letter-spacing:-.02em;}
+.talk p{margin:0 0 16px;font-size:16.5px;line-height:1.6;color:var(--muted);}
+.talk-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:22px;}
+.talk-actions .btn{font-size:15px;padding:11px 20px;border-radius:11px;}
+.spec{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+.spec div{
+  padding:18px 22px;border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;gap:16px;font-size:15px;
+}
+.spec div:last-child{border-bottom:0;}
+.spec dt,.spec span:first-child{color:var(--muted);}
+.spec span:last-child{font-weight:600;text-align:right;}
+
+/* FAQ */
+.faq{background:var(--bg);padding:84px 24px;}
+.faq .split{gap:56px;}
+.faq-head{flex:0 1 300px;}
+.faq-head h2{font-size:clamp(26px,3vw,32px);letter-spacing:-.02em;margin:0;}
+.faq-list{flex:1 1 460px;min-width:280px;display:flex;flex-direction:column;gap:30px;}
+.faq-list h3{margin:0 0 7px;}
+.faq-list p{margin:0;font-size:16px;line-height:1.6;color:var(--muted);}
+
+/* Closing */
+.cta{background:var(--night);color:#fff;padding:76px 24px;text-align:center;}
+.cta .inner{max-width:720px;margin:0 auto;}
+.cta img{margin:0 auto 24px;}
+.cta h2{color:#fff;margin-bottom:14px;font-size:clamp(28px,3.6vw,40px);letter-spacing:-.03em;}
+.cta p{margin:0 0 30px;font-size:17px;line-height:1.55;color:var(--night-muted);}
+.site-foot{background:var(--foot);color:var(--dim);padding:34px 24px 44px;border-top:1px solid var(--night-line);}
+.site-foot .inner{
+  max-width:var(--wrap);margin:0 auto;display:flex;flex-wrap:wrap;gap:20px;
+  align-items:center;justify-content:space-between;font-size:14px;
+}
+.site-foot a{color:var(--night-muted);}
+.site-foot .links{display:flex;flex-wrap:wrap;gap:22px;}
+
+@media (max-width:720px){
+  .nav-links a:not(.pill){display:none;}
+  .hero{padding-top:40px;}
+  /* Beside the headline there is no room, and below it the icon strands itself
+     under the fold. Small, above the text, the way an app page opens. */
+  .hero-row{gap:26px;}
+  .hero-art{order:-1;flex:1 1 100%;justify-content:flex-start;}
+  .hero-art img{width:80px;filter:none;}
+  .features,.night,.hood,.install,.talk,.faq{padding-top:60px;padding-bottom:64px;}
+  .split,.faq .split{gap:36px;}
+  .hero-actions .btn{flex:1 1 100%;}
+}
+@media (max-width:400px){
+  .wrap,.hero,.features,.night,.hood,.install,.talk,.faq,.cta{padding-left:18px;padding-right:18px;}
+  .cell,.card{padding:22px 20px;}
+}
+</style>
+
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Postcard","applicationCategory":"CommunicationApplication","applicationSubCategory":"Email Client","operatingSystem":"Linux, GNOME","softwareVersion":"1.11.1","url":"https://postcard.gxanshu.in/","license":"https://www.gnu.org/licenses/gpl-3.0.html","description":"A modern email client for GNOME, built on GTK 4, libadwaita and Python. IMAP/SMTP, GNOME Online Accounts, a unified inbox, offline full-text search and one click unsubscribe.","downloadUrl":"https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref","screenshot":"https://postcard.gxanshu.in/img/og.png","author":{"@type":"Person","name":"Anshu","url":"https://github.com/gxanshu"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"Is Postcard on Flathub?","acceptedAnswer":{"@type":"Answer","text":"No. It installs as a Flatpak from the project's GitHub releases, and flatpak update keeps it current like any other app."}},
+{"@type":"Question","name":"Does it work outside GNOME?","acceptedAnswer":{"@type":"Answer","text":"Yes. KDE, Xfce, anywhere Flatpak runs. GNOME just fits best, because Online Accounts, notifications, the keyring and the dark style all come for free."}},
+{"@type":"Question","name":"Which mail providers work?","acceptedAnswer":{"@type":"Answer","text":"Anything with IMAP and SMTP. Gmail, Fastmail, Zoho, Proton Mail Bridge, a mailbox on your own server. A Google account already in GNOME Settings is picked up without a password."}},
+{"@type":"Question","name":"What does it cost?","acceptedAnswer":{"@type":"Answer","text":"Nothing. GPL-3.0-or-later, no account to make, no telemetry. Your mail stays on your machine and your server."}},
+{"@type":"Question","name":"Can it start with my session?","acceptedAnswer":{"@type":"Answer","text":"Yes. Turn on Keep running in the background and Start at Login in Preferences. Postcard starts with no window, checks for mail on your sync interval and notifies you when something arrives."}},
+{"@type":"Question","name":"Is it ready for my main inbox?","acceptedAnswer":{"@type":"Answer","text":"I read my own mail in it every day, but it is still early. Keep your old client around for a week or two and file anything that breaks."}}]}</script>
+</head>
+
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="stripe"></div>
+
+<header class="site-head">
+  <nav class="wrap" aria-label="Main">
+    <img src="icon.png" alt="Postcard app icon" width="28" height="28" style="width:28px;height:28px;">
+    <span class="brand">Postcard</span>
+    <span class="badge">v1.11.1</span>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#look">Screenshots</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/gxanshu/postcard">Source</a>
+      <a class="pill" href="#install">Install</a>
+    </div>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="hero wrap">
+  <div class="hero-row">
+    <div class="hero-copy">
+      <h1>A modern email client for GNOME.</h1>
+      <p class="lede">Folders on the left, conversations in the middle, the message on the right. The layout you already know, rebuilt on GTK 4 and libadwaita. Nothing new to learn.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref">Download Postcard</a>
+        <a class="btn btn-flat" href="#install">Other ways to install</a>
+      </div>
+      <p class="hero-note">Free and open source. GPL-3.0. No account, no telemetry.</p>
+    </div>
+    <div class="hero-art">
+      <img src="icon.png" alt="Postcard, a GNOME email client" width="256" height="256" fetchpriority="high">
+    </div>
+  </div>
+</section>
+
+<section class="shot-band">
+  <div class="inner">
+    <img class="shot" src="img/main-window.webp" width="1867" height="1195" fetchpriority="high" alt="Postcard on GNOME showing every account in one sidebar, the conversation list and the HTML reader">
+  </div>
+</section>
+
+<section id="features" class="features">
+  <div class="inner">
+    <p class="eyebrow">Features</p>
+    <h2>Everything a mail client should do. Nothing it shouldn't.</h2>
+    <div class="grid">
+      <div class="cell">
+        <h3>One inbox, every account</h3>
+        <p>All Inboxes puts new mail from every address in one list, and every account keeps its own folders under it in the sidebar. No switcher to remember, no going back and forth to find a mail.</p>
+      </div>
+      <div class="cell">
+        <h3>Threaded conversations</h3>
+        <p>Replies stack into one thread. Archive, trash, move, and undo it when you got the wrong one.</p>
+      </div>
+      <div class="cell">
+        <h3>Search that answers now</h3>
+        <p>Full text search across every account. The index sits on your disk, so there is no round trip to a server.</p>
+      </div>
+      <div class="cell">
+        <h3>Reads offline</h3>
+        <p>Mail is cached locally. The inbox opens on a train, on a plane, on hotel wifi that isn't.</p>
+      </div>
+      <div class="cell">
+        <h3>Any IMAP or SMTP account</h3>
+        <p>Gmail, Fastmail, Proton Bridge, your own server. Add as many as you want. Host and port are filled in from your address for the providers people actually use, and passwords go in the system keyring.</p>
+      </div>
+      <div class="cell">
+        <h3>Trackers stay blocked</h3>
+        <p>HTML mail renders in WebKit with remote images held back until you say so.</p>
+      </div>
+      <div class="cell">
+        <h3>Drafts that don't vanish</h3>
+        <p>Reply, forward, Cc and Bcc, signatures, rich text. Pick which of your addresses it goes out from, let addresses you have written to before autocomplete, and an Outbox holds the message until it really goes.</p>
+      </div>
+      <div class="cell">
+        <h3>Leave a mailing list</h3>
+        <p>Lists get a banner with an Unsubscribe button. Where the list supports it, Postcard sends the request itself, after telling you which host it is about to talk to.</p>
+      </div>
+      <div class="cell">
+        <h3>Waits in the background</h3>
+        <p>Postcard can start hidden at login, check on your sync interval and notify you when mail lands. The desktop portal writes the autostart entry, so there is no file to edit.</p>
+      </div>
+      <div class="cell">
+        <h3>Sits in your tray</h3>
+        <p>On KDE, Xfce and anywhere else with a status area, Postcard leaves an icon behind with the unread count on it. GNOME has no tray, so there it is a Background App instead.</p>
+      </div>
+      <div class="cell">
+        <h3>Acts like a desktop app</h3>
+        <p>A <span class="mono" style="font-size:13.5px;">mailto:</span> link opens the composer with the fields already filled. Attachments open in their default app, dates read like "2h ago", and senders get an avatar.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="look" class="night">
+  <div class="inner">
+    <p class="eyebrow">Screenshots</p>
+    <h2>Built to the GNOME HIG.</h2>
+    <p class="lede">Adaptive layouts, boxed lists, real dialogs, and the system dark style everywhere. It fits your desktop because it is built the same way.</p>
+    <div class="figs">
+      <figure>
+        <img src="img/mail-compose.webp" width="900" height="1205" loading="lazy" decoding="async" alt="Composing a new message in Postcard with To, Cc, Bcc fields and a rich text toolbar">
+        <figcaption><strong>Compose.</strong> Rich text, attachments, Cc and Bcc, signature. The window narrows down to phone width.</figcaption>
+      </figure>
+      <div class="fig-col">
+        <figure style="flex:0 1 auto;min-width:0;">
+          <img src="img/online-accounts.webp" width="1400" height="887" loading="lazy" decoding="async" alt="Postcard picking up a Google account from GNOME Online Accounts, with no password to enter">
+          <figcaption><strong>Online Accounts.</strong> Signed in to Google under GNOME Settings? Postcard just uses it. No password prompt.</figcaption>
+        </figure>
+        <figure style="flex:0 1 auto;min-width:0;">
+          <img src="img/preferences.webp" width="1400" height="891" loading="lazy" decoding="async" alt="Postcard preferences dialog with notification, remote image and background sync settings">
+          <figcaption><strong>Preferences.</strong> A short list of switches. Notifications, remote images, sync interval.</figcaption>
+        </figure>
+      </div>
+      <figure style="flex:1 1 100%;">
+        <img src="img/mailing-list-unsubscribe.webp" width="1867" height="1188" loading="lazy" decoding="async" alt="The Postcard reader showing a mailing list banner with an Unsubscribe button, and the dialog naming the host the request goes to">
+        <figcaption><strong>One click unsubscribe.</strong> A newsletter gets a banner across the top of the message. Press the button and Postcard says which host it is about to ask, then asks for you.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="hood">
+  <div class="inner split">
+    <div class="split-main">
+      <p class="eyebrow">Under the hood</p>
+      <h2>Boring on purpose.</h2>
+      <p>Every choice here is the dull one. Python and its standard library, SQLite on disk, the widgets libadwaita already ships. No rewrite in C to prove a point.</p>
+      <p style="margin:0;">A mail client has to still work in five years, on a machine nobody has touched. Boring tools are how that happens, and how a stranger can read the code in an afternoon and fix something.</p>
+    </div>
+    <div class="split-side">
+      <blockquote>Pick the boring language.<br>Ship the boring solution.<br>Read your own mail.</blockquote>
+      <div class="grid-sm">
+        <div><strong>Python + stdlib</strong><p>imaplib and smtplib, not a homegrown protocol stack</p></div>
+        <div><strong>SQLite</strong><p>One file. Everyone already knows how it fails</p></div>
+        <div><strong>libadwaita widgets</strong><p>No custom controls to maintain forever</p></div>
+        <div><strong>Flatpak only</strong><p>One build target, the same on every distro</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="install">
+  <div class="inner">
+    <p class="eyebrow">Install · v1.11.1</p>
+    <h2>Two ways in. Pick one.</h2>
+    <p class="lede">Postcard ships as a Flatpak straight from its GitHub releases. It is not on Flathub. You need <a href="https://flatpak.org/setup/">Flatpak</a>, which most GNOME distros already have.</p>
+    <div class="cards">
+
+      <div class="card card-pick">
+        <span class="tag">Recommended</span>
+        <h3>Download and open it</h3>
+        <p class="fill">You get a small file called <span class="mono" style="font-size:13.5px;">postcard.flatpakref</span>. Open it once it lands and GNOME Software takes over, or whatever app centre your desktop uses. Look it over, hit Install, done.</p>
+        <a class="btn btn-primary btn-block" href="https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref" download="postcard.flatpakref">Download Postcard</a>
+        <p class="after">Open it from your browser downloads, or find it in Files and double click.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag">Terminal</span>
+        <h3>One command</h3>
+        <p style="margin-bottom:18px;">Same package, no clicking. Works over SSH too.</p>
+        <pre id="cmd">flatpak install --from https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref</pre>
+        <button class="btn btn-flat btn-block" id="copy" type="button" style="font-size:15px;">Copy command</button>
+      </div>
+
+    </div>
+    <p class="foot-note">After the first install Postcard shows up in your app grid like anything else, and <span class="mono" style="font-size:13px;">flatpak update</span> keeps it current. <a href="https://github.com/gxanshu/postcard/releases">Browse all releases →</a></p>
+  </div>
+</section>
+
+<section class="talk">
+  <div class="inner split">
+    <div class="split-main">
+      <p class="eyebrow">Before you install</p>
+      <h2>Written in the open, awkward parts included.</h2>
+      <p>Postcard is under heavy development. It has bugs and rough edges. A bug report is the fastest way to get them fixed.</p>
+      <p>AI tools help me type this code. That is written in the README rather than hidden away. The architecture, the review and the responsibility are mine, and every line was read before it shipped. Read the source and judge for yourself.</p>
+      <p>Postcard is free and always will be. If it saves you time, sponsoring keeps the work going.</p>
+      <div class="talk-actions">
+        <a class="btn btn-flat" href="https://github.com/sponsors/gxanshu"><span class="heart">♥</span> Sponsor</a>
+        <a class="btn btn-flat" href="https://github.com/gxanshu/postcard/issues">Report an issue</a>
+        <a class="btn btn-flat" href="https://github.com/gxanshu/postcard">Read the source</a>
+      </div>
+    </div>
+    <div class="split-side">
+      <div class="spec">
+        <div><span>Licence</span><span>GPL-3.0-or-later</span></div>
+        <div><span>Stack</span><span>GTK 4 · libadwaita · Python</span></div>
+        <div><span>HTML mail</span><span>WebKitGTK</span></div>
+        <div><span>Credentials</span><span>libsecret keyring</span></div>
+        <div><span>Search index</span><span>SQLite FTS5</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="faq">
+  <div class="inner split">
+    <div class="faq-head">
+      <h2>Questions people actually ask</h2>
+    </div>
+    <div class="faq-list">
+      <div>
+        <h3>Is Postcard on Flathub?</h3>
+        <p>No. It installs as a Flatpak from the project's GitHub releases, and <span class="mono" style="font-size:14px;">flatpak update</span> keeps it current like any other app.</p>
+      </div>
+      <div>
+        <h3>Does it work outside GNOME?</h3>
+        <p>Yes. KDE, Xfce, anywhere Flatpak runs, with a tray icon and unread badge on the desktops that have a status area. GNOME just fits best, because Online Accounts, notifications, the keyring and the dark style all come for free.</p>
+      </div>
+      <div>
+        <h3>Which mail providers work?</h3>
+        <p>Anything with IMAP and SMTP. Gmail, Fastmail, Zoho, Proton Mail Bridge, a mailbox on your own server. A Google account already in GNOME Settings is picked up without a password.</p>
+      </div>
+      <div>
+        <h3>What does it cost?</h3>
+        <p>Nothing. GPL-3.0-or-later, no account to make, no telemetry. Your mail stays on your machine and your server.</p>
+      </div>
+      <div>
+        <h3>Can it start with my session?</h3>
+        <p>Yes. Turn on <strong>Keep running in the background</strong> and <strong>Start at Login</strong> in Preferences. Postcard comes up with no window, checks on your sync interval, and notifies you when mail arrives. Click the notification to open it.</p>
+      </div>
+      <div>
+        <h3>Is it ready for my main inbox?</h3>
+        <p>I read my own mail in it every day, but it is still early. Keep your old client around for a week or two and file anything that breaks.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="inner">
+    <img src="icon.png" alt="" width="72" height="72" loading="lazy" style="width:72px;height:72px;">
+    <h2>Give your inbox a native home.</h2>
+    <p>One click, about thirty seconds, and it is in your app grid.</p>
+    <a class="btn btn-primary" href="https://github.com/gxanshu/postcard/releases/latest/download/postcard.flatpakref" style="font-size:17px;padding:15px 32px;">Download Postcard v1.11.1</a>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="inner">
+    <span>Postcard, an email client for GNOME. Made by <a href="https://github.com/gxanshu" style="color:#c8c6c3;">Anshu</a>.</span>
+    <span class="links">
+      <a href="https://github.com/gxanshu/postcard">GitHub</a>
+      <a href="https://github.com/sponsors/gxanshu">Sponsor</a>
+      <a href="https://github.com/gxanshu/postcard/releases">Releases</a>
+      <a href="https://github.com/gxanshu/postcard/issues">Issues</a>
+      <a href="https://github.com/gxanshu/postcard/blob/main/COPYING">GPL-3.0</a>
+    </span>
+  </div>
+</footer>
+
+<div class="stripe stripe-foot"></div>
+
+<script>
+document.getElementById('copy').addEventListener('click', function () {
+  var button = this;
+  var command = document.getElementById('cmd').textContent;
+  var done = function () {
+    button.textContent = 'Copied to clipboard';
+    setTimeout(function () { button.textContent = 'Copy command'; }, 2200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(command).then(done, done);
+  } else {
+    var box = document.createElement('textarea');
+    box.value = command;
+    document.body.appendChild(box);
+    box.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(box);
+    done();
+  }
+});
+</script>
+</body>
+</html>

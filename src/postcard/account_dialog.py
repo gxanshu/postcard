@@ -13,6 +13,7 @@ class PostcardAccountDialog(Adw.Dialog):
     add_button: Gtk.Button = Gtk.Template.Child()
     display_name_row: Adw.EntryRow = Gtk.Template.Child()
     email_row: Adw.EntryRow = Gtk.Template.Child()
+    username_row: Adw.EntryRow = Gtk.Template.Child()
     password_row: Adw.PasswordEntryRow = Gtk.Template.Child()
     imap_host_row: Adw.EntryRow = Gtk.Template.Child()
     imap_port_row: Adw.EntryRow = Gtk.Template.Child()
@@ -32,12 +33,13 @@ class PostcardAccountDialog(Adw.Dialog):
         self.cancel_button.connect("clicked", lambda _b: self.close())
         self.add_button.connect("clicked", self._on_add_clicked)
 
-        # Values we put in the server fields ourselves, so a later autofill can
-        # tell its own text from something the user typed and never clobber it.
+        # Values we put in the fields ourselves, so a later autofill can tell
+        # its own text from something the user typed and never clobber it.
         # Seeded with the template's defaults, which count as ours.
         self._autofilled_text = {
             row: row.get_text()
             for row in (
+                self.username_row,
                 self.imap_host_row,
                 self.imap_port_row,
                 self.smtp_host_row,
@@ -48,6 +50,7 @@ class PostcardAccountDialog(Adw.Dialog):
             combo: combo.get_selected()
             for combo in (self.imap_security_row, self.smtp_security_row)
         }
+        self.email_row.connect("changed", self._autofill_username)
         self.email_row.connect("changed", self._autofill_servers)
 
         for row in (
@@ -60,6 +63,15 @@ class PostcardAccountDialog(Adw.Dialog):
             self.smtp_port_row,
         ):
             row.connect("changed", self._update_add_sensitivity)
+
+    def _autofill_username(self, *_args: object) -> None:
+        # Kept apart from _autofill_servers, which gives up on any domain it
+        # does not recognise: the address is a sensible username for every
+        # server, known provider or not.
+        email = self.email_row.get_text()
+        if self.username_row.get_text() == self._autofilled_text[self.username_row]:
+            self.username_row.set_text(email)
+            self._autofilled_text[self.username_row] = email
 
     def _autofill_servers(self, *_args: object) -> None:
         settings = providers.settings_for_email(self.email_row.get_text())
@@ -123,6 +135,7 @@ class PostcardAccountDialog(Adw.Dialog):
             smtp_host=self.smtp_host_row.get_text().strip(),
             smtp_port=smtp_port,
             smtp_security=SECURITY_OPTIONS[self.smtp_security_row.get_selected()],
+            username=self.username_row.get_text().strip(),
         )
 
         secrets.store_password(account.id, self.password_row.get_text())

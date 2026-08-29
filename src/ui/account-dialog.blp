@@ -30,6 +30,7 @@ template $PostcardAccountDialog: Adw.Dialog {
               child: Adw.PreferencesPage {
                   Adw.PreferencesGroup {
                       title: _("Account");
+                      description: _("Most servers sign you in with your email address. Change the username if yours expects a different one.");
 
                       Adw.EntryRow display_name_row {
                           title: _("Display Name");
@@ -38,6 +39,10 @@ template $PostcardAccountDialog: Adw.Dialog {
                       Adw.EntryRow email_row {
                           title: _("Email Address");
                           input-purpose: email;
+                        }
+
+                      Adw.EntryRow username_row {
+                          title: _("Username");
                         }
 
                       Adw.PasswordEntryRow password_row {

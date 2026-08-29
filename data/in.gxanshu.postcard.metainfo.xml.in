@@ -59,6 +59,17 @@
   </screenshots>
 
   <releases>
+    <release version="1.11.1" date="2026-08-29">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Accounts can now sign in with a username that differs from the email
+          address, for servers whose login is not the address</li>
+          <li>The Attachments heading in the composer is hidden until a file is
+          attached</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.11.0" date="2026-08-28">
       <description translate="no">
         <p>New in this release:</p>

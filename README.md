@@ -5,7 +5,7 @@
 
 **An email client for GNOME, written in Python with GTK 4 and libadwaita.**
 
-[![Version](https://img.shields.io/badge/version-1.11.0-3584e4?style=flat-square)](#installing)
+[![Version](https://img.shields.io/badge/version-1.11.1-3584e4?style=flat-square)](#installing)
 [![Tests](https://img.shields.io/github/actions/workflow/status/gxanshu/postcard/tests.yml?style=flat-square&label=tests)](https://github.com/gxanshu/postcard/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-3584e4?style=flat-square)](COPYING)
 [![Flatpak](https://img.shields.io/badge/install-Flatpak-4a86cf?style=flat-square&logo=flatpak&logoColor=white)](#installation)
@@ -58,6 +58,7 @@ Postcard has the classic three panel layout. folders on the left, conversations 
 
 - **Google in one click.** If you already added your Google account in GNOME Settings under Online Accounts, just pick it in Postcard. It uses OAuth, so Postcard never sees your password.
 - **Any IMAP/SMTP account**, as many as you want. Passwords are stored in the system keyring. You can choose TLS or STARTTLS for each server, so Proton Mail Bridge also works.
+- **A separate username** when the server's login is not your email address, or the mailbox is reached through a preferred alias.
 - **Server settings are filled in automatically** from your email address for Gmail, Yahoo, iCloud, Outlook, Fastmail, Zoho, AOL and Yandex. If you type something by hand, Postcard does not touch it.
 - **One unified inbox.** An *All Inboxes* row at the top of the sidebar shows mail from every account in a single list, and archive, trash, star and reply all still act on the right account.
 - **Threaded conversations** and nested folders shown as a tree.

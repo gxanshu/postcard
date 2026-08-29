@@ -224,6 +224,7 @@ class PostcardComposerWindow(Adw.Window):
     numbers_button: Gtk.ToggleButton = Gtk.Template.Child()
     link_button: Gtk.Button = Gtk.Template.Child()
     attach_button: Gtk.Button = Gtk.Template.Child()
+    attachments_group: Gtk.Box = Gtk.Template.Child()
     attachments_list: Gtk.ListBox = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
 
@@ -445,12 +446,14 @@ class PostcardComposerWindow(Adw.Window):
         )
         row.add_suffix(remove_button)
         self.attachments_list.append(row)
+        self.attachments_group.set_visible(True)
 
     def _on_remove_attachment_clicked(
         self, _button: Gtk.Button, attachment: Attachment, row: Adw.ActionRow
     ) -> None:
         self._attachments.remove(attachment)
         self.attachments_list.remove(row)
+        self.attachments_group.set_visible(bool(self._attachments))
 
     # --- cancel / save draft ---------------------------------------------
 

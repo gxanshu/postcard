@@ -80,17 +80,23 @@ template $PostcardComposerWindow: Adw.Window {
           styles ["card"]
         }
 
-        Gtk.Label {
-          label: _("Attachments");
-          xalign: 0;
+        Gtk.Box attachments_group {
+          orientation: vertical;
+          spacing: 12;
+          visible: false;
 
-          styles ["heading"]
-        }
+          Gtk.Label {
+            label: _("Attachments");
+            xalign: 0;
 
-        Gtk.ListBox attachments_list {
-          selection-mode: none;
+            styles ["heading"]
+          }
 
-          styles ["boxed-list"]
+          Gtk.ListBox attachments_list {
+            selection-mode: none;
+
+            styles ["boxed-list"]
+          }
         }
       };
 

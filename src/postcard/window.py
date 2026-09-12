@@ -989,7 +989,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _archive_role(self) -> mail_sync.FolderRole:
         folder = self._current_folder
         if folder is not None and (
-            mail_sync.role_for_folder(folder.name) is mail_sync.FolderRole.ARCHIVE
+            mail_sync.folder_role(folder) is mail_sync.FolderRole.ARCHIVE
         ):
             return mail_sync.FolderRole.INBOX
         return mail_sync.FolderRole.ARCHIVE
@@ -1036,7 +1036,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 "Moved to {name}",
                 "Moved {n} conversations to {name}",
                 n,
-            ).format(n=n, name=dest.name),
+            ).format(n=n, name=mail_sync.folder_label(dest)),
         )
 
     def _start_move_by_role(
@@ -1075,8 +1075,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         matches = [
             folder
             for folder in self._db.folders_for_account(account.id)
-            if folder.id != exclude_id
-            and mail_sync.role_for_folder(folder.name) == role
+            if folder.id != exclude_id and mail_sync.folder_role(folder) == role
         ]
         if role == mail_sync.FolderRole.ARCHIVE:
             # role_for_folder maps both "Archive" and Gmail's "All Mail" to
@@ -1337,10 +1336,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         for folder in self._db.folders_for_account(account.id):
             if folder.id == source_id:
                 continue
-            label = mail_sync.display_name_for_folder(
-                folder.name, folder.display_delimiter
-            )
-            item = Gio.MenuItem.new(label, None)
+            item = Gio.MenuItem.new(mail_sync.folder_label(folder), None)
             item.set_action_and_target_value(
                 f"{action_prefix}.move", GLib.Variant.new_string(folder.name)
             )
@@ -1427,7 +1423,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         return [
             folder
             for folder in self._folders_by_id.values()
-            if mail_sync.role_for_folder(folder.name) is mail_sync.FolderRole.INBOX
+            if mail_sync.folder_role(folder) is mail_sync.FolderRole.INBOX
         ]
 
     def _view_folders(self) -> list[Folder]:
@@ -1478,7 +1474,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 target = position
             if (
                 folder.id == ALL_INBOXES_ID
-                or mail_sync.role_for_folder(folder.name) == mail_sync.FolderRole.INBOX
+                or mail_sync.folder_role(folder) == mail_sync.FolderRole.INBOX
             ):
                 target = position
                 break
@@ -1616,7 +1612,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             sum(
                 self._unread_badge(folder)
                 for folder in folders
-                if mail_sync.role_for_folder(folder.name) is mail_sync.FolderRole.INBOX
+                if mail_sync.folder_role(folder) is mail_sync.FolderRole.INBOX
             )
         )
 
@@ -1843,8 +1839,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             account, folder = self._origin(conversation.latest) or (None, None)
             row.bind(
                 conversation,
-                is_outgoing=folder is not None
-                and mail_sync.is_outgoing_folder(folder.name),
+                is_outgoing=folder is not None and mail_sync.is_outgoing(folder),
                 account_label=account.short_label
                 if account is not None and self._is_unified()
                 else "",
@@ -1948,7 +1943,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # row's account label, so it appears where that does: only while
         # several inboxes are merged, and never in an outgoing folder, where
         # the account is the sender and the real recipient is under Details.
-        is_outgoing = folder is not None and mail_sync.is_outgoing_folder(folder.name)
+        is_outgoing = folder is not None and mail_sync.is_outgoing(folder)
         delivered_to = (
             account.email
             if account is not None and self._is_unified() and not is_outgoing
@@ -2436,19 +2431,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if mailbox.name not in mail_sync.NAMESPACE_ROOTS
         ]
 
-        # Shortest name first: a parent's name is a prefix of its children's, so
-        # every parent is stored before a child looks it up.
-        for mailbox in sorted(mailboxes, key=lambda box: len(box.name)):
-            name, delimiter = mailbox.name, mailbox.delimiter
-            selectable = imap_session.ATTR_NOSELECT not in mailbox.flags
-            icon = mail_sync.icon_for_folder(name) if selectable else "folder-symbolic"
-            folder = self._db.get_or_create_folder(account.id, name, icon)
-
-            parent_name = mail_sync.parent_mailbox_name(name, delimiter)
-            parent = self._db.get_folder_by_name(account.id, parent_name)
-            self._db.set_folder_parent(
-                folder.id, parent.id if parent else None, delimiter
-            )
+        self._store_mailboxes(account, mailboxes)
 
         if mailboxes:
             # Mirror the server's folder list, keeping only the local Outbox.
@@ -2499,6 +2482,33 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._notify_arrivals(account.id, new_messages, target.id, arrived_elsewhere)
         return False
 
+    def _store_mailboxes(
+        self, account: Account, mailboxes: list[mail_sync.MailboxInfo]
+    ) -> None:
+        """Create a row for every listed mailbox, then nest them.
+
+        Two passes, because a Graph parent is named by id and need not come
+        before its children the way an IMAP name prefix does.
+        """
+        stored = [
+            (
+                mailbox,
+                self._db.get_or_create_folder(
+                    account.id, mailbox.name, mail_sync.icon_for_mailbox(mailbox)
+                ),
+            )
+            for mailbox in mail_sync.creation_order(mailboxes)
+        ]
+        for mailbox, folder in stored:
+            parent = self._db.get_folder_by_name(
+                account.id, mail_sync.parent_of(mailbox)
+            )
+            self._db.set_folder_parent(
+                folder.id, parent.id if parent else None, mailbox.delimiter
+            )
+            if mailbox.role or mailbox.label:
+                self._db.set_folder_identity(folder.id, mailbox.role, mailbox.label)
+
     # Notification ids carry the account: every account syncs on the same tick,
     # and a repeated id replaces the notification already on screen.
     def _notify_arrivals(
@@ -2531,7 +2541,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 continue
             previous = self._remote_unread_counts.get(folder.id)
             if previous is not None and count > previous:
-                arrived[mail_sync.display_name_for_folder(name)] = count - previous
+                arrived[mail_sync.folder_label(folder)] = count - previous
             self._remote_unread_counts[folder.id] = count
         return arrived
 

@@ -9,18 +9,19 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
-from enum import StrEnum
 from functools import lru_cache
 from gettext import gettext as _
 
 from .core.models.account import Account
 from .core.models.email import Email
-from .core.models.folder import Folder
+from .core.models.folder import Folder, FolderRole
 
 # Re-exported: callers reach MessageHeader through mail_sync, which is where it
 # is built. It lives in core.models so core.store can accept one directly.
 from .core.models.message_header import MessageHeader
+from .core.net import graph_folders, graph_messages, graph_send
 from .core.net.auth import Credential
+from .core.net.graph_session import GraphSession
 from .core.net.imap_session import (
     ATTR_NOSELECT,
     GMAIL_CAPABILITY,
@@ -45,23 +46,6 @@ ONE_CLICK_BODY = b"List-Unsubscribe=One-Click"
 # Gmail nests its special folders under an unselectable "[Gmail]" container.
 # It isn't a real mailbox, so it's hidden and its children sit at the top level.
 NAMESPACE_ROOTS = ("[Gmail]", "[Google Mail]")
-
-
-class FolderRole(StrEnum):
-    """What a mailbox is for, inferred from its name by role_for_folder.
-
-    A StrEnum so it compares and persists as the plain lowercase string it
-    always was -- the database column and the icon table are unchanged.
-    """
-
-    INBOX = "inbox"
-    SENT = "sent"
-    DRAFTS = "drafts"
-    TRASH = "trash"
-    JUNK = "junk"
-    ARCHIVE = "archive"
-    STARRED = "starred"
-    OTHER = "other"
 
 
 # How servers spell each role, in the order role_for_folder tries them: the
@@ -130,6 +114,29 @@ class _Pooled:
 
 _pool: dict[int, _Pooled] = {}
 _pool_lock = threading.Lock()
+
+
+@dataclass
+class _GraphState:
+    """What a Graph account keeps between operations, in place of a connection.
+
+    Graph is stateless HTTP, so there is nothing to pool -- but the well-known
+    folder ids never change, and a delta link turns the next UID snapshot of a
+    folder into a request for what changed instead of a walk over all of it.
+    """
+
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    well_known: dict[str, str] | None = None
+    deltas: dict[str, graph_messages.DeltaState] = field(default_factory=dict)
+
+
+# Guarded by _pool_lock, like the IMAP pool it sits beside.
+_graph_states: dict[int, _GraphState] = {}
+
+
+def _graph_state(account_id: int) -> _GraphState:
+    with _pool_lock:
+        return _graph_states.setdefault(account_id, _GraphState())
 
 
 def _signed_in(account: Account, credential: Credential) -> ImapSession:
@@ -208,6 +215,10 @@ def close_sessions(account_id: int | None = None) -> None:
     """
     with _pool_lock:
         ids = list(_pool) if account_id is None else [account_id]
+        if account_id is None:
+            _graph_states.clear()
+        else:
+            _graph_states.pop(account_id, None)
         for one in ids:
             entry = _pool.get(one)
             if entry is not None:
@@ -238,6 +249,10 @@ def fetch_mailbox(
     `should_count_unread` refreshes the badges of the folders this sync isn't
     fetching, which costs a STATUS round trip each -- see _unread_counts.
     """
+    if account.is_graph:
+        return _fetch_graph_mailbox(
+            account, credential, folder, limit, offset, should_count_unread
+        )
     with _pooled_session(account, credential) as session:
         mailboxes = session.list_folders()
         target = folder or inbox_name([m.name for m in mailboxes])
@@ -286,6 +301,58 @@ def _unread_counts(
     return counts
 
 
+def _fetch_graph_mailbox(
+    account: Account,
+    credential: Credential,
+    folder: str | None,
+    limit: int,
+    offset: int,
+    should_count_unread: bool,
+) -> SyncResult:
+    """fetch_mailbox for a Graph account, where a folder's name is its id."""
+    session = GraphSession(credential)
+    state = _graph_state(account.id)
+    well_known = state.well_known
+    if well_known is None:
+        well_known = state.well_known = graph_folders.well_known_ids(session)
+    folders = graph_folders.list_folders(session, well_known)
+
+    target = folder or well_known.get("inbox") or ""
+    exists = next((f.total for f in folders if f.id == target), 0)
+    messages = graph_messages.fetch_headers(session, target, limit, offset)
+
+    all_uids = None
+    if offset == 0:
+        # Held across the requests: two syncs of one folder racing would each
+        # apply the same changes to a stale copy and lose the other's link.
+        with state.lock:
+            delta = graph_messages.folder_ids(session, target, state.deltas.get(target))
+            state.deltas[target] = delta
+        all_uids = set(delta.ids)
+
+    # Free here, unlike IMAP: every folder's count came with the listing.
+    counts = {
+        f.id: f.unread
+        for f in folders
+        if should_count_unread
+        and offset == 0
+        and f.id != target
+        and f.role is not FolderRole.OTHER
+    }
+    return SyncResult(
+        folders=[
+            MailboxInfo(f.id, "/", "", label=f.label, role=f.role, parent=f.parent_id)
+            for f in folders
+        ],
+        messages=messages,
+        folder=target,
+        exists=exists,
+        offset=offset,
+        all_uids=all_uids,
+        unread_counts=counts,
+    )
+
+
 def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
     """Turn raw wire headers into the display-ready form.
 
@@ -317,6 +384,8 @@ def fetch_full_message(
     account: Account, credential: Credential, folder_name: str, uid: str
 ) -> bytes:
     """Open one folder and download a single full message."""
+    if account.is_graph:
+        return graph_messages.fetch_mime(GraphSession(credential), uid)
     with _pooled_session(account, credential) as session:
         session.select(folder_name)
         return session.fetch_message(uid)
@@ -350,6 +419,9 @@ def set_flag(
     """
     if not uids:
         return
+    if account.is_graph:
+        graph_messages.set_flags(GraphSession(credential), list(uids), flag, should_add)
+        return
     with _pooled_session(account, credential) as session:
         session.select(folder_name, is_readonly=False)
         session.store_flags(",".join(uids), flag, should_add)
@@ -367,6 +439,9 @@ def move_messages(
     A failure part-way is reported rather than raised, because the caller has
     to know which UIDs made it across.
     """
+    if account.is_graph:
+        outcome = graph_messages.move(GraphSession(credential), uids, destination)
+        return MoveResult(outcome.destination_ids, outcome.failed_index, outcome.error)
     with _pooled_session(account, credential) as session:
         session.select(folder_name, is_readonly=False)
         destination_uids = []
@@ -390,6 +465,10 @@ def send_message(
     raw: bytes,
 ) -> None:
     """Connect, log in, and hand a fully-built message to the server."""
+    if account.is_graph:
+        # Exchange files the Sent copy itself, so there is nothing to append.
+        graph_send.send_mime(GraphSession(credential), raw, recipients)
+        return
     session = SmtpSession(account.smtp_host, account.smtp_port, account.smtp_security)
     session.connect()
 
@@ -487,6 +566,29 @@ def role_for_folder(name: str) -> FolderRole:
     return FolderRole.OTHER
 
 
+def folder_role(folder: Folder) -> FolderRole:
+    """A folder's role: the one its server stated, else inferred from its name."""
+    try:
+        return FolderRole(folder.role)
+    except ValueError:
+        return role_for_folder(folder.name)
+
+
+def folder_label(folder: Folder) -> str:
+    """What the sidebar and menus call a folder."""
+    return folder.label or display_name_for_folder(
+        folder.name, folder.display_delimiter
+    )
+
+
+def is_outgoing(folder: Folder) -> bool:
+    """is_outgoing_folder for a stored folder, which may know its own role."""
+    return folder.name == OUTBOX_FOLDER or folder_role(folder) in (
+        FolderRole.SENT,
+        FolderRole.DRAFTS,
+    )
+
+
 def is_outgoing_folder(name: str) -> bool:
     """Whether a folder holds mail this account sent.
 
@@ -530,15 +632,62 @@ def sent_folder(db: Database, account_id: int) -> Folder:
     and the copy with it -- the mail vanishes from the app. Falls back to
     creating "Sent" for an account whose folder list hasn't synced yet.
     """
-    names = (folder.name for folder in db.folders_for_account(account_id))
-    name = mailbox_with_role(names, FolderRole.SENT) or SENT_FOLDER
-    return db.get_or_create_folder(account_id, name, icon_for_folder(name))
+    return _folder_for_role(db, account_id, FolderRole.SENT, SENT_FOLDER)
+
+
+def drafts_folder(db: Database, account_id: int) -> Folder:
+    """The local folder that mirrors this account's drafts mailbox.
+
+    Same reasoning as sent_folder: a draft saved under a folder named "Drafts"
+    beside the server's "Entwürfe" is pruned, with the draft, by the next sync.
+    Main thread only.
+    """
+    return _folder_for_role(db, account_id, FolderRole.DRAFTS, DRAFTS_FOLDER)
+
+
+def _folder_for_role(
+    db: Database, account_id: int, role: FolderRole, fallback_name: str
+) -> Folder:
+    folders = db.folders_for_account(account_id)
+    match = next((folder for folder in folders if folder_role(folder) is role), None)
+    if match is not None:
+        return match
+    return db.get_or_create_folder(
+        account_id, fallback_name, icon_for_folder(fallback_name)
+    )
 
 
 def parent_mailbox_name(name: str, delimiter: str) -> str:
     """The mailbox enclosing name, or "" when it sits at the top level."""
     parent = name.rpartition(delimiter)[0] if delimiter else ""
     return "" if parent in NAMESPACE_ROOTS else parent
+
+
+def parent_of(mailbox: MailboxInfo) -> str:
+    """The name of the mailbox enclosing this one, "" at the top level."""
+    if mailbox.parent is not None:
+        return mailbox.parent
+    return parent_mailbox_name(mailbox.name, mailbox.delimiter)
+
+
+def creation_order(mailboxes: list[MailboxInfo]) -> list[MailboxInfo]:
+    """The order to first store mailboxes in, which is their sidebar order.
+
+    IMAP lists in whatever order the server likes, so shortest name first
+    keeps a parent above its children. Graph mailboxes arrive already ordered,
+    role folders first.
+    """
+    if any(mailbox.parent is not None for mailbox in mailboxes):
+        return mailboxes
+    return sorted(mailboxes, key=lambda mailbox: len(mailbox.name))
+
+
+def icon_for_mailbox(mailbox: MailboxInfo) -> str:
+    if ATTR_NOSELECT in mailbox.flags:
+        return "folder-symbolic"
+    if mailbox.role:
+        return icon_for_role(FolderRole(mailbox.role))
+    return icon_for_folder(mailbox.name)
 
 
 def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
@@ -554,7 +703,10 @@ def display_name_for_folder(name: str, delimiter: str | None = None) -> str:
 
 def icon_for_folder(name: str) -> str:
     """Pick a symbolic icon name for a mailbox (used in the sidebar)."""
+    return icon_for_role(role_for_folder(name))
 
+
+def icon_for_role(role: FolderRole) -> str:
     return {
         FolderRole.INBOX: "mail-unread-symbolic",
         FolderRole.SENT: "mail-send-symbolic",
@@ -563,7 +715,7 @@ def icon_for_folder(name: str) -> str:
         FolderRole.TRASH: "user-trash-symbolic",
         FolderRole.JUNK: "mail-mark-junk-symbolic",
         FolderRole.STARRED: "starred-symbolic",
-    }.get(role_for_folder(name), "folder-symbolic")
+    }.get(role, "folder-symbolic")
 
 
 def _clean_sender(value: str) -> str:

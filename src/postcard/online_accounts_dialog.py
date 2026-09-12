@@ -57,10 +57,10 @@ class PostcardOnlineAccountsDialog(Adw.Dialog):
         for online in accounts:
             row = Adw.ActionRow(title=online.email, subtitle=online.provider_name)
             if not online.is_mail_supported:
-                # Microsoft 365 is the one people hit: its token only covers the
-                # Graph API, so there is no IMAP server to point at.
+                # A GOA "Exchange" account is the one people hit: it signs in to
+                # EWS, which Postcard doesn't speak.
                 row.set_subtitle(
-                    _("{provider} accounts don't allow IMAP mail access").format(
+                    _("{provider} accounts don't offer mail Postcard can read").format(
                         provider=online.provider_name
                     )
                 )
@@ -91,6 +91,7 @@ class PostcardOnlineAccountsDialog(Adw.Dialog):
             smtp_port=online.smtp_port,
             smtp_security=online.smtp_security,
             goa_id=online.goa_id,
+            protocol=online.protocol,
         )
         self._reload()
         self.emit("account-added")

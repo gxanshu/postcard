@@ -6,6 +6,9 @@ import re
 from email import policy
 from typing import NamedTuple
 
+# Re-exported (the "as" form): MailboxInfo is what list_folders returns, and
+# lives in core.models only so the Graph backend can build one too.
+from ..models.mailbox import MailboxInfo as MailboxInfo
 from . import NET_TIMEOUT_SECONDS, ssl_context_for
 from .auth import MECHANISM_LOGIN, MECHANISM_XOAUTH2, Credential, xoauth2_response
 
@@ -27,12 +30,6 @@ ATTR_NOSELECT = "\\Noselect"
 # Gmail files its own copy of everything sent through it. This capability is how
 # it identifies itself, so we don't append a second copy on top.
 GMAIL_CAPABILITY = "X-GM-EXT-1"
-
-
-class MailboxInfo(NamedTuple):
-    name: str
-    delimiter: str  # "" when the server reports NIL: a flat namespace
-    flags: str
 
 
 class FetchedHeader(NamedTuple):

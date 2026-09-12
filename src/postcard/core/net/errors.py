@@ -4,6 +4,7 @@ import socket
 import ssl
 from gettext import gettext as _
 
+from .graph_session import GraphError
 from .imap_session import ImapError
 from .smtp_session import SmtpError
 
@@ -39,6 +40,8 @@ def classify(exc: Exception, host: str) -> tuple[bool, str]:  # noqa: PLR0911
         )
     if isinstance(exc, TimeoutError):
         return False, _("Connecting to {host} timed out.").format(host=host)
+    if isinstance(exc, GraphError):
+        return _classify_graph(exc)
     if isinstance(exc, (ImapError, SmtpError)):
         text = str(exc).lower()
         if any(hint in text for hint in _AUTH_HINTS):
@@ -47,6 +50,30 @@ def classify(exc: Exception, host: str) -> tuple[bool, str]:  # noqa: PLR0911
     if isinstance(exc, OSError):
         return False, _("Couldn't reach the mail server. Check your connection.")
     return False, str(exc)
+
+
+# Graph's HTTP statuses, grouped by what the user can do about them.
+_GRAPH_UNAUTHORIZED = 401
+_GRAPH_FORBIDDEN = 403
+_GRAPH_BUSY = frozenset({429, 503, 504})
+
+
+def _classify_graph(exc: GraphError) -> tuple[bool, str]:
+    # The token comes from GNOME Online Accounts, so a rejected one is fixed
+    # there, not with a password field in Postcard.
+    if exc.status == _GRAPH_UNAUTHORIZED:
+        return True, _(
+            "Microsoft rejected the sign-in. Sign in again under Online Accounts "
+            "in Settings."
+        )
+    if exc.status == _GRAPH_FORBIDDEN:
+        return True, _(
+            "Microsoft refused access to this mailbox. Your organization may "
+            "need to allow GNOME Online Accounts to read mail."
+        )
+    if exc.status in _GRAPH_BUSY:
+        return False, _("Microsoft is busy right now. Try again in a moment.")
+    return False, exc.message
 
 
 # Trailing punctuation is sentence, not URL: "see https://x/y." keeps the dot out.

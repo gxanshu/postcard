@@ -1,7 +1,18 @@
 import pytest
 
-from postcard.core.goa import imap_server, smtp_server, split_host_port
-from postcard.core.models.account import SECURITY_STARTTLS, SECURITY_TLS
+from postcard.core.goa import (
+    imap_server,
+    online_account,
+    smtp_server,
+    split_host_port,
+)
+from postcard.core.models.account import (
+    GRAPH_HOST,
+    PROTOCOL_GRAPH,
+    PROTOCOL_IMAP,
+    SECURITY_STARTTLS,
+    SECURITY_TLS,
+)
 
 # --- split_host_port --------------------------------------------------------
 
@@ -58,3 +69,66 @@ def test_a_mailless_account_reports_no_host():
     # Microsoft 365 and Exchange expose no IMAP server at all; the caller uses
     # the empty host to mark them unavailable rather than crashing on it.
     assert imap_server({})[0] == ""
+
+
+# --- online_account ---------------------------------------------------------
+
+_ACCOUNT = "org.gnome.OnlineAccounts.Account"
+_MAIL = "org.gnome.OnlineAccounts.Mail"
+_OAUTH2 = "org.gnome.OnlineAccounts.OAuth2Based"
+
+
+def test_a_microsoft_365_account_is_reached_over_graph():
+    account = {
+        "Id": "account_2",
+        "ProviderType": "ms_graph",
+        "ProviderName": "Microsoft 365",
+    }
+    # GOA lists Mail for it, but with IMAP and SMTP switched off.
+    mail = {"EmailAddress": "ada@contoso.com", "ImapSupported": False, "ImapHost": ""}
+
+    online = online_account(account, {_ACCOUNT: account, _MAIL: mail, _OAUTH2: {}})
+
+    assert online.protocol == PROTOCOL_GRAPH
+    assert online.is_mail_supported
+    assert online.is_oauth2
+    assert (online.imap_host, online.smtp_host) == (GRAPH_HOST, GRAPH_HOST)
+    assert online.email == "ada@contoso.com"
+
+
+def test_a_microsoft_account_without_mail_is_not_offered():
+    account = {"Id": "account_3", "ProviderType": "ms_graph"}
+
+    online = online_account(account, {_ACCOUNT: account, _OAUTH2: {}})
+
+    assert not online.is_mail_supported
+
+
+def test_an_exchange_account_has_no_mail_postcard_can_read():
+    account = {
+        "Id": "account_4",
+        "ProviderType": "exchange",
+        "PresentationIdentity": "a@x",
+    }
+
+    online = online_account(account, {_ACCOUNT: account, _MAIL: {}})
+
+    assert online.protocol == PROTOCOL_IMAP
+    assert not online.is_mail_supported
+
+
+def test_a_google_account_stays_on_imap():
+    account = {"Id": "account_1", "ProviderType": "google"}
+    mail = {
+        "EmailAddress": "ada@gmail.com",
+        "ImapHost": "imap.gmail.com",
+        "ImapUseSsl": True,
+        "SmtpHost": "smtp.gmail.com",
+        "SmtpUseSsl": True,
+    }
+
+    online = online_account(account, {_ACCOUNT: account, _MAIL: mail, _OAUTH2: {}})
+
+    assert online.protocol == PROTOCOL_IMAP
+    assert (online.imap_host, online.imap_port) == ("imap.gmail.com", 993)
+    assert online.is_mail_supported

@@ -6,7 +6,10 @@ import postcard.mail_sync as mail_sync
 from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
+from postcard.core.models.folder import Folder
 from postcard.core.net.auth import Credential
+from postcard.core.net.graph_folders import GraphFolder
+from postcard.core.net.graph_messages import DeltaState, MoveOutcome
 from postcard.core.net.imap_session import (
     FLAG_SEEN,
     GMAIL_CAPABILITY,
@@ -20,17 +23,26 @@ from postcard.mail_sync import (
     FolderRole,
     SyncResult,
     _to_message_header,
+    creation_order,
     display_name_for_folder,
+    drafts_folder,
+    fetch_full_message,
     fetch_mailbox,
     first_recipient,
+    folder_label,
+    folder_role,
     format_date,
     icon_for_folder,
+    icon_for_mailbox,
     inbox_name,
+    is_outgoing,
     is_outgoing_folder,
     mailbox_with_role,
     move_messages,
     parent_mailbox_name,
+    parent_of,
     role_for_folder,
+    send_message,
     sent_folder,
     server_uids,
 )
@@ -831,3 +843,221 @@ def test_removing_an_account_mid_operation_does_not_pool_the_connection(
 
     assert mail_sync._pool[account().id].session is None
     assert ClosingSession.logouts == 1
+
+
+# --- folders that state their own role (Microsoft Graph) ----------------------
+
+
+def graph_account() -> Account:
+    return Account(
+        id=7,
+        email="ada@contoso.com",
+        display_name="Ada",
+        imap_host="graph.microsoft.com",
+        imap_port=443,
+        smtp_host="graph.microsoft.com",
+        smtp_port=443,
+        goa_id="account_2",
+        protocol="graph",
+    )
+
+
+GRAPH_TOKEN = Credential("ada@contoso.com", "token", "xoauth2")
+
+
+def stored_folder(name: str, role: str = "", label: str = "", parent_id=None) -> Folder:
+    return Folder(
+        id=1,
+        account_id=1,
+        name=name,
+        icon_name="folder-symbolic",
+        parent_id=parent_id,
+        role=role,
+        label=label,
+    )
+
+
+def test_a_stated_role_wins_over_the_name():
+    assert folder_role(stored_folder("AAMkSent", role="sent")) is FolderRole.SENT
+    # "Archive" by name, but Graph said this one is an ordinary folder.
+    assert folder_role(stored_folder("Archive", role="other")) is FolderRole.OTHER
+
+
+def test_without_a_stated_role_it_is_inferred_from_the_name():
+    assert folder_role(stored_folder("[Gmail]/Sent Mail")) is FolderRole.SENT
+
+
+def test_folder_label_prefers_the_server_s_display_name():
+    assert folder_label(stored_folder("AAMk1", label="Posteingang")) == "Posteingang"
+    assert folder_label(stored_folder("Work/Acme", parent_id=3)) == "Acme"
+
+
+def test_is_outgoing_reads_the_stated_role():
+    assert is_outgoing(stored_folder("AAMk2", role="sent"))
+    assert is_outgoing(stored_folder("AAMk3", role="drafts"))
+    assert is_outgoing(stored_folder(mail_sync.OUTBOX_FOLDER))
+    assert not is_outgoing(stored_folder("Sent", role="other"))
+
+
+def test_sent_and_drafts_folders_are_found_by_stated_role(db_account):
+    db, account_id = db_account
+    sent = db.get_or_create_folder(account_id, "AAMkSent")
+    db.set_folder_identity(sent.id, "sent", "Gesendete Elemente")
+    drafts = db.get_or_create_folder(account_id, "AAMkDrafts")
+    db.set_folder_identity(drafts.id, "drafts", "Entwürfe")
+
+    assert sent_folder(db, account_id).id == sent.id
+    assert drafts_folder(db, account_id).id == drafts.id
+    assert len(db.folders_for_account(account_id)) == 2
+
+
+def test_drafts_folder_creates_one_before_the_first_sync(db_account):
+    db, account_id = db_account
+
+    assert drafts_folder(db, account_id).name == mail_sync.DRAFTS_FOLDER
+
+
+def test_imap_mailboxes_are_stored_shortest_name_first():
+    boxes = mailboxes("Work/Acme", "Work", "INBOX")
+
+    assert [box.name for box in creation_order(boxes)] == ["Work", "INBOX", "Work/Acme"]
+
+
+def test_graph_mailboxes_keep_the_order_they_came_in():
+    boxes = [
+        MailboxInfo("long-inbox-id", "/", "", "Posteingang", "inbox", ""),
+        MailboxInfo("s", "/", "", "Sub", "other", "long-inbox-id"),
+    ]
+
+    assert creation_order(boxes) == boxes
+    assert parent_of(boxes[1]) == "long-inbox-id"
+    assert parent_of(boxes[0]) == ""
+
+
+def test_parent_of_an_imap_mailbox_splits_its_name():
+    assert parent_of(MailboxInfo("Work/Acme", "/", "")) == "Work"
+
+
+def test_icon_for_mailbox_uses_the_stated_role():
+    assert icon_for_mailbox(MailboxInfo("AAMk", "/", "", "Gesendet", "sent")) == (
+        "mail-send-symbolic"
+    )
+    assert icon_for_mailbox(MailboxInfo("Trash", "/", "")) == "user-trash-symbolic"
+    assert icon_for_mailbox(MailboxInfo("[Gmail]", "/", "\\Noselect")) == (
+        "folder-symbolic"
+    )
+
+
+# --- dispatch to Microsoft Graph ------------------------------------------------
+
+
+class FakeGraphModules:
+    """Stands in for the core Graph modules mail_sync calls, recording calls."""
+
+    def __init__(self) -> None:
+        self.well_known_calls = 0
+        self.delta_states: list = []
+        self.calls: list = []
+
+    def well_known_ids(self, session):
+        self.well_known_calls += 1
+        return {"inbox": "in"}
+
+    def list_folders(self, session, well_known):
+        return [
+            GraphFolder("in", "Posteingang", "", FolderRole.INBOX, 3, 120),
+            GraphFolder("kid", "Projekte", "in", FolderRole.OTHER, 9, 10),
+            GraphFolder("bin", "Gelöschte Elemente", "", FolderRole.TRASH, 1, 5),
+        ]
+
+    def fetch_headers(self, session, folder_id, limit, offset):
+        self.calls.append(("headers", folder_id, limit, offset))
+        return []
+
+    def folder_ids(self, session, folder_id, state):
+        self.delta_states.append(state)
+        return DeltaState(f"link-{len(self.delta_states)}", frozenset({"m1", "m2"}))
+
+    def fetch_mime(self, session, message_id):
+        self.calls.append(("mime", message_id))
+        return b"raw"
+
+    def set_flags(self, session, ids, flag, should_add):
+        self.calls.append(("flags", ids, flag, should_add))
+
+    def move(self, session, ids, destination):
+        self.calls.append(("move", ids, destination))
+        return MoveOutcome(["m1"], 1, "boom")
+
+    def send_mime(self, session, raw, recipients):
+        self.calls.append(("send", raw, recipients))
+
+
+@pytest.fixture
+def graph(monkeypatch):
+    fake = FakeGraphModules()
+    for module in ("graph_folders", "graph_messages", "graph_send"):
+        monkeypatch.setattr(mail_sync, module, fake)
+    return fake
+
+
+def test_a_graph_sync_maps_folders_counts_and_the_id_snapshot(graph):
+    result = fetch_mailbox(graph_account(), GRAPH_TOKEN)
+
+    assert result.folder == "in"
+    assert result.exists == 120
+    assert result.all_uids == {"m1", "m2"}
+    assert result.folders[1] == MailboxInfo(
+        "kid", "/", "", label="Projekte", role="other", parent="in"
+    )
+    # Every role folder but the one fetched; ordinary folders get no badge.
+    assert result.unread_counts == {"bin": 1}
+    assert graph.calls == [("headers", "in", mail_sync.RECENT_LIMIT, 0)]
+
+
+def test_a_second_graph_sync_reuses_the_folder_ids_and_the_delta_link(graph):
+    fetch_mailbox(graph_account(), GRAPH_TOKEN)
+    fetch_mailbox(graph_account(), GRAPH_TOKEN)
+
+    assert graph.well_known_calls == 1
+    assert graph.delta_states[0] is None
+    assert graph.delta_states[1].link == "link-1"
+
+
+def test_closing_sessions_forgets_the_graph_state(graph):
+    fetch_mailbox(graph_account(), GRAPH_TOKEN)
+    mail_sync.close_sessions(graph_account().id)
+    fetch_mailbox(graph_account(), GRAPH_TOKEN)
+
+    assert graph.well_known_calls == 2
+    assert graph.delta_states[1] is None
+
+
+def test_an_older_graph_page_skips_the_snapshot_and_the_counts(graph):
+    result = fetch_mailbox(graph_account(), GRAPH_TOKEN, "kid", offset=50)
+
+    assert result.all_uids is None
+    assert result.unread_counts == {}
+    assert graph.delta_states == []
+
+
+def test_graph_operations_go_to_graph(graph, monkeypatch):
+    def no_imap(*_args, **_kwargs):
+        raise AssertionError("a Graph account must not open IMAP or SMTP")
+
+    monkeypatch.setattr(mail_sync, "ImapSession", no_imap)
+    monkeypatch.setattr(mail_sync, "SmtpSession", no_imap)
+    account = graph_account()
+
+    assert fetch_full_message(account, GRAPH_TOKEN, "in", "m1") == b"raw"
+    mail_sync.set_flag(account, GRAPH_TOKEN, "in", ("m1",), FLAG_SEEN, True)
+    moved = move_messages(account, GRAPH_TOKEN, "in", ["m1", "m2"], "bin")
+    send_message(account, GRAPH_TOKEN, account.email, ["x@y"], b"raw")
+
+    assert moved == mail_sync.MoveResult(["m1"], 1, "boom")
+    assert graph.calls == [
+        ("mime", "m1"),
+        ("flags", ["m1"], FLAG_SEEN, True),
+        ("move", ["m1", "m2"], "bin"),
+        ("send", b"raw", ["x@y"]),
+    ]

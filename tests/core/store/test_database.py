@@ -604,3 +604,44 @@ def test_a_later_sighting_fills_in_a_missing_name(db):
 def test_save_contacts_skips_entries_with_no_address(db):
     db.save_contacts([("Nobody", "")])
     assert db.contact_addresses() == []
+
+
+# --- Microsoft Graph accounts -------------------------------------------------
+
+
+def test_an_account_remembers_its_protocol(db):
+    db.save_account(
+        "a@x",
+        "A",
+        "graph.microsoft.com",
+        443,
+        "graph.microsoft.com",
+        443,
+        goa_id="account_2",
+        protocol="graph",
+    )
+    db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
+
+    graph, imap = db.accounts()
+
+    assert (graph.protocol, graph.is_graph) == ("graph", True)
+    assert (imap.protocol, imap.is_graph) == ("imap", False)
+
+
+def test_a_folder_keeps_the_role_and_label_its_server_stated(db, folder):
+    db.set_folder_identity(folder.id, "sent", "Gesendete Elemente")
+
+    [stored] = db.folders_for_account(folder.account_id)
+
+    assert (stored.role, stored.label) == ("sent", "Gesendete Elemente")
+
+
+def test_a_new_folder_infers_its_role_and_label(folder):
+    assert (folder.role, folder.label) == ("", "")
+
+
+def test_arrival_key_orders_opaque_graph_ids_by_date():
+    older = _email(server_id="AAMkA=", date="2026-09-01T08:00:00+00:00")
+    newer = _email(server_id="AAMkB=", date="2026-09-02T08:00:00+00:00")
+
+    assert _arrival_key(older) < _arrival_key(newer)

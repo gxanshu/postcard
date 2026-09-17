@@ -193,6 +193,9 @@ class _AddressSuggestions:
             self._list.select_row(row)
 
 
+# Long enough to read as a slide, short enough not to sit in the way of typing.
+_REVEAL_DURATION_MS = 250
+
 _FORMAT_COMMANDS = {
     "bold_button": "bold",
     "italic_button": "italic",
@@ -212,6 +215,10 @@ class PostcardComposerWindow(Adw.Window):
     send_spinner: Gtk.Spinner = Gtk.Template.Child()
     from_row: Adw.ComboRow = Gtk.Template.Child()
     to_row: Adw.EntryRow = Gtk.Template.Child()
+    extra_recipients_button: Gtk.ToggleButton = Gtk.Template.Child()
+    extra_recipients_row: Gtk.ListBoxRow = Gtk.Template.Child()
+    extra_recipients_clip: Gtk.ScrolledWindow = Gtk.Template.Child()
+    extra_recipients_box: Gtk.Box = Gtk.Template.Child()
     cc_row: Adw.EntryRow = Gtk.Template.Child()
     bcc_row: Adw.EntryRow = Gtk.Template.Child()
     subject_row: Adw.EntryRow = Gtk.Template.Child()
@@ -259,8 +266,16 @@ class PostcardComposerWindow(Adw.Window):
         self.cc_row.set_text(cc)
         self.bcc_row.set_text(bcc)
         self.subject_row.set_text(subject)
+        # Cc and Bcc stay folded away until asked for, or until a reply-all
+        # arrives with them already filled in.
+        self.extra_recipients_button.set_active(self._has_extra_recipients())
+        self._build_extra_recipients_animation()
+        self._sync_extra_recipients(is_animated=False)
         self._build_editor()
 
+        self.extra_recipients_button.connect(
+            "toggled", self._on_extra_recipients_toggled
+        )
         self.cancel_button.connect("clicked", self._on_cancel_clicked)
         self.send_button.connect("clicked", self._on_send_clicked)
         self.attach_button.connect("clicked", self._on_attach_clicked)
@@ -278,6 +293,70 @@ class PostcardComposerWindow(Adw.Window):
             _AddressSuggestions(row, known)
             for row in (self.to_row, self.cc_row, self.bcc_row)
         ]
+
+    # Gtk.Revealer is the obvious fit here, but its transition is ease-out in
+    # both directions: a collapse jumps away and then crawls the last few
+    # pixels. An Adw.TimedAnimation over the row height eases in and out
+    # symmetrically, and lands exactly on 0 rather than on the row minimum.
+    def _build_extra_recipients_animation(self) -> None:
+        self._extra_recipients_animation = Adw.TimedAnimation.new(
+            self.extra_recipients_row,
+            0,
+            0,
+            _REVEAL_DURATION_MS,
+            Adw.CallbackAnimationTarget.new(self._on_extra_recipients_value),
+        )
+        self._extra_recipients_animation.set_easing(Adw.Easing.EASE_IN_OUT_CUBIC)
+        self._extra_recipients_animation.connect("done", self._on_extra_recipients_done)
+
+    def _on_extra_recipients_toggled(self, button: Gtk.ToggleButton) -> None:
+        self._sync_extra_recipients()
+        if button.get_active():
+            self.cc_row.grab_focus()
+
+    def _on_extra_recipients_value(self, value: float, *_args: object) -> None:
+        self.extra_recipients_clip.set_size_request(-1, int(value))
+
+    def _on_extra_recipients_done(self, *_args: object) -> None:
+        if self.extra_recipients_button.get_active():
+            # Back to following the rows, so a wrapped address or a larger font
+            # is not clipped by the height the animation happened to end on.
+            self.extra_recipients_clip.set_propagate_natural_height(True)
+            self.extra_recipients_clip.set_size_request(-1, -1)
+            return
+        # Clipped-away rows still take Tab focus, so the collapsed row is only
+        # really gone once it is hidden. At height 0 this costs no layout.
+        self.extra_recipients_row.set_visible(False)
+
+    def _has_extra_recipients(self) -> bool:
+        return bool(self.cc_row.get_text().strip() or self.bcc_row.get_text().strip())
+
+    def _sync_extra_recipients(self, *, is_animated: bool = True) -> None:
+        is_shown = self.extra_recipients_button.get_active()
+        self.extra_recipients_button.set_tooltip_text(
+            _("Hide Cc and Bcc fields") if is_shown else _("Show Cc and Bcc fields")
+        )
+        if is_shown:
+            self.extra_recipients_row.set_visible(True)
+
+        if not is_animated:
+            self.extra_recipients_clip.set_propagate_natural_height(is_shown)
+            self.extra_recipients_clip.set_size_request(-1, -1 if is_shown else 0)
+            self.extra_recipients_row.set_visible(is_shown)
+            return
+
+        # While the height is driven by hand the clip must not report the rows'
+        # own height as its natural one, or there is nothing left to animate.
+        self.extra_recipients_clip.set_propagate_natural_height(False)
+        # measure() returns (minimum, natural, ...); unpacking it would bind
+        # gettext's _ as a local and break the tooltip above.
+        natural = self.extra_recipients_box.measure(Gtk.Orientation.VERTICAL, -1)[1]
+        animation = self._extra_recipients_animation
+        # Start from where the row actually is, so a click mid-animation turns
+        # around from there instead of snapping back to the far end.
+        animation.set_value_from(self.extra_recipients_clip.get_height())
+        animation.set_value_to(natural if is_shown else 0)
+        animation.play()
 
     # The account every send, draft and Sent copy belongs to. Picking another
     # here is the only way to change it once the composer is open.

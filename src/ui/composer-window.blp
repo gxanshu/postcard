@@ -51,14 +51,58 @@ template $PostcardComposerWindow: Adw.Window {
 
           Adw.EntryRow to_row {
             title: _("To");
+
+            [suffix]
+            Gtk.ToggleButton extra_recipients_button {
+              icon-name: "view-more-horizontal-symbolic";
+              tooltip-text: _("Show Cc and Bcc fields");
+              valign: center;
+
+              styles ["flat", "circular"]
+            }
           }
 
-          Adw.EntryRow cc_row {
-            title: _("Cc");
-          }
+          // Cc and Bcc slide in together. A Gtk.ListBox cannot animate a row of
+          // its own, so the pair sits in one clipped wrapper row whose height
+          // is animated by hand -- see _sync_extra_recipients. The separator
+          // it would otherwise draw rides along inside, so it measures zero.
+          Gtk.ListBoxRow extra_recipients_row {
+            activatable: false;
+            selectable: false;
+            focusable: false;
+            visible: false;
+            overflow: hidden;
 
-          Adw.EntryRow bcc_row {
-            title: _("Bcc");
+            styles ["recipients-reveal"]
+
+            // A Gtk.ListBoxRow cannot be sized below its child: height-request
+            // only raises the minimum. A scrolled window can, and with both
+            // policies external it clips without ever drawing a scrollbar.
+            child: Gtk.ScrolledWindow extra_recipients_clip {
+              hscrollbar-policy: external;
+              vscrollbar-policy: external;
+              propagate-natural-height: false;
+
+              child: Gtk.Box extra_recipients_box {
+                orientation: vertical;
+                valign: start;
+
+                Adw.EntryRow cc_row {
+                  title: _("Cc");
+                }
+
+                Gtk.Separator {}
+
+                Adw.EntryRow bcc_row {
+                  title: _("Bcc");
+                }
+
+                // The list draws its separators as a border under each row, and
+                // this one's is off (it would survive at height 0). This takes
+                // its place, and slides away with the rest.
+                Gtk.Separator {}
+              };
+            };
           }
 
           Adw.EntryRow subject_row {

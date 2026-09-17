@@ -44,3 +44,13 @@
 .message-html {
   background-color: #ffffff;
 }
+
+/* The Cc/Bcc pair slides open inside the boxed list, so the row holding it may
+   contribute nothing of its own: a border or a minimum height would survive at
+   height 0 and pop the layout the moment the collapse ends. The separator under
+   To rides along inside the row instead. */
+list.boxed-list > row.recipients-reveal {
+  min-height: 0;
+  padding: 0;
+  border: none;
+}

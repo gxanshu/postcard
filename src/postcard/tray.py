@@ -142,8 +142,11 @@ def _icon_file() -> Path | None:
     return None
 
 
-def _badged_icon(count: int) -> tuple[int, int, bytes] | None:
-    """The app icon with an unread bubble, or None to keep the themed icon."""
+def _rendered_icon(count: int) -> tuple[int, int, bytes] | None:
+    """The app icon, with an unread bubble when count is non-zero.
+
+    None means the icon file is unreadable and the themed name has to do.
+    """
     icon_file = _icon_file()
     if icon_file is None:
         logger.warning("no %s.png on XDG_DATA_DIRS to draw the badge on", APP_ID)
@@ -162,6 +165,10 @@ def _badged_icon(count: int) -> tuple[int, int, bytes] | None:
     context.set_source_surface(base, 0, 0)
     context.paint()
     context.restore()
+
+    if not count:
+        surface.flush()
+        return ICON_SIZE, ICON_SIZE, _network_order_argb(surface)
 
     text = str(count) if count <= MAX_BADGE_COUNT else f"{MAX_BADGE_COUNT}+"
     center = ICON_SIZE - BADGE_RADIUS - 1
@@ -213,7 +220,7 @@ class Tray:
         self._bus: Gio.DBusConnection | None = None
         self._status = STATUS_HIDDEN
         self._unread = 0
-        self._badge: tuple[int, int, bytes] | None = None
+        self._icon: tuple[int, int, bytes] | None = None
 
     def start(self) -> None:
         """Export the item, then register it with whatever watcher turns up."""
@@ -252,7 +259,9 @@ class Tray:
         if self._bus is None or count == self._unread:
             return
         self._unread = count
-        self._badge = _badged_icon(count) if count else None
+        # Never hand back an empty pixmap: hosts that cache the last one keep
+        # showing the old badge behind the themed icon. Repaint without it.
+        self._icon = _rendered_icon(count)
         self._bus.emit_signal(None, ITEM_PATH, ITEM_INTERFACE, "NewIcon", None)
 
     def _on_watcher_appeared(
@@ -310,11 +319,11 @@ class Tray:
         if name == "Status":
             return GLib.Variant("s", self._status)
         # Every host prefers IconName over IconPixmap, so blank it out while
-        # there is a badge to show.
+        # we have a rendered icon to show.
         if name == "IconName":
-            return GLib.Variant("s", "" if self._badge else APP_ID)
+            return GLib.Variant("s", "" if self._icon else APP_ID)
         if name == "IconPixmap":
-            return GLib.Variant("a(iiay)", [self._badge] if self._badge else [])
+            return GLib.Variant("a(iiay)", [self._icon] if self._icon else [])
         return ITEM_PROPERTIES[name]
 
     def _on_menu_call(

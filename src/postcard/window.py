@@ -1705,6 +1705,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 (i for i, item in enumerate(matches) if item.id == keep_id), -1
             )
 
+        # Read before the splice: it recycles the row widgets, so afterwards
+        # the keyboard focus has already left the list.
+        focus = self.get_focus()
+        has_focused_row = focus is not None and focus.is_ancestor(
+            self.conversation_list
+        )
+
         store = self._conversation_store
         self._selection_update_in_progress = True
         try:
@@ -1712,6 +1719,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             store.splice(0, store.get_n_items(), matches)
             if target >= 0:
                 self._selection.select_item(target, True)
+                # Clicking a row focuses it, and the splice above drops that
+                # widget; GtkListView then focuses its first row, dragging the
+                # list back to the top. Put the focus back on the row being
+                # read. Only while the list had it, so a background refresh
+                # can't steal it from the search entry or the reader.
+                if has_focused_row:
+                    self.conversation_list.scroll_to(
+                        target, Gtk.ListScrollFlags.FOCUS, None
+                    )
             else:
                 self._selection.unselect_all()
         finally:

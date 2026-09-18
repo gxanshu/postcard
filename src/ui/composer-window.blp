@@ -55,7 +55,6 @@ template $PostcardComposerWindow: Adw.Window {
             [suffix]
             Gtk.ToggleButton extra_recipients_button {
               icon-name: "view-more-horizontal-symbolic";
-              tooltip-text: _("Show Cc and Bcc fields");
               valign: center;
 
               styles ["flat", "circular"]
@@ -73,7 +72,7 @@ template $PostcardComposerWindow: Adw.Window {
             visible: false;
             overflow: hidden;
 
-            styles ["recipients-reveal"]
+            styles ["extra-recipients"]
 
             // A Gtk.ListBoxRow cannot be sized below its child: height-request
             // only raises the minimum. A scrolled window can, and with both

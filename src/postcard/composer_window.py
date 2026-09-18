@@ -310,6 +310,14 @@ class PostcardComposerWindow(Adw.Window):
         self._extra_recipients_animation.connect("done", self._on_extra_recipients_done)
 
     def _on_extra_recipients_toggled(self, button: Gtk.ToggleButton) -> None:
+        # Folding away a filled Cc or Bcc would leave those recipients on the
+        # message with nothing on screen to say so, so refuse and put the cursor
+        # on the field that is in the way.
+        # ponytail: the tooltip still reads "Hide"; keeping it honest means
+        # following every keystroke in Cc and Bcc.
+        if not button.get_active() and self._has_extra_recipients():
+            button.set_active(True)
+            return
         self._sync_extra_recipients()
         if button.get_active():
             self.cc_row.grab_focus()

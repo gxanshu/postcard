@@ -120,9 +120,11 @@ _pool_lock = threading.Lock()
 class _GraphState:
     """What a Graph account keeps between operations, in place of a connection.
 
-    Graph is stateless HTTP, so there is nothing to pool -- but the well-known
-    folder ids never change, and a delta link turns the next UID snapshot of a
-    folder into a request for what changed instead of a walk over all of it.
+    Graph is stateless HTTP, so there is nothing to pool -- but a well-known
+    folder's id never changes once it exists, and a delta link turns the next
+    UID snapshot of a folder into a request for what changed instead of a walk
+    over all of it. Which folders exist can still change, so well_known is
+    only kept for good once graph_folders.is_complete accepts it.
     """
 
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -313,7 +315,7 @@ def _fetch_graph_mailbox(
     session = GraphSession(credential)
     state = _graph_state(account.id)
     well_known = state.well_known
-    if well_known is None:
+    if well_known is None or not graph_folders.is_complete(well_known):
         well_known = state.well_known = graph_folders.well_known_ids(session)
     folders = graph_folders.list_folders(session, well_known)
 

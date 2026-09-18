@@ -13,6 +13,7 @@ from postcard.core.net.graph_session import (
     Response,
     quote_id,
     retry_delay,
+    should_retry,
     with_query,
 )
 
@@ -92,6 +93,51 @@ def test_a_backend_that_stays_busy_raises_after_the_last_attempt():
 
     assert raised.value.status == 503
     assert len(transport.requests) == 4
+
+
+def test_a_busy_backend_does_not_resend_a_message():
+    # 503 may mean Graph took the send and failed to answer, so a retry would
+    # deliver it twice.
+    transport = FakeTransport(reply(503, {"error": {"code": "busy"}}))
+
+    with pytest.raises(GraphError) as raised:
+        session(transport).request("POST", "/me/sendMail", b"x")
+
+    assert raised.value.status == 503
+    assert len(transport.requests) == 1
+
+
+def test_a_throttled_send_is_still_retried():
+    # 429 is a refusal: nothing was sent, so it is safe to send again.
+    transport = FakeTransport(reply(429, {"error": {"code": "busy"}}), reply(202))
+
+    session(transport).request("POST", "/me/sendMail", b"x")
+
+    assert len(transport.requests) == 2
+
+
+def test_only_a_repeatable_method_is_retried_when_the_backend_is_busy():
+    assert should_retry(429, "POST") is True
+    assert should_retry(503, "POST") is False
+    assert should_retry(504, "get") is True
+    assert should_retry(500, "GET") is False
+
+
+def test_a_move_inside_a_batch_is_not_repeated_on_a_busy_backend():
+    transport = FakeTransport(
+        batch_reply(("0", 503, {}), ("1", 503, {})),
+        batch_reply(("1", 200, {"retried": True})),
+    )
+
+    answers = session(transport).batch(
+        [BatchRequest("POST", "/me/messages/1/move"), BatchRequest("GET", "/a")]
+    )
+
+    assert answers[0].status == 503
+    # Only the GET was worth asking again.
+    assert [r["id"] for r in json.loads(transport.requests[1].data)["requests"]] == [
+        "1"
+    ]
 
 
 def test_an_error_status_carries_graph_s_code_and_message():

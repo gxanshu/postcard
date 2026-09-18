@@ -158,6 +158,19 @@ def test_a_first_delta_that_fails_is_raised():
         folder_ids(graph, "inbox", None)  # type: ignore[arg-type]
 
 
+def test_a_state_without_a_delta_link_walks_the_folder_again():
+    # Resuming from an empty link would request nothing, hand back the ids
+    # unchanged, and have the caller prune everything that arrived since.
+    graph = FakeGraph(
+        pages=[[{"value": [{"id": "a"}], "@odata.deltaLink": "https://delta/1"}]]
+    )
+
+    state = folder_ids(graph, "inbox", DeltaState("", frozenset("xy")))  # type: ignore[arg-type]
+
+    assert state == DeltaState("https://delta/1", frozenset({"a"}))
+    assert graph.paths[0][0].startswith("/me/mailFolders/inbox/messages/delta")
+
+
 def test_imap_flags_become_graph_properties():
     assert flag_patch(FLAG_SEEN, True) == {"isRead": True}
     assert flag_patch(FLAG_FLAGGED, False) == {"flag": {"flagStatus": "notFlagged"}}

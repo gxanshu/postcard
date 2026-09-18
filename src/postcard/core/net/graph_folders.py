@@ -58,6 +58,18 @@ def well_known_ids(session: GraphSession) -> dict[str, str]:
     }
 
 
+def is_complete(well_known: dict[str, str]) -> bool:
+    """Whether every role folder is in the map, so it is worth keeping.
+
+    A mailbox need not have them all: Outlook creates Archive the first time
+    something is archived, and Junk can be absent too. Until the map holds the
+    lot it has to be fetched again each sync, or a folder created after the
+    first one would keep coming back OTHER and archiving would pick the wrong
+    folder for the rest of the run.
+    """
+    return all(name in well_known for name in WELL_KNOWN_ROLES)
+
+
 def list_folders(
     session: GraphSession, well_known: dict[str, str]
 ) -> list[GraphFolder]:

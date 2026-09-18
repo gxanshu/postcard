@@ -23,8 +23,13 @@ MIME_TYPE = "text/plain"  # what Graph wants base64 MIME labelled as
 _TOO_LARGE = 413
 
 # Attachments under this size are posted inline; larger ones need an upload
-# session, which Graph only accepts from 3 MiB up.
-_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024
+# session. Graph documents the inline limit as "under 3 MB" and the upload
+# session as 3 MB to 150 MB, so the cutoff is the decimal 3 MB rather than
+# 3 MiB -- an attachment between the two is over Graph's limit but would have
+# taken the inline path and failed the whole send. It doubles as the bound that
+# keeps the request body legal: contentBytes is base64, which is a third larger
+# again, and 3 MB of attachment encodes to 4 MB of JSON.
+_INLINE_ATTACHMENT_BYTES = 3 * 1000 * 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,19 +61,32 @@ def send_mime(session: GraphSession, raw: bytes, recipients: list[str]) -> None:
 
 
 def bcc_recipients(raw: bytes, recipients: list[str]) -> list[str]:
-    """The recipients the message's To and Cc headers don't name."""
+    """The recipients the message's To and Cc headers don't name.
+
+    A recipient arrives in whatever form the composer was given -- a bare
+    address or "Alice <alice@example.com>" -- while the headers name the
+    address alone, so both sides are parsed down to the address before they are
+    compared. Matching the raw strings instead would read a named To recipient
+    as hidden: they would be sent a second copy, with their address exposed in
+    the Bcc header of everyone else's.
+    """
     headers = email.message_from_bytes(raw, policy=policy.compat32)
-    named = {
-        address.casefold()
-        for _name, address in getaddresses(
-            [str(headers["To"] or ""), str(headers["Cc"] or "")]
-        )
-    }
+    named = _addresses(str(headers["To"] or ""), str(headers["Cc"] or ""))
     hidden = []
+    seen: set[str] = set()
     for recipient in recipients:
-        if recipient.casefold() not in named and recipient not in hidden:
+        address = next(iter(_addresses(recipient)), recipient.casefold())
+        if address not in named and address not in seen:
+            seen.add(address)
             hidden.append(recipient)
     return hidden
+
+
+def _addresses(*values: str) -> list[str]:
+    """Every address the given header values name, lowercased."""
+    return [
+        address.casefold() for _name, address in getaddresses(list(values)) if address
+    ]
 
 
 def with_bcc(raw: bytes, bcc: list[str]) -> bytes:

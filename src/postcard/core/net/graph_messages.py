@@ -116,15 +116,20 @@ def folder_ids(
 
     The first call walks the whole folder; later ones pass the previous state
     and only fetch what changed since. A delta link Graph no longer honours
-    starts the walk over rather than failing the sync.
+    starts the walk over rather than failing the sync, and so does a state that
+    never got one: resuming from an empty link would request nothing at all,
+    leaving the ids frozen while the caller took them for a full picture and
+    pruned every message that had arrived since.
     """
-    if state is None:
+    if state is None or not state.link:
         start = with_query(
             f"/me/mailFolders/{quote_id(folder_id)}/messages/delta", select="id"
         )
         ids: set[str] = set()
+        resuming = False
     else:
         start, ids = state.link, set(state.ids)
+        resuming = True
 
     link = ""
     try:
@@ -136,7 +141,7 @@ def folder_ids(
                     ids.add(str(item["id"]))
             link = page.get("@odata.deltaLink", link)
     except GraphError as error:
-        if state is None or error.status not in _EXPIRED_DELTA_STATUSES:
+        if not resuming or error.status not in _EXPIRED_DELTA_STATUSES:
             raise
         return folder_ids(session, folder_id, None)
     return DeltaState(link, frozenset(ids))

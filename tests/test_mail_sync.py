@@ -8,7 +8,7 @@ from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
 from postcard.core.models.folder import Folder
 from postcard.core.net.auth import Credential
-from postcard.core.net.graph_folders import GraphFolder
+from postcard.core.net.graph_folders import GraphFolder, is_complete
 from postcard.core.net.graph_messages import DeltaState, MoveOutcome
 from postcard.core.net.imap_session import (
     FLAG_SEEN,
@@ -954,14 +954,29 @@ def test_icon_for_mailbox_uses_the_stated_role():
 class FakeGraphModules:
     """Stands in for the core Graph modules mail_sync calls, recording calls."""
 
-    def __init__(self) -> None:
+    # Every role folder, so the map is one mail_sync may keep; the partial
+    # case has its own test.
+    ALL_ROLES = {
+        "inbox": "in",
+        "drafts": "drafts",
+        "sentitems": "sent",
+        "archive": "archive",
+        "junkemail": "junk",
+        "deleteditems": "bin",
+    }
+
+    def __init__(self, well_known: dict[str, str] | None = None) -> None:
         self.well_known_calls = 0
         self.delta_states: list = []
         self.calls: list = []
+        self._well_known = self.ALL_ROLES if well_known is None else well_known
 
     def well_known_ids(self, session):
         self.well_known_calls += 1
-        return {"inbox": "in"}
+        return self._well_known
+
+    # The real rule: mail_sync asks it whether the cache is worth keeping.
+    is_complete = staticmethod(is_complete)
 
     def list_folders(self, session, well_known):
         return [
@@ -1022,6 +1037,20 @@ def test_a_second_graph_sync_reuses_the_folder_ids_and_the_delta_link(graph):
     assert graph.well_known_calls == 1
     assert graph.delta_states[0] is None
     assert graph.delta_states[1].link == "link-1"
+
+
+def test_a_folder_list_still_missing_a_role_is_fetched_again(monkeypatch):
+    # A mailbox has no Archive until something is archived. Caching the map
+    # without one would leave that folder OTHER -- and archiving aiming at the
+    # wrong folder -- for the rest of the run.
+    fake = FakeGraphModules({"inbox": "in"})
+    for module in ("graph_folders", "graph_messages", "graph_send"):
+        monkeypatch.setattr(mail_sync, module, fake)
+
+    fetch_mailbox(graph_account(), GRAPH_TOKEN)
+    fetch_mailbox(graph_account(), GRAPH_TOKEN)
+
+    assert fake.well_known_calls == 2
 
 
 def test_closing_sessions_forgets_the_graph_state(graph):

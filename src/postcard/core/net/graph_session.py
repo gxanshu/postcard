@@ -36,7 +36,16 @@ JSON_TYPE = "application/json"
 
 # Throttling (429) and a busy or restarting backend (503/504) are temporary by
 # definition; Graph says how long to wait in Retry-After.
-_RETRY_STATUSES = frozenset({429, 503, 504})
+_THROTTLED_STATUS = 429
+_BUSY_STATUSES = frozenset({503, 504})
+
+# A throttled request was refused before the server acted on it, so anything
+# may be sent again. A busy or restarting backend may instead have acted and
+# failed to answer, so only a request that costs nothing twice goes again: a
+# retried POST /me/sendMail would send the message a second time. Graph's
+# PATCH sets absolute values (isRead, flagStatus), which repeats harmlessly.
+_REPEATABLE_METHODS = frozenset({"GET", "HEAD", "PUT", "PATCH", "DELETE"})
+
 _MAX_ATTEMPTS = 4
 _MAX_RETRY_SECONDS = 30
 
@@ -128,6 +137,13 @@ def error_from(response: Response) -> GraphError:
     )
 
 
+def should_retry(status: int, method: str) -> bool:
+    """Whether a request that answered status may be sent again."""
+    if status == _THROTTLED_STATUS:
+        return True
+    return status in _BUSY_STATUSES and method.upper() in _REPEATABLE_METHODS
+
+
 def retry_delay(headers: Mapping[str, str], attempt: int) -> float:
     """Seconds to wait before retrying: Retry-After when given, else backoff."""
     lowered = {name.lower(): value for name, value in headers.items()}
@@ -177,7 +193,10 @@ class GraphSession:
                 url, data=body, headers=headers, method=method
             )
             response = self._transport(request)
-            if response.status not in _RETRY_STATUSES or attempt == _MAX_ATTEMPTS - 1:
+            if (
+                not should_retry(response.status, method)
+                or attempt == _MAX_ATTEMPTS - 1
+            ):
                 break
             delay = retry_delay(response.headers, attempt)
             logger.debug(
@@ -222,7 +241,10 @@ class GraphSession:
             for start in range(0, len(pending), BATCH_LIMIT):
                 chunk = pending[start : start + BATCH_LIMIT]
                 for index, status, headers, body in self._run_batch(requests, chunk):
-                    if status in _RETRY_STATUSES and attempt < _MAX_ATTEMPTS - 1:
+                    if (
+                        should_retry(status, requests[index].method)
+                        and attempt < _MAX_ATTEMPTS - 1
+                    ):
                         throttled.append(index)
                         delay = max(delay, retry_delay(headers, attempt))
                     else:

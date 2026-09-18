@@ -151,3 +151,41 @@ def test_any_other_send_failure_is_raised_as_is():
 
     with pytest.raises(GraphError, match="denied"):
         send_mime(graph, message(), [])  # type: ignore[arg-type]
+
+
+def test_a_named_to_recipient_is_not_mistaken_for_a_bcc():
+    # The composer hands on whatever was typed, so a display name reaches here
+    # while the To header names the address alone.
+    raw = message()
+
+    assert bcc_recipients(
+        raw,
+        [
+            "Grace <grace@example.com>",
+            "Carol <CAROL@example.com>",
+            "Eve <eve@example.com>",
+        ],
+    ) == ["Eve <eve@example.com>"]
+
+
+def test_the_same_address_twice_is_one_bcc():
+    assert bcc_recipients(message(), ["eve@example.com", "Eve <EVE@example.com>"]) == [
+        "eve@example.com"
+    ]
+
+
+def test_an_attachment_over_graphs_inline_limit_is_uploaded():
+    # 3 MB is decimal: this is over Graph's inline limit but under 3 MiB, so a
+    # MiB cutoff would have posted it inline and failed the send.
+    graph = FakeGraph((("POST", "/me/sendMail"), GraphError(413, "tooLarge", "big")))
+    between = Attachment(
+        filename="b.bin", mime_type="application/octet-stream", content=b"b" * 3_100_000
+    )
+
+    send_mime(graph, message([between]), [])  # type: ignore[arg-type]
+
+    assert ("POST", "/me/messages/draft%2F1/attachments") not in graph.calls
+    assert (
+        "POST",
+        "/me/messages/draft%2F1/attachments/createUploadSession",
+    ) in graph.calls

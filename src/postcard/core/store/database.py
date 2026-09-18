@@ -8,6 +8,7 @@ from gi.repository import GLib
 from .. import threader
 from ..models.account import (
     IMPLICIT_TLS_PORT,
+    PROTOCOL_IMAP,
     SECURITY_STARTTLS,
     SECURITY_TLS,
     Account,
@@ -32,7 +33,7 @@ def _fts_query(text: str) -> str:
     return " ".join(f'"{word}"*' for word in words)
 
 
-def _arrival_key(mail: Email) -> int:
+def _arrival_key(mail: Email) -> float:
     """A proxy for when a message arrived, for ordering threads/messages.
 
     The IMAP UID (server_id) is guaranteed by the protocol to increase with
@@ -42,10 +43,13 @@ def _arrival_key(mail: Email) -> int:
     A message with no UID yet (a Sent copy saved right after sending, before
     the next sync confirms it) sorts as the newest.
     """
-    try:
-        return int(mail.server_id or "")
-    except ValueError:
+    if not mail.server_id:
         return 2**31 - 1
+    if mail.server_id.isdigit():
+        return int(mail.server_id)
+    # A Graph message id is opaque and says nothing about order, so fall back
+    # to the date. A folder is all one kind, so the two scales never meet.
+    return _sent_key(mail)
 
 
 def _sent_key(mail: Email) -> float:
@@ -86,6 +90,14 @@ MIGRATIONS = [
     # No backfill: empty already means "sign in as the email address", which is
     # what every account predating this column was doing.
     "ALTER TABLE accounts ADD COLUMN username TEXT NOT NULL DEFAULT ''",
+    # No backfill: every account before this one was IMAP.
+    "ALTER TABLE accounts ADD COLUMN protocol TEXT NOT NULL DEFAULT 'imap'",
+    # Empty means "infer from the name", which is what every IMAP folder still
+    # does; Graph folders are named by opaque id and state both outright.
+    """
+    ALTER TABLE folders ADD COLUMN role TEXT NOT NULL DEFAULT '';
+    ALTER TABLE folders ADD COLUMN label TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 
@@ -210,6 +222,7 @@ class Database:
             smtp_security=row["smtp_security"],
             username=row["username"],
             goa_id=row["goa_id"],
+            protocol=row["protocol"],
         )
 
     def accounts(self) -> list[Account]:
@@ -228,6 +241,7 @@ class Database:
         smtp_security: str | None = None,
         username: str = "",
         goa_id: str = "",
+        protocol: str = PROTOCOL_IMAP,
     ) -> Account:
         if smtp_security is None:
             # Port 465 is implicit TLS (SMTPS); everything else is assumed to
@@ -239,8 +253,8 @@ class Database:
             """
             INSERT INTO accounts
                 (email, display_name, imap_host, imap_port, smtp_host, smtp_port,
-                 imap_security, smtp_security, username, goa_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 imap_security, smtp_security, username, goa_id, protocol)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 email,
@@ -253,6 +267,7 @@ class Database:
                 smtp_security,
                 username,
                 goa_id,
+                protocol,
             ),
         )
         self._conn.commit()
@@ -290,6 +305,8 @@ class Database:
             icon_name=row["icon_name"],
             parent_id=row["parent_id"],
             delimiter=row["delimiter"],
+            role=row["role"],
+            label=row["label"],
         )
 
     def folders_for_account(self, account_id: int) -> list[Folder]:
@@ -333,6 +350,15 @@ class Database:
         self._conn.execute(
             "UPDATE folders SET parent_id = ?, delimiter = ? WHERE id = ?",
             (parent_id, delimiter, folder_id),
+        )
+        self._conn.commit()
+
+    # Written on every sync, since a folder can be renamed on the server
+    # without its Graph id changing.
+    def set_folder_identity(self, folder_id: int, role: str, label: str) -> None:
+        self._conn.execute(
+            "UPDATE folders SET role = ?, label = ? WHERE id = ?",
+            (role, label, folder_id),
         )
         self._conn.commit()
 

@@ -546,11 +546,7 @@ class PostcardComposerWindow(Adw.Window):
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         if self._has_content():
-            folder = self._db.get_or_create_folder(
-                self._account.id,
-                mail_sync.DRAFTS_FOLDER,
-                mail_sync.icon_for_folder(mail_sync.DRAFTS_FOLDER),
-            )
+            folder = mail_sync.drafts_folder(self._db, self._account.id)
             msg = compose.build_mime_message(
                 self._account.email,
                 self._to_addrs(),

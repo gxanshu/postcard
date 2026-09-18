@@ -68,6 +68,7 @@ postcard_core_models_sources = [
   'postcard/core/models/__init__.py',
   'postcard/core/models/account.py',
   'postcard/core/models/folder.py',
+  'postcard/core/models/mailbox.py',
   'postcard/core/models/email.py',
   'postcard/core/models/message_header.py',
   'postcard/core/models/conversation.py',
@@ -85,6 +86,10 @@ postcard_core_net_sources = [
   'postcard/core/net/__init__.py',
   'postcard/core/net/auth.py',
   'postcard/core/net/errors.py',
+  'postcard/core/net/graph_folders.py',
+  'postcard/core/net/graph_messages.py',
+  'postcard/core/net/graph_send.py',
+  'postcard/core/net/graph_session.py',
   'postcard/core/net/imap_session.py',
   'postcard/core/net/smtp_session.py',
 ]

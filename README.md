@@ -88,7 +88,7 @@ More are coming.
 
 ## Supported providers
 
-Postcard speaks plain IMAP and SMTP, so anything that supports those should work. "Works" means the protocol is supported. "Tested" means I actually ran it against a real account.
+Postcard speaks plain IMAP and SMTP, so anything that supports those should work, plus Microsoft Graph for Microsoft accounts. "Works" means the protocol is supported. "Tested" means I actually ran it against a real account.
 
 | Provider | Works | Tested | Notes |
 |---|:---:|:---:|---|
@@ -96,13 +96,13 @@ Postcard speaks plain IMAP and SMTP, so anything that supports those should work
 | **Yahoo Mail** | ✅ | ✅ | Needs an app password from Account Security |
 | **Proton Mail** | ✅ | ✅ | Through [Proton Mail Bridge](https://proton.me/mail/bridge) (paid plans). Use the Bridge's local host, port and password with STARTTLS |
 | **Any IMAP/SMTP server** | ✅ | ❌ | Fastmail, Zoho, Mailbox.org, Migadu (✅), self-hosted Dovecot/Postfix. Enter host, port and TLS mode by hand |
-| **Outlook / Hotmail / Microsoft 365** | ❌ | ❌ | Microsoft removed basic auth and requires OAuth 2.0. Planned |
+| **Microsoft 365 / Outlook.com** | ✅ | ✅ | Add the account in GNOME Settings → Online Accounts ("Microsoft 365", which also takes personal Outlook.com and Hotmail accounts), then pick it in Postcard. Mail goes over the Microsoft Graph API, since Microsoft no longer allows password sign-in and GNOME's token has no IMAP access. Some organizations have to allow GNOME Online Accounts first |
 
 TIP: most providers with 2FA will reject your normal account password over IMAP. You need to generate an
 app specific password instead. For Google, you can use Gnome Online Accounts but for password based login
 you need app password.
 
-Only OAuth accounts are imported from Online Accounts, which in practice means only Google at the moment. A GOA "Email Server" account is plain IMAP/SMTP which is already handled by Postcard. Microsoft 365 and Exchange give out Graph-only tokens with no IMAP access. [Microsoft support is in development](https://github.com/gxanshu/postcard/issues/18)
+Only OAuth accounts are imported from Online Accounts: Google (over IMAP) and Microsoft 365 (over Microsoft Graph). A GOA "Email Server" account is plain IMAP/SMTP which is already handled by Postcard. A GOA "Exchange" account signs in to Exchange Web Services, which Postcard does not speak.
 
 # Installation
 

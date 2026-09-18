@@ -9,7 +9,15 @@ from typing import NamedTuple
 
 from gi.repository import Gio, GLib
 
-from .models.account import SECURITY_STARTTLS, SECURITY_TLS, parse_port
+from .models.account import (
+    GRAPH_HOST,
+    GRAPH_PORT,
+    PROTOCOL_GRAPH,
+    PROTOCOL_IMAP,
+    SECURITY_STARTTLS,
+    SECURITY_TLS,
+    parse_port,
+)
 from .net import NET_TIMEOUT_SECONDS
 from .net.auth import MECHANISM_XOAUTH2, Credential
 
@@ -22,6 +30,11 @@ _OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
 _ACCOUNT = "org.gnome.OnlineAccounts.Account"
 _MAIL = "org.gnome.OnlineAccounts.Mail"
 _OAUTH2 = "org.gnome.OnlineAccounts.OAuth2Based"
+
+# GNOME's "Microsoft 365" provider, which also covers personal Outlook.com
+# accounts. Its token carries Mail.ReadWrite and Mail.Send for the Graph API but
+# no IMAP scope, so it is the one provider reached over Graph instead.
+MS_GRAPH_PROVIDER = "ms_graph"
 
 _IMAP_IMPLICIT_TLS_PORT = 993
 _IMAP_PORT = 143
@@ -54,6 +67,7 @@ class OnlineAccount(NamedTuple):
     # Only OAuth accounts are imported: an IMAP/SMTP one is the Add Account
     # dialog's job, and going through GNOME would buy nothing but the typing.
     is_oauth2: bool
+    protocol: str = PROTOCOL_IMAP
 
 
 def split_host_port(value: str, default_port: int) -> tuple[str, int]:
@@ -93,9 +107,9 @@ def smtp_server(mail: Properties) -> tuple[str, int, str]:
 def mail_accounts() -> list[OnlineAccount]:
     """Every account in GNOME Online Accounts, mail-capable or not.
 
-    Accounts that cannot do IMAP come back with is_mail_supported False rather
-    than being dropped, so the caller can say why they are unavailable --
-    Microsoft 365 is the common case, since its token only covers the Graph API.
+    Accounts that cannot do mail come back with is_mail_supported False rather
+    than being dropped, so the caller can say why they are unavailable -- a
+    GOA "Exchange" account is the common case, since it signs in to EWS.
     """
     try:
         objects = _managed_objects()
@@ -112,28 +126,40 @@ def mail_accounts() -> list[OnlineAccount]:
         # no, and listing it as "unsupported" would misstate why.
         if account.get("MailDisabled"):
             continue
-
-        mail = interfaces.get(_MAIL, {})
-        imap_host, imap_port, imap_security = imap_server(mail)
-        smtp_host, smtp_port, smtp_security = smtp_server(mail)
-        email = str(mail.get("EmailAddress") or account.get("PresentationIdentity", ""))
-        accounts.append(
-            OnlineAccount(
-                goa_id=str(account.get("Id", "")),
-                email=email,
-                display_name=str(mail.get("Name") or email.partition("@")[0]),
-                provider_name=str(account.get("ProviderName", "")),
-                imap_host=imap_host,
-                imap_port=imap_port,
-                imap_security=imap_security,
-                smtp_host=smtp_host,
-                smtp_port=smtp_port,
-                smtp_security=smtp_security,
-                is_mail_supported=bool(imap_host and smtp_host),
-                is_oauth2=_OAUTH2 in interfaces,
-            )
-        )
+        accounts.append(online_account(account, interfaces))
     return accounts
+
+
+def online_account(account: Properties, interfaces: Interfaces) -> OnlineAccount:
+    """One GOA account object, as the Online Accounts dialog lists it."""
+    mail = interfaces.get(_MAIL, {})
+    email = str(mail.get("EmailAddress") or account.get("PresentationIdentity", ""))
+    is_oauth2 = _OAUTH2 in interfaces
+
+    if account.get("ProviderType") == MS_GRAPH_PROVIDER:
+        protocol = PROTOCOL_GRAPH
+        imap = smtp = (GRAPH_HOST, GRAPH_PORT, SECURITY_TLS)
+        is_mail_supported = is_oauth2 and _MAIL in interfaces and bool(email)
+    else:
+        protocol = PROTOCOL_IMAP
+        imap, smtp = imap_server(mail), smtp_server(mail)
+        is_mail_supported = bool(imap[0] and smtp[0])
+
+    return OnlineAccount(
+        goa_id=str(account.get("Id", "")),
+        email=email,
+        display_name=str(mail.get("Name") or email.partition("@")[0]),
+        provider_name=str(account.get("ProviderName", "")),
+        imap_host=imap[0],
+        imap_port=imap[1],
+        imap_security=imap[2],
+        smtp_host=smtp[0],
+        smtp_port=smtp[1],
+        smtp_security=smtp[2],
+        is_mail_supported=is_mail_supported,
+        is_oauth2=is_oauth2,
+        protocol=protocol,
+    )
 
 
 def credential(goa_id: str) -> Credential | None:

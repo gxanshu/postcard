@@ -3,6 +3,7 @@ import ssl
 
 from postcard.core.net import errors
 from postcard.core.net.errors import classify
+from postcard.core.net.graph_session import GraphError
 from postcard.core.net.imap_session import ImapError
 from postcard.core.net.smtp_session import SmtpError
 
@@ -55,4 +56,24 @@ def test_a_quote_in_a_server_message_cannot_break_out_of_href():
     assert errors.linkify('auth failed: https://evil/" title="x') == (
         'auth failed: <a href="https://evil/&quot">https://evil/&quot</a>'
         "; title=&quot;x"
+    )
+
+
+# --- Microsoft Graph --------------------------------------------------------
+
+
+def test_a_rejected_graph_token_is_a_sign_in_problem():
+    assert is_auth_failure(GraphError(401, "InvalidAuthenticationToken", "expired"))
+    assert is_auth_failure(GraphError(403, "ErrorAccessDenied", "denied"))
+
+
+def test_a_busy_or_missing_graph_resource_is_not():
+    assert not is_auth_failure(GraphError(429, "TooManyRequests", "slow down"))
+    assert not is_auth_failure(GraphError(404, "ErrorItemNotFound", "gone"))
+
+
+def test_other_graph_errors_show_graph_s_message():
+    assert classify(GraphError(400, "ErrorInvalidIdMalformed", "bad id"), "h") == (
+        False,
+        "bad id",
     )

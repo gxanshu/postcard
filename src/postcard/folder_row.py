@@ -52,9 +52,7 @@ class FolderRow(Gtk.Box):
     # Fill this row from a folder. Called every time the row is (re)used.
     def bind(self, folder: Folder, unread_count: int) -> None:
         self._icon.set_from_icon_name(folder.icon_name)
-        self._name_label.set_label(
-            mail_sync.display_name_for_folder(folder.name, folder.display_delimiter)
-        )
+        self._name_label.set_label(mail_sync.folder_label(folder))
         self._name_label.remove_css_class("heading")
         self._expandable = None
         self._spinner_slot.set_visible(False)

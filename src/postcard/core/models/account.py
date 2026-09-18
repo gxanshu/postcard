@@ -13,6 +13,16 @@ MAX_PORT = 65535
 # SMTP over implicit TLS (SMTPS). Any other port is assumed to use STARTTLS.
 IMPLICIT_TLS_PORT = 465
 
+# How an account's mail is reached. IMAP/SMTP is everything typed in by hand
+# and Google; Microsoft 365 hands out a token that only opens the Graph API.
+PROTOCOL_IMAP = "imap"
+PROTOCOL_GRAPH = "graph"
+
+# What a Graph account stores in the host/port columns, which predate it and are
+# NOT NULL. Error messages name the host, so it is the real one.
+GRAPH_HOST = "graph.microsoft.com"
+GRAPH_PORT = 443
+
 
 def parse_port(text: str) -> int | None:
     """A port number from user input, or None when it isn't one.
@@ -44,6 +54,7 @@ class Account(GObject.Object):
         smtp_security: str = "tls",
         username: str = "",
         goa_id: str = "",
+        protocol: str = PROTOCOL_IMAP,
     ) -> None:
         super().__init__()
         self.id: int = id
@@ -61,6 +72,11 @@ class Account(GObject.Object):
         # Set when the account came from GNOME Online Accounts, which is then
         # where its credentials live instead of the keyring.
         self.goa_id: str = goa_id
+        self.protocol: str = protocol
+
+    @property
+    def is_graph(self) -> bool:
+        return self.protocol == PROTOCOL_GRAPH
 
     @property
     def short_label(self) -> str:

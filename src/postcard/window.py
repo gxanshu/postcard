@@ -181,6 +181,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._rendered_id: int | None = None
         self._suppress_folder_refresh: bool = False
         self._selection_update_in_progress: bool = False
+        # The row widget currently showing each on-screen conversation, so a
+        # flag change can repaint it without resplicing the whole list.
+        self._bound_rows: dict[Conversation, ConversationRow] = {}
         # One entry per source mailbox of the same move, all committed (or
         # undone) together by the single timer below.
         self._pending_moves: list[PendingMove] = []
@@ -811,8 +814,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             write(originals)
             self._after_flag_change(conversations)
 
+        # Repaint in place: a full refresh resplices every row, which flickers
+        # the list each time opening a conversation marks it read.
         write(dict.fromkeys(originals, value))
-        self._after_flag_change(conversations)
+        self._reload_folders()
+        for conversation in conversations:
+            row = self._bound_rows.get(conversation)
+            if row is not None:
+                self._bind_row(row, conversation)
+        self._update_reader()
 
         # ponytail: one mailbox failing reverts the whole selection, as the
         # single-folder version always did; per-bucket revert if it matters.
@@ -834,8 +844,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 daemon=True,
             ).start()
 
-    # Update badges and the list after a flag change, keeping this
-    # conversation selected (so the reader doesn't reload).
+    # Update badges and the list after a failed flag change is reverted,
+    # keeping this conversation selected (so the reader doesn't reload). A full
+    # refresh, since a sync may have replaced the store's objects meanwhile.
     def _after_flag_change(self, conversations: list[Conversation]) -> None:
         keep_id = conversations[0].id if len(conversations) == 1 else None
         self._reload_folders()
@@ -906,9 +917,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
 
         # Anchor the menu to the list rather than to the row, and take the
-        # click point while the row is still on screen: selecting below marks
-        # an unread conversation read, which resplices the store and can leave
-        # the row widget unparented -- popping up over that aborts in C.
+        # click point while the row is still on screen: the store can be
+        # respliced under it (a sync landing, a failed flag change reverting),
+        # leaving the row widget unparented -- popping up over that aborts in C.
         row_widget = gesture.get_widget()
         if row_widget is None:
             return
@@ -1836,18 +1847,30 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             conversation = item.get_item()
             assert isinstance(row, ConversationRow)
             assert isinstance(conversation, Conversation)
-            account, folder = self._origin(conversation.latest) or (None, None)
-            row.bind(
-                conversation,
-                is_outgoing=folder is not None and mail_sync.is_outgoing(folder),
-                account_label=account.short_label
-                if account is not None and self._is_unified()
-                else "",
-            )
+            self._bound_rows[conversation] = row
+            self._bind_row(row, conversation)
+
+        def on_unbind(_factory: Gtk.SignalListItemFactory, item: Gtk.ListItem) -> None:
+            conversation = item.get_item()
+            if not isinstance(conversation, Conversation):
+                return
+            if self._bound_rows.get(conversation) is item.get_child():
+                del self._bound_rows[conversation]
 
         factory.connect("setup", on_setup)
         factory.connect("bind", on_bind)
+        factory.connect("unbind", on_unbind)
         return factory
+
+    def _bind_row(self, row: ConversationRow, conversation: Conversation) -> None:
+        account, folder = self._origin(conversation.latest) or (None, None)
+        row.bind(
+            conversation,
+            is_outgoing=folder is not None and mail_sync.is_outgoing(folder),
+            account_label=account.short_label
+            if account is not None and self._is_unified()
+            else "",
+        )
 
     def _on_search_action(self, _action: Gio.SimpleAction, _param: object) -> None:
         self.search_bar.set_search_mode(not self.search_bar.get_search_mode())

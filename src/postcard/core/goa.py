@@ -104,6 +104,18 @@ def smtp_server(mail: Properties) -> tuple[str, int, str]:
     return host, port, SECURITY_TLS if is_implicit_tls else SECURITY_STARTTLS
 
 
+def display_name(account: Properties, mail: Properties, email: str) -> str:
+    """The "Account Description" set in Settings, else the user's name.
+
+    GOA keeps that description in PresentationIdentity, which is the address
+    itself until the user edits it.
+    """
+    description = str(account.get("PresentationIdentity", "")).strip()
+    if description and description != email:
+        return description
+    return str(mail.get("Name") or email.partition("@")[0])
+
+
 def mail_accounts() -> list[OnlineAccount]:
     """Every account in GNOME Online Accounts, mail-capable or not.
 
@@ -148,7 +160,7 @@ def online_account(account: Properties, interfaces: Interfaces) -> OnlineAccount
     return OnlineAccount(
         goa_id=str(account.get("Id", "")),
         email=email,
-        display_name=str(mail.get("Name") or email.partition("@")[0]),
+        display_name=display_name(account, mail, email),
         provider_name=str(account.get("ProviderName", "")),
         imap_host=imap[0],
         imap_port=imap[1],

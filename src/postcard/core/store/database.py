@@ -277,6 +277,13 @@ class Database:
         ).fetchone()
         return self._account_from_row(row)
 
+    def rename_account(self, account_id: int, display_name: str) -> None:
+        self._conn.execute(
+            "UPDATE accounts SET display_name = ? WHERE id = ?",
+            (display_name, account_id),
+        )
+        self._conn.commit()
+
     def delete_account(self, account_id: int) -> None:
         # Flatten the tree first: the parent_id FK rejects deleting a parent
         # while a child still points at it.

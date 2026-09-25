@@ -22,7 +22,7 @@ from .accounts_dialog import PostcardAccountsDialog
 from .avatar_loader import AvatarLoader
 from .composer_window import PostcardComposerWindow, composer_for_mailto
 from .conversation_row import ConversationRow
-from .core import compose, secrets
+from .core import compose, goa, secrets
 from .core.mime.message_parser import ParsedMessage, Unsubscribe
 from .core.models.account import Account
 from .core.models.attachment import Attachment
@@ -342,6 +342,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # _on_folder_selected; the sync below covers the other accounts, and
         # bootstraps a fresh one whose folders aren't in the database yet.
         self._reload_folders()
+        self._refresh_online_account_names()
 
         self._reschedule_sync()
         if self._is_online:
@@ -501,6 +502,27 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._load_mail_view()
             return
         self._reload_folders()
+
+    # The description is renamed in Settings, not here, so an imported account
+    # re-reads it rather than keeping the one it had when it was added.
+    # ponytail: only at startup; watch GOA's PropertiesChanged if a rename
+    # while Postcard is open ever needs to show up without a restart.
+    def _refresh_online_account_names(self) -> None:
+        if any(account.goa_id for account in self._accounts.values()):
+            threading.Thread(target=self._online_names_worker, daemon=True).start()
+
+    def _online_names_worker(self) -> None:
+        names = {online.goa_id: online.display_name for online in goa.mail_accounts()}
+        GLib.idle_add(self._on_online_names, names)
+
+    def _on_online_names(self, names: dict[str, str]) -> bool:
+        for account in self._accounts.values():
+            name = names.get(account.goa_id) if account.goa_id else None
+            if name and name != account.display_name:
+                self._db.rename_account(account.id, name)
+                account.display_name = name
+        self._relabel_accounts()
+        return False
 
     def _on_add_account_clicked(self, *_args: object) -> None:
         dialog = PostcardAccountDialog(self._db)

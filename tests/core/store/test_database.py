@@ -89,6 +89,19 @@ def test_an_account_remembers_the_online_account_it_came_from(db):
     assert (listed_typed_in.id, listed_typed_in.goa_id) == (typed_in.id, "")
 
 
+def test_renaming_an_account_keeps_the_rest_of_it(db):
+    saved = db.save_account("a@x", "a", "imap.x", 993, "smtp.x", 587, goa_id="g1")
+
+    db.rename_account(saved.id, "Home Email")
+
+    (listed,) = db.accounts()
+    assert (listed.display_name, listed.email, listed.goa_id) == (
+        "Home Email",
+        "a@x",
+        "g1",
+    )
+
+
 def test_an_account_remembers_the_username_it_signs_in_with(db):
     db.save_account("a@x", "A", "imap.x", 993, "smtp.x", 587, username="a.short")
     db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)

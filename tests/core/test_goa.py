@@ -132,3 +132,26 @@ def test_a_google_account_stays_on_imap():
     assert online.protocol == PROTOCOL_IMAP
     assert (online.imap_host, online.imap_port) == ("imap.gmail.com", 993)
     assert online.is_mail_supported
+
+
+# --- display_name -----------------------------------------------------------
+
+
+def test_the_account_description_from_settings_is_the_display_name():
+    account = {"Id": "account_1", "PresentationIdentity": "Home Email"}
+    mail = {"EmailAddress": "ada@gmail.com", "Name": "Ada Lovelace"}
+
+    online = online_account(account, {_ACCOUNT: account, _MAIL: mail, _OAUTH2: {}})
+
+    assert online.display_name == "Home Email"
+    assert online.email == "ada@gmail.com"
+
+
+def test_an_unedited_description_falls_back_to_the_users_name():
+    # Until it is edited, GOA's description is just the address again.
+    account = {"Id": "account_1", "PresentationIdentity": "ada@gmail.com"}
+    mail = {"EmailAddress": "ada@gmail.com", "Name": "Ada Lovelace"}
+
+    online = online_account(account, {_ACCOUNT: account, _MAIL: mail})
+
+    assert online.display_name == "Ada Lovelace"

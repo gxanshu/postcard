@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+# The ostree object store is tens of thousands of hashed blobs. Nothing to index,
+# and crawling it burns the crawl budget for the one page that matters.
+Disallow: /repo/
+
+Sitemap: https://postcard.gxanshu.in/sitemap.xml

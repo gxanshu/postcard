@@ -142,12 +142,12 @@ def test_empty_and_garbage_input_do_not_raise():
 
 
 def test_sandbox_html_blocks_remote_subresources() -> None:
-    blocked = sandbox_html("<p>hi</p>", are_remote_images_allowed=False)
+    blocked = sandbox_html("<p>hi</p>", are_remote_images_allowed=False, is_dark=False)
     assert "default-src 'none'" in blocked
     assert 'img-src data:"' in blocked
     assert "<p>hi</p>" in blocked
 
-    allowed = sandbox_html("<p>hi</p>", are_remote_images_allowed=True)
+    allowed = sandbox_html("<p>hi</p>", are_remote_images_allowed=True, is_dark=True)
     assert "img-src data: https: http:" in allowed
     # Remote CSS stays blocked either way -- it leaks the read like a pixel does.
     assert "style-src 'unsafe-inline';" in allowed

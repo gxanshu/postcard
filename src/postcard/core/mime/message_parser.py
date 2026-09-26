@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from email.policy import default as default_policy
 
 from ..models.attachment import Attachment
+from . import html_colors
 
 # RFC 2369 wraps each unsubscribe target in angle brackets and separates them
 # with commas, which may also appear inside a target -- so match the brackets.
@@ -145,10 +146,17 @@ _CSP = "default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src d
 _CSP_WITH_IMAGES = _CSP + " https: http:"
 
 
-def sandbox_html(html: str, *, are_remote_images_allowed: bool) -> str:
-    """Wrap a message body in a document whose CSP blocks remote subresources."""
+def sandbox_html(html: str, *, are_remote_images_allowed: bool, is_dark: bool) -> str:
+    """Wrap a message body in a document whose CSP blocks remote subresources.
+
+    The body is recolored onto the reader's surface (see `html_colors`), and
+    `color-scheme` gives unstyled text and links the matching defaults.
+    """
     policy = _CSP_WITH_IMAGES if are_remote_images_allowed else _CSP
+    scheme = "dark" if is_dark else "light"
     return (
         '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" '
-        f'content="{policy}"></head><body>{html}</body></html>'
+        f'content="{policy}"><style>:root{{color-scheme:{scheme}}}'
+        "html,body{background:transparent}</style></head>"
+        f"<body>{html_colors.recolor(html, is_dark=is_dark)}</body></html>"
     )

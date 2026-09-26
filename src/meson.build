@@ -97,6 +97,7 @@ python_installation.install_sources(postcard_core_net_sources, subdir: 'postcard
 
 postcard_core_mime_sources = [
   'postcard/core/mime/__init__.py',
+  'postcard/core/mime/html_colors.py',
   'postcard/core/mime/message_parser.py',
 ]
 python_installation.install_sources(postcard_core_mime_sources, subdir: 'postcard/core/mime')

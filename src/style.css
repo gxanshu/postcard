@@ -41,10 +41,6 @@
   color: @accent_color;
 }
 
-.message-html {
-  background-color: #ffffff;
-}
-
 /* The Cc/Bcc pair slides open inside the boxed list, so the row holding it may
    contribute nothing of its own: a border or a minimum height would survive at
    height 0 and pop the layout the moment the collapse ends. The separator under

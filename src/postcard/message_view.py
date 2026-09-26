@@ -135,6 +135,7 @@ class MessageView(Gtk.Box):
         self._placeholder: Gtk.Widget | None = None
         self._webview: WebKit.WebView | None = None
         self._html: str | None = None
+        self._dark_handler_id = 0
 
         self.raw: bytes | None = None
         self.parsed: message_parser.ParsedMessage | None = None
@@ -284,18 +285,25 @@ class MessageView(Gtk.Box):
         settings.set_enable_webaudio(False)
         settings.set_enable_webgl(False)
         settings.set_enable_back_forward_navigation_gestures(False)
-        # Clearing the accelerated surface avoids a black frame before WebKit
-        # paints; the GTK class supplies the white canvas expected by email HTML.
+        # Transparent, so the reader's own surface shows through wherever the
+        # recolored body leaves its page color out.
         webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
-        webview.add_css_class("message-html")
         webview.load_html(self._sandboxed_html(), None)
         self._webview = webview
         self._body.append(webview)
+        self._dark_handler_id = Adw.StyleManager.get_default().connect(
+            "notify::dark", self._on_dark_changed
+        )
+
+    def _on_dark_changed(self, _manager: Adw.StyleManager, _pspec: object) -> None:
+        if self._webview is not None:
+            self._webview.load_html(self._sandboxed_html(), None)
 
     def _sandboxed_html(self) -> str:
         return message_parser.sandbox_html(
             self._html or "",
             are_remote_images_allowed=self._should_load_remote_images,
+            is_dark=Adw.StyleManager.get_default().get_dark(),
         )
 
     # The webview only ever renders the message body: the one navigation it may
@@ -394,6 +402,9 @@ class MessageView(Gtk.Box):
         memory until the cyclic collector came round.
         """
         self._is_released = True
+        if self._dark_handler_id:
+            Adw.StyleManager.get_default().disconnect(self._dark_handler_id)
+            self._dark_handler_id = 0
         if self._webview is not None:
             self._webview.disconnect_by_func(self._on_decide_policy)
             self._webview.unparent()

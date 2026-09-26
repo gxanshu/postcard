@@ -1,4 +1,5 @@
 import email
+import email.parser
 import email.utils
 import re
 from dataclasses import dataclass, field
@@ -32,7 +33,6 @@ class ParsedMessage:
     cc: list[str] = field(default_factory=list)
     bcc: list[str] = field(default_factory=list)
     date: str = ""
-    unsubscribe: Unsubscribe | None = None
 
 
 def parse_message(raw: bytes) -> ParsedMessage:
@@ -46,7 +46,6 @@ def parse_message(raw: bytes) -> ParsedMessage:
     result.cc = _addresses(msg, "Cc")
     result.bcc = _addresses(msg, "Bcc")
     result.date = _format_date(msg.get("Date"))
-    result.unsubscribe = _unsubscribe(msg)
 
     for part in msg.walk():
         if part.is_multipart():
@@ -67,6 +66,15 @@ def parse_message(raw: bytes) -> ParsedMessage:
             result.attachments.append(_as_attachment(part))
 
     return result
+
+
+def parse_unsubscribe(raw: bytes) -> Unsubscribe | None:
+    """Read a message's List-Unsubscribe target, parsing its headers only."""
+    msg = email.parser.BytesParser(policy=default_policy).parsebytes(
+        raw, headersonly=True
+    )
+    assert isinstance(msg, EmailMessage)
+    return _unsubscribe(msg)
 
 
 def _unsubscribe(msg: EmailMessage) -> Unsubscribe | None:

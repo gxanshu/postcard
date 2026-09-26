@@ -239,6 +239,12 @@ template $PostcardMainWindow: Adw.ApplicationWindow {
                       tooltip-text: _("Move to Folder");
                       sensitive: false;
                     }
+
+                    Gtk.Button {
+                      icon-name: "action-unavailable-symbolic";
+                      tooltip-text: _("Unsubscribe");
+                      action-name: "win.unsubscribe";
+                    }
                   }
 
                   [end]

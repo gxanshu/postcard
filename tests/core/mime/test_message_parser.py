@@ -2,6 +2,7 @@ from postcard.core.mime.message_parser import (
     Unsubscribe,
     _format_date,
     parse_message,
+    parse_unsubscribe,
     sandbox_html,
 )
 
@@ -163,7 +164,7 @@ body
 
 
 def unsubscribe(raw: bytes) -> Unsubscribe:
-    target = parse_message(raw).unsubscribe
+    target = parse_unsubscribe(raw)
     assert target is not None
     return target
 
@@ -217,4 +218,4 @@ def test_unsubscribe_ignores_a_scheme_we_would_never_open():
 
 
 def test_a_message_from_no_mailing_list_has_no_unsubscribe():
-    assert parse_message(PLAIN).unsubscribe is None
+    assert parse_unsubscribe(PLAIN) is None

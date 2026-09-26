@@ -23,7 +23,7 @@ from .avatar_loader import AvatarLoader
 from .composer_window import PostcardComposerWindow, composer_for_mailto
 from .conversation_row import ConversationRow
 from .core import compose, goa, secrets
-from .core.mime.message_parser import ParsedMessage, Unsubscribe
+from .core.mime.message_parser import ParsedMessage, Unsubscribe, parse_unsubscribe
 from .core.models.account import Account
 from .core.models.attachment import Attachment
 from .core.models.conversation import Conversation
@@ -236,6 +236,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # on a window with nothing selected to act on.
         self._set_mail_actions_enabled(False)
         self._set_reply_forward_enabled(False)
+        self._set_actions_enabled(("unsubscribe",), False)
 
         if not self._db.accounts():
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
@@ -677,6 +678,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ("reply", self._on_reply_clicked),
             ("reply-all", self._on_reply_all_clicked),
             ("forward", self._on_forward_clicked),
+            ("unsubscribe", self._on_unsubscribe),
             ("refresh", self._on_refresh_clicked),
             ("search", self._on_search_action),
             ("add-account", self._on_add_account_clicked),
@@ -982,9 +984,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ("toggle-star", self._on_toggle_star),
             ("archive", self._on_archive),
             ("trash", self._on_trash),
+            ("unsubscribe", self._on_unsubscribe),
         ):
             _register(actions, name, handler)
         _register(actions, "move", self._on_move, _MOVE_PARAM_TYPE)
+        unsubscribe = actions.lookup_action("unsubscribe")
+        if isinstance(unsubscribe, Gio.SimpleAction):
+            unsubscribe.set_enabled(self._unsubscribe_target() is not None)
         return actions
 
     def _context_menu(self, conversation: Conversation) -> Gio.Menu:
@@ -1012,6 +1018,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 _("Move to"), self._build_move_menu("context", *source)
             )
         menu.append_section(None, actions)
+
+        lists = Gio.Menu()
+        lists.append(_("Unsubscribe"), "context.unsubscribe")
+        menu.append_section(None, lists)
 
         return menu
 
@@ -1910,6 +1920,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self._account is None:
             return
         selected = self._selected_conversations()
+        self._update_unsubscribe_action()
         if len(selected) != 1:
             self._rendered_id = None
             self._active_view = None
@@ -2003,7 +2014,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 on_save_attachment=self._save_attachment,
                 on_open_attachment=self._open_attachment,
                 on_rendered=self._on_newest_rendered if is_newest else None,
-                on_unsubscribe=self._on_unsubscribe,
                 is_expanded=is_newest,
                 should_load_remote_images=should_load_remote_images,
                 delivered_to=delivered_to,
@@ -2018,6 +2028,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         self._active_view = view
         self._set_reply_forward_enabled(True)
+        # The newest body may only just have arrived over the network.
+        self._update_unsubscribe_action()
 
     # Fetch one message's raw bytes for a MessageView: serve the cached copy if
     # we have it, else pull it over IMAP on a worker thread. (Marking read is
@@ -2167,11 +2179,27 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             logger.warning("could not open attachment %s: %s", filename, error.message)
             self._toast(_("Couldn't open {name}.").format(name=filename))
 
-    def _on_unsubscribe(self, target: Unsubscribe, on_done: Callable[[], None]) -> None:
+    # The newest message speaks for the list: an older one may carry a token
+    # the sender has since rotated. Read from the cached body, so a message
+    # not downloaded yet has no target until its view renders.
+    def _unsubscribe_target(self) -> Unsubscribe | None:
+        conversation = self._selected_conversation()
+        if conversation is None:
+            return None
+        raw = self._db.get_raw_message(conversation.latest.id)
+        return None if raw is None else parse_unsubscribe(raw)
+
+    def _update_unsubscribe_action(self) -> None:
+        is_enabled = self._unsubscribe_target() is not None
+        self._set_actions_enabled(("unsubscribe",), is_enabled)
+
+    def _on_unsubscribe(self, _action: Gio.SimpleAction, _param: object) -> None:
+        target = self._unsubscribe_target()
+        if target is None:
+            return
         # Without a One-Click header the list wants a human at the other end,
         # and nothing is sent from here: hand it to the browser, or to the
-        # composer if all the list published was a mailto. The banner stays --
-        # the user has not unsubscribed yet, they have only been taken to it.
+        # composer if all the list published was a mailto.
         if not target.is_one_click:
             if target.url:
                 Gtk.UriLauncher(uri=target.url).launch(self, None, None)
@@ -2192,7 +2220,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         dialog.add_response("unsubscribe", _("Unsubscribe"))
         dialog.set_response_appearance("unsubscribe", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("cancel")
-        dialog.connect("response", self._on_unsubscribe_response, target.url, on_done)
+        dialog.connect("response", self._on_unsubscribe_response, target.url)
         dialog.present(self)
 
     def _on_unsubscribe_response(
@@ -2200,37 +2228,34 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         _dialog: Adw.AlertDialog,
         response: str,
         url: str,
-        on_done: Callable[[], None],
     ) -> None:
         if response != "unsubscribe":
             return
         thread = threading.Thread(
-            target=self._unsubscribe_worker, args=(url, on_done), daemon=True
+            target=self._unsubscribe_worker, args=(url,), daemon=True
         )
         thread.start()
 
     # Runs on the worker thread: network only, no Gtk/database access. Takes the
     # url as a plain string, and needs no credentials -- the list authenticates
     # the request by the opaque token already in the URL.
-    def _unsubscribe_worker(self, url: str, on_done: Callable[[], None]) -> None:
+    def _unsubscribe_worker(self, url: str) -> None:
         try:
             mail_sync.post_unsubscribe(url)
         except Exception:
             logger.exception(
                 "could not unsubscribe via %s", urlparse(url).hostname or url
             )
-            GLib.idle_add(self._on_unsubscribed, on_done, False)
+            GLib.idle_add(self._on_unsubscribed, False)
             return
-        GLib.idle_add(self._on_unsubscribed, on_done, True)
+        GLib.idle_add(self._on_unsubscribed, True)
 
-    # Back on the main thread. A failure leaves the banner up so the user can
-    # try again; errors.classify() is for IMAP/SMTP and HTTPError subclasses
-    # OSError, so it would answer "couldn't reach the mail server" here.
-    def _on_unsubscribed(self, on_done: Callable[[], None], is_done: bool) -> bool:
+    # Back on the main thread. errors.classify() is for IMAP/SMTP and HTTPError
+    # subclasses OSError, so it would answer "couldn't reach the mail server".
+    def _on_unsubscribed(self, is_done: bool) -> bool:
         if not is_done:
             self._toast(_("Couldn't unsubscribe. The list didn't accept the request."))
             return False
-        on_done()
         self._toast(_("Unsubscribed. It can take a few days to take effect."))
         return False
 

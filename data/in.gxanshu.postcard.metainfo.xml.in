@@ -59,6 +59,18 @@
   </screenshots>
 
   <releases>
+    <release version="1.13.0" date="2026-09-26">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Unsubscribe from mailing lists straight from the message toolbar</li>
+          <li>Attachments show as compact chips you can open or save</li>
+          <li>Email colors adapt to the reader's light or dark theme</li>
+          <li>Online account names follow renames made in GNOME Settings</li>
+          <li>Fix conversation rows not repainting after a flag change</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.12.0" date="2026-09-21">
       <description translate="no">
         <p>New in this release:</p>

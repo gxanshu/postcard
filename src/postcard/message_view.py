@@ -7,7 +7,7 @@ gi.require_version("WebKit", "6.0")
 
 from gettext import gettext as _
 
-from gi.repository import Adw, Gdk, GLib, Gtk, Pango, WebKit
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango, WebKit
 
 from . import mail_sync
 from .avatar_loader import AvatarLoader
@@ -358,39 +358,52 @@ class MessageView(Gtk.Box):
         if not attachments:
             return
 
-        heading = Gtk.Label(label=_("Attachments"), xalign=0)
-        heading.add_css_class("heading")
-        self._body.append(heading)
-
-        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        listbox.add_css_class("boxed-list")
-        self._body.append(listbox)
-
+        chips = Adw.WrapBox(child_spacing=SMALL_GUTTER, line_spacing=SMALL_GUTTER)
         for attachment in attachments:
-            row = Adw.ActionRow(
-                title=attachment.filename,
-                subtitle=GLib.format_size(attachment.size),
-                activatable=True,
-                tooltip_text=_("Open with the default app"),
-            )
-            row.add_prefix(Gtk.Image.new_from_icon_name("mail-attachment-symbolic"))
-            row.connect("activated", self._on_open_clicked, attachment)
+            chips.append(self._attachment_chip(attachment))
+        self._body.append(chips)
 
-            save_button = Gtk.Button(
-                icon_name="document-save-symbolic",
-                valign=Gtk.Align.CENTER,
-                tooltip_text=_("Save Attachment"),
-            )
-            save_button.add_css_class("flat")
-            save_button.connect("clicked", self._on_save_clicked, attachment)
-            row.add_suffix(save_button)
+    # One chip per file: the name opens it in the default app, the arrow saves it.
+    def _attachment_chip(self, attachment: Attachment) -> Gtk.Widget:
+        # The extension, not the sender's MIME type, picks the icon: mailers
+        # routinely label everything application/octet-stream.
+        content_type, _uncertain = Gio.content_type_guess(attachment.filename, None)
+        icon = Gtk.Image.new_from_gicon(Gio.content_type_get_icon(content_type))
 
-            listbox.append(row)
+        name = Gtk.Label(
+            label=attachment.filename,
+            ellipsize=Pango.EllipsizeMode.MIDDLE,
+            max_width_chars=24,
+        )
+        size = Gtk.Label(label=GLib.format_size(attachment.size))
+        size.add_css_class("dim-label")
+
+        label = Gtk.Box(spacing=SMALL_GUTTER)
+        label.append(icon)
+        label.append(name)
+        label.append(size)
+
+        open_button = Gtk.Button(child=label, tooltip_text=attachment.filename)
+        open_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], [_("Open %s") % attachment.filename]
+        )
+        open_button.connect("clicked", self._on_open_clicked, attachment)
+
+        save_button = Gtk.Button(
+            icon_name="folder-download-symbolic", tooltip_text=_("Save Attachment")
+        )
+        save_button.connect("clicked", self._on_save_clicked, attachment)
+
+        chip = Gtk.Box()
+        chip.add_css_class("linked")
+        chip.append(open_button)
+        chip.append(save_button)
+        return chip
 
     def _on_save_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
         self._on_save_attachment(attachment)
 
-    def _on_open_clicked(self, _row: Adw.ActionRow, attachment: Attachment) -> None:
+    def _on_open_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
         self._on_open_attachment(attachment)
 
     def release(self) -> None:

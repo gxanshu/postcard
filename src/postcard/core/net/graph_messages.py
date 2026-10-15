@@ -1,10 +1,11 @@
 """Reading and changing messages in a Microsoft Graph mailbox."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from ..models.message_header import MessageHeader
 from ..threader import NO_SUBJECT
+from . import MoveResult
 from .graph_session import BatchRequest, GraphError, GraphSession, quote_id, with_query
 from .imap_session import FLAG_FLAGGED, FLAG_SEEN
 
@@ -28,16 +29,6 @@ class DeltaState:
 
     link: str
     ids: frozenset[str]
-
-
-@dataclass(slots=True)
-class MoveOutcome:
-    """Like mail_sync.MoveResult: the ids that made it across, in order, up to
-    the first one that did not."""
-
-    destination_ids: list[str | None] = field(default_factory=list)
-    failed_index: int | None = None
-    error: str | None = None
 
 
 def _address(recipient: dict | None) -> tuple[str, str]:
@@ -175,7 +166,7 @@ def set_flags(
 
 def move(
     session: GraphSession, message_ids: list[str], destination_id: str
-) -> MoveOutcome:
+) -> MoveResult:
     """Move messages to another folder.
 
     The batch runs them all, but the result stops at the first failure, which
@@ -192,15 +183,14 @@ def move(
             for message_id in message_ids
         ]
     )
-    outcome = MoveOutcome()
+    result = MoveResult()
     for index, answer in enumerate(answers):
         if not answer.is_ok:
-            error = _batch_error(answer.status, answer.body, "could not move")
-            outcome.failed_index = index
-            outcome.error = str(error)
+            result.failed_index = index
+            result.error = _batch_error(answer.status, answer.body, "could not move")
             break
-        outcome.destination_ids.append(answer.body.get("id") or None)
-    return outcome
+        result.destination_uids.append(answer.body.get("id") or None)
+    return result
 
 
 def _batch_error(status: int, body: dict, context: str) -> GraphError:

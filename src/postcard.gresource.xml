@@ -2,7 +2,8 @@
 <gresources>
   <gresource prefix="/in/gxanshu/postcard">
     <file preprocess="xml-stripblanks">ui/main-window.ui</file>
-    <file preprocess="xml-stripblanks">ui/shortcuts-dialog.ui</file>
+    <!-- At the base path, so Adw.Application builds app.shortcuts from it. -->
+    <file alias="shortcuts-dialog.ui" preprocess="xml-stripblanks">ui/shortcuts-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/account-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/accounts-dialog.ui</file>
     <file preprocess="xml-stripblanks">ui/online-accounts-dialog.ui</file>

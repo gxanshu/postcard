@@ -10,9 +10,6 @@ SECURITY_OPTIONS = (SECURITY_TLS, SECURITY_STARTTLS)
 MIN_PORT = 1
 MAX_PORT = 65535
 
-# SMTP over implicit TLS (SMTPS). Any other port is assumed to use STARTTLS.
-IMPLICIT_TLS_PORT = 465
-
 # How an account's mail is reached. IMAP/SMTP is everything typed in by hand
 # and Google; Microsoft 365 hands out a token that only opens the Graph API.
 PROTOCOL_IMAP = "imap"

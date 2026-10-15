@@ -212,7 +212,6 @@ class PostcardComposerWindow(Adw.Window):
 
     cancel_button: Gtk.Button = Gtk.Template.Child()
     send_button: Gtk.Button = Gtk.Template.Child()
-    send_spinner: Gtk.Spinner = Gtk.Template.Child()
     from_row: Adw.ComboRow = Gtk.Template.Child()
     to_row: Adw.EntryRow = Gtk.Template.Child()
     extra_recipients_button: Gtk.ToggleButton = Gtk.Template.Child()
@@ -233,10 +232,11 @@ class PostcardComposerWindow(Adw.Window):
     attach_button: Gtk.Button = Gtk.Template.Child()
     attachments_group: Gtk.Box = Gtk.Template.Child()
     attachments_list: Gtk.ListBox = Gtk.Template.Child()
-    toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
 
     __gsignals__ = {
-        "finished": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # The text of a failure to toast, since this window is gone by then;
+        # "" when the message was sent or saved.
+        "finished": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(
@@ -380,8 +380,6 @@ class PostcardComposerWindow(Adw.Window):
     def _on_from_changed(self, *_args: object) -> None:
         self._account = self._accounts[self.from_row.get_selected()]
 
-    # --- editor ------------------------------------------------------------
-
     def _build_editor(self) -> None:
         manager = WebKit.UserContentManager()
         manager.register_script_message_handler("editor", None)
@@ -494,8 +492,6 @@ class PostcardComposerWindow(Adw.Window):
             or self._preview_text()
         )
 
-    # --- attachments ---------------------------------------------------
-
     def _on_attach_clicked(self, _button: Gtk.Button) -> None:
         dialog = Gtk.FileDialog()
         dialog.open(self, None, self._on_attach_dialog_done)
@@ -508,8 +504,10 @@ class PostcardComposerWindow(Adw.Window):
         except GLib.Error:
             return  # user cancelled the dialog
 
-        ok, content, _etag = file.load_contents(None)
-        if not ok:
+        try:
+            _ok, content, _etag = file.load_contents(None)
+        except GLib.Error as error:
+            logger.warning("could not attach %s: %s", file.get_path(), error.message)
             return
 
         filename = file.get_basename() or "attachment"
@@ -542,8 +540,6 @@ class PostcardComposerWindow(Adw.Window):
         self.attachments_list.remove(row)
         self.attachments_group.set_visible(bool(self._attachments))
 
-    # --- cancel / save draft ---------------------------------------------
-
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         if self._has_content():
             folder = mail_sync.drafts_folder(self._db, self._account.id)
@@ -569,11 +565,9 @@ class PostcardComposerWindow(Adw.Window):
                 is_unread=False,
             )
             self._db.save_raw_message(row.id, msg.as_bytes())
-            self.emit("finished")
+            self.emit("finished", "")
 
         self.close()
-
-    # --- send ------------------------------------------------------------
 
     def _on_send_clicked(self, _button: Gtk.Button) -> None:
         to_addrs = self._to_addrs()
@@ -620,7 +614,6 @@ class PostcardComposerWindow(Adw.Window):
         )
         self._db.save_raw_message(row.id, raw)
 
-        self._set_sending(True)
         thread = threading.Thread(
             target=self._send_worker,
             args=(self._account, row.id, subject, recipients, raw),
@@ -676,30 +669,16 @@ class PostcardComposerWindow(Adw.Window):
             is_unread=False,
         )
         self._db.save_raw_message(row.id, raw)
-        self.emit("finished")
+        self.emit("finished", "")
         self.close()
         return False
 
     def _on_send_failed(self, message: str) -> bool:
-        self._set_sending(False)
-        self.toast_overlay.add_toast(
-            Adw.Toast(
-                title=_("Couldn't send: {msg}. Saved to Outbox.").format(msg=message)
-            )
+        self.emit(
+            "finished", _("Couldn't send: {msg}. Saved to Outbox.").format(msg=message)
         )
-        self.emit("finished")
         self.close()
         return False
-
-    def _set_sending(self, is_sending: bool) -> None:
-        self.send_button.set_sensitive(not is_sending)
-        self.from_row.set_sensitive(not is_sending)
-        self.cancel_button.set_sensitive(not is_sending)
-        self.send_spinner.set_visible(is_sending)
-        if is_sending:
-            self.send_spinner.start()
-        else:
-            self.send_spinner.stop()
 
 
 def _now() -> str:
@@ -737,8 +716,7 @@ def composer_for_mailto(
         account,
         to=draft.to,
         subject=draft.subject,
-        body=draft.body_html
-        or (compose.signature_block(signature) if signature else ""),
+        body=draft.body_html or compose.signature_block(signature),
         cc=draft.cc,
         bcc=draft.bcc,
     )

@@ -95,7 +95,7 @@ class ImapSession:
         self._security = security
         self._imap: imaplib.IMAP4 | None = None
 
-    def connect(self) -> str:
+    def connect(self) -> None:
         context = ssl_context_for(self._host)
         if self._security == "starttls":
             self._imap = imaplib.IMAP4(
@@ -109,7 +109,6 @@ class ImapSession:
                 ssl_context=context,
                 timeout=NET_TIMEOUT_SECONDS,
             )
-        return self._imap.welcome.decode("utf-8", "replace")
 
     def sign_in(self, credential: Credential) -> None:
         imap = self._require_imap()
@@ -165,6 +164,10 @@ class ImapSession:
         flat namespace whose names must not be split into parent and child.
         """
         status, payload = self._require_imap().list()
+        # A NO comes back as an empty payload rather than an exception, and an
+        # empty list would prune every folder the account has.
+        if status != STATUS_OK:
+            raise ImapError(f"could not list mailboxes: {payload}")
         result: list[MailboxInfo] = []
         for raw in payload:
             if not isinstance(raw, bytes):
@@ -281,12 +284,10 @@ class ImapSession:
         some servers implementing RFC 6851.  ``response`` is imaplib's public
         response-code API and must be queried immediately after the command.
         """
-        status, payload = self._require_imap().uid(
-            "MOVE", uid, _quote_mailbox(destination)
-        )
+        imap = self._require_imap()
+        status, payload = imap.uid("MOVE", uid, _quote_mailbox(destination))
         if status != STATUS_OK:
             raise ImapError(f"could not move {uid} to {destination}: {payload}")
-        imap = self._require_imap()
         for code in ("COPYUID", "MOVEUID"):
             _status, response = imap.response(code)
             destination_uid = self._destination_uid(response)
@@ -312,9 +313,6 @@ class ImapSession:
         """Fetch UID + flags + a few headers for a window of `limit` messages,
         `offset` messages back from the newest. offset=0 is the newest page;
         offset=50 is the 50 before that, and so on (used for load-on-scroll)."""
-        if exists == 0:
-            return []
-
         end = exists - offset
         if end < 1:
             return []
@@ -360,8 +358,7 @@ class ImapSession:
         flag_text = flags.group(1) if flags else ""
 
         # Let the stdlib decode the header block: it handles line folding and
-        # the =?utf-8?...?= encoding you'd otherwise see as gibberish. Full MIME
-        # body parsing with GMime comes in Phase 6 — this is just three headers.
+        # the =?utf-8?...?= encoding you'd otherwise see as gibberish.
         headers = email.message_from_bytes(header_bytes, policy=policy.default)
 
         def header(name: str) -> str:

@@ -1,3 +1,4 @@
+import math
 import os
 import sqlite3
 from collections.abc import Sequence
@@ -7,7 +8,6 @@ from gi.repository import GLib
 
 from .. import threader
 from ..models.account import (
-    IMPLICIT_TLS_PORT,
     PROTOCOL_IMAP,
     SECURITY_STARTTLS,
     SECURITY_TLS,
@@ -44,7 +44,7 @@ def _arrival_key(mail: Email) -> float:
     the next sync confirms it) sorts as the newest.
     """
     if not mail.server_id:
-        return 2**31 - 1
+        return math.inf
     if mail.server_id.isdigit():
         return int(mail.server_id)
     # A Graph message id is opaque and says nothing about order, so fall back
@@ -123,8 +123,6 @@ class Database:
 
     def close(self) -> None:
         self._conn.close()
-
-    # --- schema -----------------------------------------------------------
 
     def _create_tables(self) -> None:
         self._conn.executescript(
@@ -207,8 +205,6 @@ class Database:
             self._conn.execute(f"PRAGMA user_version = {i}")
         self._conn.commit()
 
-    # --- accounts -----------------------------------------------------------
-
     def _account_from_row(self, row: sqlite3.Row) -> Account:
         return Account(
             id=row["id"],
@@ -238,17 +234,11 @@ class Database:
         smtp_host: str,
         smtp_port: int,
         imap_security: str = SECURITY_TLS,
-        smtp_security: str | None = None,
+        smtp_security: str = SECURITY_STARTTLS,
         username: str = "",
         goa_id: str = "",
         protocol: str = PROTOCOL_IMAP,
     ) -> Account:
-        if smtp_security is None:
-            # Port 465 is implicit TLS (SMTPS); everything else is assumed to
-            # negotiate up from plaintext with STARTTLS.
-            smtp_security = (
-                SECURITY_TLS if smtp_port == IMPLICIT_TLS_PORT else SECURITY_STARTTLS
-            )
         cursor = self._conn.execute(
             """
             INSERT INTO accounts
@@ -301,8 +291,6 @@ class Database:
         self._conn.execute("DELETE FROM folders WHERE account_id = ?", (account_id,))
         self._conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
         self._conn.commit()
-
-    # --- folders -----------------------------------------------------------
 
     def _folder_from_row(self, row: sqlite3.Row) -> Folder:
         return Folder(
@@ -391,8 +379,6 @@ class Database:
                 continue
             self._delete_folder_tree(row["id"])
         self._conn.commit()
-
-    # --- emails -----------------------------------------------------------
 
     def emails_in_folder(self, folder_id: int) -> list[Email]:
         rows = self._conn.execute(
@@ -693,9 +679,9 @@ class Database:
             folder_id=row["folder_id"],
             server_id=row["server_id"],
             sender=row["sender"],
-            sender_address=row["sender_address"] or "",
-            recipient=row["recipient"] or "",
-            recipient_address=row["recipient_address"] or "",
+            sender_address=row["sender_address"],
+            recipient=row["recipient"],
+            recipient_address=row["recipient_address"],
             subject=row["subject"],
             preview=row["preview"],
             date=row["date"],
@@ -706,8 +692,6 @@ class Database:
             references=row["reference_ids"] or "",
             conversation_id=row["conversation_id"],
         )
-
-    # --- contacts -----------------------------------------------------------
 
     def save_contacts(self, addresses: list[tuple[str, str]]) -> None:
         """Remember (name, address) pairs -- the order email.utils.getaddresses

@@ -112,6 +112,10 @@ def test_signature_block_uses_the_rfc3676_delimiter_and_escapes():
     assert signature_block("a\nb<") == '<div class="signature">-- <br>a<br>b&lt;</div>'
 
 
+def test_an_empty_signature_adds_nothing():
+    assert signature_block("") == ""
+
+
 def test_quote_reply_body_escapes_the_attribution_and_quotes_the_body():
     assert quote_reply_body("A <a@b>", "Jul 1", "line1\nline2") == (
         "<div><br></div>"

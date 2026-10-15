@@ -43,6 +43,7 @@ from .window_types import (
     PAGE_LIST,
     PAGE_LOADING,
     PAGE_MAIL,
+    PAGE_MESSAGE,
     PAGE_NO_ACCOUNT,
     PORTAL_NAME,
     PORTAL_PATH,
@@ -112,9 +113,6 @@ def _original_text(parsed: ParsedMessage | None) -> str:
 class PostcardMainWindow(Adw.ApplicationWindow):
     __gtype_name__ = "PostcardMainWindow"
 
-    # These fields are filled in automatically from the widgets we named in
-    # main-window.blp. The attribute name must match the id in the Blueprint
-    # file exactly.
     folder_list: Gtk.ListView = Gtk.Template.Child()
     conversation_list: Gtk.ListView = Gtk.Template.Child()
     conversation_scroller: Gtk.ScrolledWindow = Gtk.Template.Child()
@@ -180,7 +178,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # __init__ skips when there are no accounts yet, so read it through a
         # guard clause -- background callbacks can fire before then.
         self._account: Account | None = None
-        # Every account, by id.
         self._accounts: dict[int, Account] = {}
 
         self._current_folder: Folder | None = None
@@ -271,7 +268,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         )
         self.unread_button.connect("toggled", self._on_unread_toggled)
 
-        # Load older mail when the list is scrolled to the bottom.
         self.conversation_scroller.connect("edge-reached", self._on_list_edge_reached)
         # Presenting the window again after _on_close_request released the
         # reading pane re-renders whatever is still selected.
@@ -569,8 +565,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # The tray can reach this before any account exists.
         if self._account is None:
             return
-        sig = self._signature_text()
-        self._open_composer(body=compose.signature_block(sig) if sig else "")
+        self._open_composer(body=compose.signature_block(self._signature_text()))
 
     def _on_reply_clicked(self, *_args: object) -> None:
         self._open_reply(should_reply_all=False)
@@ -638,7 +633,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             subject=subject, body=body, account=self._account_for_reply()
         )
 
-    # Open the composer for a mailto: link handed to us by the desktop.
     def open_mailto(self, uri: str, account: Account | None = None) -> None:
         account = account or self._account
         if account is None:
@@ -672,7 +666,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         composer.connect("finished", self._on_composer_finished)
         composer.present()
 
-    def _on_composer_finished(self, _composer: PostcardComposerWindow) -> None:
+    def _on_composer_finished(
+        self, _composer: PostcardComposerWindow, failure: str
+    ) -> None:
+        if failure:
+            self._toast(failure)
         selected = self._selected_conversation()
         keep_id = selected.id if selected is not None else None
         self._reload_folders()
@@ -809,13 +807,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             is_flag_inverted=True,
         )
 
-    # Clear the is_unread flag for a whole conversation: locally, in the badges
-    # and list, and on the server. Guarded rather than routed straight through
-    # _toggle_flag, which on an already-read thread would flip it back to unread.
-    def _mark_conversation_read(self, conversation: Conversation) -> None:
-        if conversation.is_unread:
-            self._toggle_read([conversation])
-
     def _toggle_flag(
         self,
         conversations: list[Conversation],
@@ -851,7 +842,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 return
             is_reverted = True
             write(originals)
-            self._after_flag_change(conversations)
+            # Keep a lone conversation selected so the reader doesn't reload. A
+            # full refresh, since a sync may have replaced the store's objects.
+            keep_id = conversations[0].id if len(conversations) == 1 else None
+            self._reload_folders()
+            self._refresh_conversations(keep_id=keep_id)
 
         # Repaint in place: a full refresh resplices every row, which flickers
         # the list each time opening a conversation marks it read.
@@ -882,14 +877,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 args=(account, change, revert),
                 daemon=True,
             ).start()
-
-    # Update badges and the list after a failed flag change is reverted,
-    # keeping this conversation selected (so the reader doesn't reload). A full
-    # refresh, since a sync may have replaced the store's objects meanwhile.
-    def _after_flag_change(self, conversations: list[Conversation]) -> None:
-        keep_id = conversations[0].id if len(conversations) == 1 else None
-        self._reload_folders()
-        self._refresh_conversations(keep_id=keep_id)
 
     # Runs on the worker thread: network only, no Gtk/database access.
     def _flag_worker(
@@ -1076,15 +1063,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         conversations = self._selected_conversations()
         if not conversations:
             return
-        self._move_to(conversations[0], param)
-
-    def _move_to(self, conversation: Conversation, param: GLib.Variant) -> None:
-        conversations = self._selected_conversations() or [conversation]
         source = self._move_source(conversations)
         if source is None:
             return
         account, _source_id = source
-        dest = self._find_folder_by_name(param.get_string(), account)
+        dest = self._db.get_folder_by_name(account.id, param.get_string())
         if dest is None:
             return
         self._start_move(
@@ -1097,12 +1080,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ).format(n=n, name=mail_sync.folder_label(dest)),
         )
 
-    def _start_move_by_role(
-        self, role: mail_sync.FolderRole, conversation: Conversation | None = None
-    ) -> None:
+    def _start_move_by_role(self, role: mail_sync.FolderRole) -> None:
         conversations = self._selected_conversations()
-        if not conversations and conversation is not None:
-            conversations = [conversation]
         if not conversations:
             return
 
@@ -1144,12 +1123,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 if mail_sync.FolderRole.ARCHIVE in folder.name.lower():
                     return folder
         return matches[0] if matches else None
-
-    def _find_folder_by_name(self, name: str, account: Account) -> Folder | None:
-        for folder in self._db.folders_for_account(account.id):
-            if folder.name == name:
-                return folder
-        return None
 
     # Move conversations optimistically: update the DB and drop them from the
     # list now, then run the real IMAP MOVE ~5s later. An Undo toast cancels the
@@ -1253,7 +1226,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if self._pending_toast is not None:
             self._pending_toast.dismiss()
         for pending in self._clear_pending_moves():
-            self._run_move_worker(pending)
+            threading.Thread(
+                target=self._move_worker, args=(pending,), daemon=True
+            ).start()
 
     def _restore_move(self, pending: PendingMove) -> None:
         self._db.reconcile_moved_emails(pending.originals)
@@ -1286,16 +1261,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             if state["active"] <= 0:
                 self._move_tombstones.pop((tombstone_folder_id, uid), None)
 
-    def _run_move_worker(self, pending: PendingMove) -> None:
-        thread = threading.Thread(
-            target=self._move_worker,
-            args=(pending.account, pending),
-            daemon=True,
-        )
-        thread.start()
-
     # Runs on the worker thread: network only, no Gtk/database access.
-    def _move_worker(self, account: Account, pending: PendingMove) -> None:
+    def _move_worker(self, pending: PendingMove) -> None:
+        account = pending.account
         credential = secrets.credential_for(account)
         if credential is None:
             logger.warning("could not sign in to account %s", account.email)
@@ -1353,7 +1321,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 pending.dest.name,
                 result.error,
             )
-            self._toast(_("Move failed: {msg}").format(msg=result.error))
+            _is_auth_failure, message = errors.classify(
+                result.error, pending.account.imap_host
+            )
+            self._toast(_("Move failed: {msg}").format(msg=message))
         return False
 
     def _on_move_sign_in_failed(self, pending: PendingMove) -> bool:
@@ -1782,8 +1753,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                     self.conversation_list.scroll_to(
                         target, Gtk.ListScrollFlags.FOCUS, None
                     )
-            else:
-                self._selection.unselect_all()
         finally:
             self._selection_update_in_progress = False
 
@@ -1865,8 +1834,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 offset=self._loaded_counts.get(folder.id, 0),
             )
 
-    # (position, n_items) come from the signal; we just re-read the current
-    # selection, so the parameters are ignored.
     def _on_selection_changed(
         self, _selection: Gtk.MultiSelection, _position: int, _n_items: int
     ) -> None:
@@ -2027,16 +1994,16 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if conversation.id == self._rendered_id:
             view = self._active_view
             self._set_reply_forward_enabled(view is not None and view.raw is not None)
-            self.reader_stack.set_visible_child_name("message")
+            self.reader_stack.set_visible_child_name(PAGE_MESSAGE)
             return
 
         self._rendered_id = conversation.id
         self._active_view = None
         self._render_thread(conversation)
-        # Opening a conversation marks it read (like most mail clients).
-        self._mark_conversation_read(conversation)
+        # Guarded: _toggle_flag on an already-read thread would flip it unread.
+        if conversation.is_unread:
+            self._toggle_read([conversation])
 
-    # Reflect the selected conversations' state on the action buttons.
     def _update_action_buttons(self, selected: list[Conversation]) -> None:
         self._set_mail_actions_enabled(True)
 
@@ -2107,7 +2074,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             )
             self.thread_box.append(view)
 
-        self.reader_stack.set_visible_child_name("message")
+        self.reader_stack.set_visible_child_name(PAGE_MESSAGE)
 
     def _on_newest_rendered(self, view: MessageView) -> None:
         if len(self._selected_conversations()) != 1:
@@ -2119,7 +2086,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
     # Fetch one message's raw bytes for a MessageView: serve the cached copy if
     # we have it, else pull it over IMAP on a worker thread. (Marking read is
-    # handled once per conversation in _mark_conversation_read.)
+    # handled once per conversation in _update_reader.)
     def _load_body(self, mail: Email, callback: LoadCallback) -> None:
         cached = self._db.get_raw_message(mail.id)
         if cached is not None:
@@ -2183,7 +2150,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         GLib.idle_add(self._deliver_body, callback, request.email_id, raw, None)
 
-    # Back on the main thread: cache the body, then hand it to the MessageView.
     def _deliver_body(
         self,
         callback: LoadCallback,
@@ -2208,8 +2174,15 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     ) -> None:
         try:
             file = dialog.save_finish(result)
-        except GLib.Error:
-            return  # user cancelled the dialog
+        except GLib.Error as error:
+            if not error.matches(Gtk.dialog_error_quark(), Gtk.DialogError.DISMISSED):
+                logger.warning(
+                    "could not choose where to save %s: %s",
+                    attachment.filename,
+                    error.message,
+                )
+                self._toast(_("Couldn't save {name}.").format(name=attachment.filename))
+            return
 
         # A full disk or a read-only target fails here, not in save_finish. Left
         # unhandled the exception is swallowed by PyGObject and the user sees
@@ -2336,7 +2309,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             return
         GLib.idle_add(self._on_unsubscribed, True)
 
-    # Back on the main thread. errors.classify() is for IMAP/SMTP and HTTPError
+    # Not errors.classify(): it is for IMAP/SMTP and HTTPError
     # subclasses OSError, so it would answer "couldn't reach the mail server".
     def _on_unsubscribed(self, is_done: bool) -> bool:
         if not is_done:
@@ -2351,14 +2324,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if account.id in self._draining_account_ids:
             return
 
-        outbox = next(
-            (
-                folder
-                for folder in self._db.folders_for_account(account.id)
-                if folder.name == mail_sync.OUTBOX_FOLDER
-            ),
-            None,
-        )
+        outbox = self._db.get_folder_by_name(account.id, mail_sync.OUTBOX_FOLDER)
         if outbox is None:
             return
 
@@ -2419,8 +2385,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 results.append(OutboxResult(email_id, subject, raw, None))
         GLib.idle_add(self._on_outbox_drained, account, results)
 
-    # Back on the main thread: safe to touch the database and widgets. Files
-    # under the account that sent, not the open one; dropping a stale one would
+    # Files under the account that sent, not the open one; dropping a stale one would
     # leave the mail in the Outbox to go out twice.
     def _on_outbox_drained(self, account: Account, results: list[OutboxResult]) -> bool:
         self._draining_account_ids.discard(account.id)
@@ -2529,8 +2494,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self,
         account: Account,
         folder_name: str | None,
-        offset: int = 0,
-        should_count_unread: bool = True,
+        offset: int,
+        should_count_unread: bool,
     ) -> None:
         credential = secrets.credential_for(account)
         if credential is None:
@@ -2569,7 +2534,6 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _is_stale(self, account: Account) -> bool:
         return account.id not in self._accounts
 
-    # Back on the main thread: safe to touch the database and widgets.
     def _on_sync_done(self, account: Account, result: mail_sync.SyncResult) -> bool:
         # Before the staleness check: a dropped callback still has to release
         # the spinner and the Refresh button.
@@ -2590,9 +2554,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._store_mailboxes(account, mailboxes)
 
         if mailboxes:
-            # Mirror the server's folder list, keeping only the local Outbox.
-            # This clears stale rows like a duplicate "INBOX" from earlier
-            # versions.
+            # Keeping only the local Outbox clears stale rows like a duplicate
+            # "INBOX" from earlier versions.
             names = {box.name for box in mailboxes} | {mail_sync.OUTBOX_FOLDER}
             self._db.prune_folders(account.id, names)
 

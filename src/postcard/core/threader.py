@@ -2,7 +2,7 @@ import re
 
 from .models.email import Email
 
-_REPLY_PREFIX = re.compile(r"^\s*(re|fwd|fw)\s*:\s*", re.IGNORECASE)
+_REPLY_PREFIXES = re.compile(r"^(\s*(re|fwd|fw)\s*:\s*)+", re.IGNORECASE)
 
 # Stored, never translated. _normalize_subject blanks it so that unrelated
 # subject-less messages don't all thread into one conversation -- which means
@@ -31,12 +31,8 @@ def group(emails: list[Email]) -> dict[int, int]:
 
     # Every email gets a token: its Message-ID, or a synthetic one so a message
     # with no Message-ID still stands on its own.
-    tokens: dict[int, str] = {}
-    for mail in emails:
-        tokens[mail.id] = mail.message_id.strip() or f"eid:{mail.id}"
-        find(tokens[mail.id])
+    tokens = {mail.id: mail.message_id.strip() or f"eid:{mail.id}" for mail in emails}
 
-    # Reference links: join a message to its parent and ancestors.
     for mail in emails:
         token = tokens[mail.id]
         if mail.in_reply_to.strip():
@@ -44,7 +40,6 @@ def group(emails: list[Email]) -> dict[int, int]:
         for ref in mail.references.split():
             union(token, ref)
 
-    # Fallback: messages sharing a normalized subject join the same thread.
     by_subject: dict[str, str] = {}
     for mail in emails:
         subject = _normalize_subject(mail.subject)
@@ -55,7 +50,6 @@ def group(emails: list[Email]) -> dict[int, int]:
         else:
             by_subject[subject] = tokens[mail.id]
 
-    # Each group's conversation id is the smallest email id it contains.
     root_min_id: dict[str, int] = {}
     for mail in emails:
         root = find(tokens[mail.id])
@@ -69,9 +63,4 @@ def _normalize_subject(subject: str) -> str:
     text = subject.strip()
     if text.lower() == NO_SUBJECT:
         return ""
-    while True:
-        stripped = _REPLY_PREFIX.sub("", text)
-        if stripped == text:
-            break
-        text = stripped
-    return text.strip().lower()
+    return _REPLY_PREFIXES.sub("", text).strip().lower()

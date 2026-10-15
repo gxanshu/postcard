@@ -154,12 +154,12 @@ class MessageView(Gtk.Box):
         on_load: Callable[[Email, LoadCallback], None],
         on_save_attachment: Callable[[Attachment], None],
         on_open_attachment: Callable[[Attachment], None],
+        avatars: AvatarLoader,
         on_rendered: Callable[["MessageView"], None] | None = None,
         is_expanded: bool = False,
         should_load_remote_images: bool = False,
         is_12_hour_clock: bool = False,
         delivered_to: str = "",
-        avatars: AvatarLoader | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.add_css_class("message-view")
@@ -194,7 +194,7 @@ class MessageView(Gtk.Box):
         )
         avatar = Adw.Avatar(size=AVATAR_SIZE, show_initials=True, text=email.sender)
         header.append(avatar)
-        if avatars is not None and email.sender_address:
+        if email.sender_address:
             avatars.load(email.sender_address, avatar.set_custom_image)
 
         header.append(_build_names(email, delivered_to))
@@ -208,11 +208,11 @@ class MessageView(Gtk.Box):
         date.add_css_class("caption")
         header.append(date)
 
-        self._toggle = Gtk.Button(child=header)
-        self._toggle.add_css_class("flat")
-        self._toggle.add_css_class("message-header")
-        self._toggle.connect("clicked", self._on_toggle)
-        self.append(self._toggle)
+        toggle = Gtk.Button(child=header)
+        toggle.add_css_class("flat")
+        toggle.add_css_class("message-header")
+        toggle.connect("clicked", self._on_toggle)
+        self.append(toggle)
 
         self._body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=GUTTER)
         self._body.set_margin_start(EDGE)
@@ -483,24 +483,22 @@ class MessageView(Gtk.Box):
         open_button.update_property(
             [Gtk.AccessibleProperty.LABEL], [_("Open %s") % attachment.filename]
         )
-        open_button.connect("clicked", self._on_open_clicked, attachment)
+        open_button.connect(
+            "clicked", lambda _button: self._on_open_attachment(attachment)
+        )
 
         save_button = Gtk.Button(
             icon_name="folder-download-symbolic", tooltip_text=_("Save Attachment")
         )
-        save_button.connect("clicked", self._on_save_clicked, attachment)
+        save_button.connect(
+            "clicked", lambda _button: self._on_save_attachment(attachment)
+        )
 
         chip = Gtk.Box()
         chip.add_css_class("linked")
         chip.append(open_button)
         chip.append(save_button)
         return chip
-
-    def _on_save_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
-        self._on_save_attachment(attachment)
-
-    def _on_open_clicked(self, _button: Gtk.Button, attachment: Attachment) -> None:
-        self._on_open_attachment(attachment)
 
     def release(self) -> None:
         """Drop the body's widgets and bytes; the view is dead after this.

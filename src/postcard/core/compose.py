@@ -80,6 +80,9 @@ def forward_subject(subject: str) -> str:
 
 
 def signature_block(text: str) -> str:
+    """The signature as HTML, or "" when there is none."""
+    if not text:
+        return ""
     # The "-- " delimiter is the RFC 3676 convention for a signature.
     return f'<div class="signature">-- <br>{to_html(text)}</div>'
 
@@ -89,7 +92,7 @@ def quote_reply_body(
 ) -> str:
     return (
         "<div><br></div>"
-        + (signature_block(signature) if signature else "")
+        + signature_block(signature)
         + f"<div>On {escape(original_date)}, {escape(original_from)} wrote:</div>"
         + f"<blockquote>{to_html(original_text)}</blockquote>"
     )
@@ -104,7 +107,7 @@ def forward_body(
 ) -> str:
     return (
         "<div><br></div>"
-        + (signature_block(signature) if signature else "")
+        + signature_block(signature)
         + "<div>---------- Forwarded message ----------<br>"
         + f"From: {escape(original_from)}<br>"
         + f"Date: {escape(original_date)}<br>"

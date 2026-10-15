@@ -7,9 +7,10 @@ from postcard.core.models.account import Account
 from postcard.core.models.conversation import Conversation
 from postcard.core.models.email import Email
 from postcard.core.models.folder import Folder
+from postcard.core.net import MoveResult
 from postcard.core.net.auth import Credential
 from postcard.core.net.graph_folders import GraphFolder, is_complete
-from postcard.core.net.graph_messages import DeltaState, MoveOutcome
+from postcard.core.net.graph_messages import DeltaState
 from postcard.core.net.imap_session import (
     FLAG_SEEN,
     GMAIL_CAPABILITY,
@@ -36,7 +37,6 @@ from postcard.mail_sync import (
     icon_for_mailbox,
     inbox_name,
     is_outgoing,
-    is_outgoing_folder,
     mailbox_with_role,
     move_messages,
     parent_mailbox_name,
@@ -461,7 +461,7 @@ def test_a_bare_recipient_address_becomes_its_own_display_name():
 
 
 @pytest.mark.parametrize(
-    ("name", "is_outgoing"),
+    ("name", "expected"),
     [
         ("Sent", True),
         ("[Gmail]/Sent Mail", True),
@@ -471,8 +471,8 @@ def test_a_bare_recipient_address_becomes_its_own_display_name():
         ("Archive", False),
     ],
 )
-def test_is_outgoing_folder(name, is_outgoing):
-    assert is_outgoing_folder(name) is is_outgoing
+def test_is_outgoing_infers_the_role_from_the_name(name, expected):
+    assert is_outgoing(stored_folder(name)) is expected
 
 
 def test_the_date_is_stored_as_a_timestamp():
@@ -974,6 +974,7 @@ class FakeGraphModules:
         self.well_known_calls = 0
         self.delta_states: list = []
         self.calls: list = []
+        self.moved = MoveResult(["m1"], 1, RuntimeError("boom"))
         self._well_known = self.ALL_ROLES if well_known is None else well_known
 
     def well_known_ids(self, session):
@@ -1007,7 +1008,7 @@ class FakeGraphModules:
 
     def move(self, session, ids, destination):
         self.calls.append(("move", ids, destination))
-        return MoveOutcome(["m1"], 1, "boom")
+        return self.moved
 
     def send_mime(self, session, raw, recipients):
         self.calls.append(("send", raw, recipients))
@@ -1088,7 +1089,7 @@ def test_graph_operations_go_to_graph(graph, monkeypatch):
     moved = move_messages(account, GRAPH_TOKEN, "in", ["m1", "m2"], "bin")
     send_message(account, GRAPH_TOKEN, account.email, ["x@y"], b"raw")
 
-    assert moved == mail_sync.MoveResult(["m1"], 1, "boom")
+    assert moved is graph.moved
     assert graph.calls == [
         ("mime", "m1"),
         ("flags", ["m1"], FLAG_SEEN, True),

@@ -69,8 +69,7 @@ def parse_message(raw: bytes, *, is_12_hour_clock: bool = False) -> ParsedMessag
         elif content_type == "text/html" and result.html_body is None:
             result.html_body = part.get_content()
         else:
-            # anything else (an inline image, unrecognised type) -- treat
-            # if as an attachment rather than silently dropping it
+            # An inline image or unrecognised type is kept, not dropped.
             result.attachments.append(_as_attachment(part))
 
     return result
@@ -82,10 +81,6 @@ def parse_unsubscribe(raw: bytes) -> Unsubscribe | None:
         raw, headersonly=True
     )
     assert isinstance(msg, EmailMessage)
-    return _unsubscribe(msg)
-
-
-def _unsubscribe(msg: EmailMessage) -> Unsubscribe | None:
     url = ""
     mailto = ""
     for bracketed in _TARGET.findall(str(msg.get("List-Unsubscribe", ""))):

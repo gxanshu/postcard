@@ -12,7 +12,6 @@ class FakeImap:
         self, search_reply=("OK", [b"4 9 20"]), fetch_reply=None, status_reply=None
     ):
         self.calls = []
-        self.welcome = b"fake imap"
         self._search_reply = search_reply
         self._fetch_reply = fetch_reply
         self._status_reply = status_reply
@@ -54,6 +53,14 @@ def test_a_connection_that_answers_noop_is_alive(monkeypatch):
     imap.noop = lambda: ("OK", [b""])
 
     assert connect(monkeypatch, imap).is_alive() is True
+
+
+def test_a_refused_list_raises_instead_of_returning_no_folders(monkeypatch):
+    imap = FakeImap()
+    imap.list = lambda: ("NO", [None])
+
+    with pytest.raises(ImapError):
+        connect(monkeypatch, imap).list_folders()
 
 
 def _raising(error: Exception):

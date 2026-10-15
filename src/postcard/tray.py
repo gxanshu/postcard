@@ -14,12 +14,13 @@ from typing import TYPE_CHECKING
 import cairo  # pyright: ignore[reportMissingImports]
 from gi.repository import Gio, GLib
 
+from .core import APP_ID
+
 if TYPE_CHECKING:
     from gi.repository import Gtk
 
 logger = logging.getLogger(__name__)
 
-APP_ID = "in.gxanshu.postcard"
 WATCHER_NAME = "org.kde.StatusNotifierWatcher"
 WATCHER_PATH = "/StatusNotifierWatcher"
 ITEM_INTERFACE = "org.kde.StatusNotifierItem"

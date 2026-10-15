@@ -6,209 +6,202 @@ template $PostcardComposerWindow: Adw.Window {
   default-width: 540;
   default-height: 740;
 
-  content: Adw.ToastOverlay toast_overlay {
-    child: Adw.ToolbarView {
-      [top]
-      Adw.HeaderBar {
-        show-start-title-buttons: false;
-        show-end-title-buttons: false;
+  content: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar {
+      show-start-title-buttons: false;
+      show-end-title-buttons: false;
 
-        [start]
-        Gtk.Button cancel_button {
-          label: _("Cancel");
+      [start]
+      Gtk.Button cancel_button {
+        label: _("Cancel");
+      }
+
+      [end]
+      Gtk.Button send_button {
+        label: _("Send");
+        sensitive: false;
+
+        styles ["suggested-action"]
+      }
+    }
+
+    content: Gtk.Box {
+      orientation: vertical;
+      spacing: 12;
+      margin-top: 12;
+      margin-bottom: 12;
+      margin-start: 12;
+      margin-end: 12;
+
+      Gtk.ListBox {
+        selection-mode: none;
+
+        styles ["boxed-list"]
+
+        Adw.ComboRow from_row {
+          title: _("From");
         }
 
-        [end]
-        Gtk.Button send_button {
-          label: _("Send");
-          sensitive: false;
+        Adw.EntryRow to_row {
+          title: _("To");
 
-          styles ["suggested-action"]
+          [suffix]
+          Gtk.ToggleButton extra_recipients_button {
+            icon-name: "view-more-horizontal-symbolic";
+            valign: center;
+
+            styles ["flat", "circular"]
+          }
         }
 
-        [end]
-        Gtk.Spinner send_spinner {
+        // Cc and Bcc slide in together. A Gtk.ListBox cannot animate a row of
+        // its own, so the pair sits in one clipped wrapper row whose height
+        // is animated by hand -- see _sync_extra_recipients. The separator
+        // it would otherwise draw rides along inside, so it measures zero.
+        Gtk.ListBoxRow extra_recipients_row {
+          activatable: false;
+          selectable: false;
+          focusable: false;
           visible: false;
+          overflow: hidden;
+
+          styles ["extra-recipients"]
+
+          // A Gtk.ListBoxRow cannot be sized below its child: height-request
+          // only raises the minimum. A scrolled window can, and with both
+          // policies external it clips without ever drawing a scrollbar.
+          child: Gtk.ScrolledWindow extra_recipients_clip {
+            hscrollbar-policy: external;
+            vscrollbar-policy: external;
+            propagate-natural-height: false;
+
+            child: Gtk.Box extra_recipients_box {
+              orientation: vertical;
+              valign: start;
+
+              Adw.EntryRow cc_row {
+                title: _("Cc");
+              }
+
+              Gtk.Separator {}
+
+              Adw.EntryRow bcc_row {
+                title: _("Bcc");
+              }
+
+              // The list draws its separators as a border under each row, and
+              // this one's is off (it would survive at height 0). This takes
+              // its place, and slides away with the rest.
+              Gtk.Separator {}
+            };
+          };
+        }
+
+        Adw.EntryRow subject_row {
+          title: _("Subject");
         }
       }
 
-      content: Gtk.Box {
+      Gtk.Label {
+        label: _("Separate multiple addresses with commas");
+        xalign: 0;
+
+        styles ["caption", "dim-label"]
+      }
+
+      Gtk.Box body_container {
+        vexpand: true;
+        overflow: hidden;
+
+        styles ["card"]
+      }
+
+      Gtk.Box attachments_group {
         orientation: vertical;
         spacing: 12;
-        margin-top: 12;
-        margin-bottom: 12;
-        margin-start: 12;
-        margin-end: 12;
+        visible: false;
 
-        Gtk.ListBox {
+        Gtk.Label {
+          label: _("Attachments");
+          xalign: 0;
+
+          styles ["heading"]
+        }
+
+        Gtk.ListBox attachments_list {
           selection-mode: none;
 
           styles ["boxed-list"]
-
-          Adw.ComboRow from_row {
-            title: _("From");
-          }
-
-          Adw.EntryRow to_row {
-            title: _("To");
-
-            [suffix]
-            Gtk.ToggleButton extra_recipients_button {
-              icon-name: "view-more-horizontal-symbolic";
-              valign: center;
-
-              styles ["flat", "circular"]
-            }
-          }
-
-          // Cc and Bcc slide in together. A Gtk.ListBox cannot animate a row of
-          // its own, so the pair sits in one clipped wrapper row whose height
-          // is animated by hand -- see _sync_extra_recipients. The separator
-          // it would otherwise draw rides along inside, so it measures zero.
-          Gtk.ListBoxRow extra_recipients_row {
-            activatable: false;
-            selectable: false;
-            focusable: false;
-            visible: false;
-            overflow: hidden;
-
-            styles ["extra-recipients"]
-
-            // A Gtk.ListBoxRow cannot be sized below its child: height-request
-            // only raises the minimum. A scrolled window can, and with both
-            // policies external it clips without ever drawing a scrollbar.
-            child: Gtk.ScrolledWindow extra_recipients_clip {
-              hscrollbar-policy: external;
-              vscrollbar-policy: external;
-              propagate-natural-height: false;
-
-              child: Gtk.Box extra_recipients_box {
-                orientation: vertical;
-                valign: start;
-
-                Adw.EntryRow cc_row {
-                  title: _("Cc");
-                }
-
-                Gtk.Separator {}
-
-                Adw.EntryRow bcc_row {
-                  title: _("Bcc");
-                }
-
-                // The list draws its separators as a border under each row, and
-                // this one's is off (it would survive at height 0). This takes
-                // its place, and slides away with the rest.
-                Gtk.Separator {}
-              };
-            };
-          }
-
-          Adw.EntryRow subject_row {
-            title: _("Subject");
-          }
-        }
-
-        Gtk.Label {
-          label: _("Separate multiple addresses with commas");
-          xalign: 0;
-
-          styles ["caption", "dim-label"]
-        }
-
-        Gtk.Box body_container {
-          vexpand: true;
-          overflow: hidden;
-
-          styles ["card"]
-        }
-
-        Gtk.Box attachments_group {
-          orientation: vertical;
-          spacing: 12;
-          visible: false;
-
-          Gtk.Label {
-            label: _("Attachments");
-            xalign: 0;
-
-            styles ["heading"]
-          }
-
-          Gtk.ListBox attachments_list {
-            selection-mode: none;
-
-            styles ["boxed-list"]
-          }
-        }
-      };
-
-      [bottom]
-      Gtk.Box {
-        spacing: 6;
-
-        styles ["toolbar"]
-
-        Gtk.ToggleButton bold_button {
-          icon-name: "format-text-bold-symbolic";
-          tooltip-text: _("Bold");
-
-          styles ["flat"]
-        }
-
-        Gtk.ToggleButton italic_button {
-          icon-name: "format-text-italic-symbolic";
-          tooltip-text: _("Italic");
-
-          styles ["flat"]
-        }
-
-        Gtk.ToggleButton underline_button {
-          icon-name: "format-text-underline-symbolic";
-          tooltip-text: _("Underline");
-
-          styles ["flat"]
-        }
-
-        Gtk.ToggleButton strike_button {
-          icon-name: "format-text-strikethrough-symbolic";
-          tooltip-text: _("Strikethrough");
-
-          styles ["flat"]
-        }
-
-        Gtk.Separator {}
-
-        Gtk.ToggleButton bullets_button {
-          icon-name: "view-list-bullet-symbolic";
-          tooltip-text: _("Bulleted List");
-
-          styles ["flat"]
-        }
-
-        Gtk.ToggleButton numbers_button {
-          icon-name: "view-list-ordered-symbolic";
-          tooltip-text: _("Numbered List");
-
-          styles ["flat"]
-        }
-
-        Gtk.Separator {}
-
-        Gtk.Button link_button {
-          icon-name: "insert-link-symbolic";
-          tooltip-text: _("Insert Link");
-
-          styles ["flat"]
-        }
-
-        Gtk.Button attach_button {
-          icon-name: "mail-attachment-symbolic";
-          tooltip-text: _("Add Attachment");
-
-          styles ["flat"]
         }
       }
     };
+
+    [bottom]
+    Gtk.Box {
+      spacing: 6;
+
+      styles ["toolbar"]
+
+      Gtk.ToggleButton bold_button {
+        icon-name: "format-text-bold-symbolic";
+        tooltip-text: _("Bold");
+
+        styles ["flat"]
+      }
+
+      Gtk.ToggleButton italic_button {
+        icon-name: "format-text-italic-symbolic";
+        tooltip-text: _("Italic");
+
+        styles ["flat"]
+      }
+
+      Gtk.ToggleButton underline_button {
+        icon-name: "format-text-underline-symbolic";
+        tooltip-text: _("Underline");
+
+        styles ["flat"]
+      }
+
+      Gtk.ToggleButton strike_button {
+        icon-name: "format-text-strikethrough-symbolic";
+        tooltip-text: _("Strikethrough");
+
+        styles ["flat"]
+      }
+
+      Gtk.Separator {}
+
+      Gtk.ToggleButton bullets_button {
+        icon-name: "view-list-bullet-symbolic";
+        tooltip-text: _("Bulleted List");
+
+        styles ["flat"]
+      }
+
+      Gtk.ToggleButton numbers_button {
+        icon-name: "view-list-ordered-symbolic";
+        tooltip-text: _("Numbered List");
+
+        styles ["flat"]
+      }
+
+      Gtk.Separator {}
+
+      Gtk.Button link_button {
+        icon-name: "insert-link-symbolic";
+        tooltip-text: _("Insert Link");
+
+        styles ["flat"]
+      }
+
+      Gtk.Button attach_button {
+        icon-name: "mail-attachment-symbolic";
+        tooltip-text: _("Add Attachment");
+
+        styles ["flat"]
+      }
+    }
   };
 }

@@ -8,7 +8,7 @@ from .core.models.conversation import Conversation
 class ConversationRow(Gtk.Box):
     __gtype_name__ = "PostcardConversationRow"
 
-    def __init__(self, avatars: AvatarLoader | None = None) -> None:
+    def __init__(self, avatars: AvatarLoader) -> None:
         super().__init__(
             orientation=Gtk.Orientation.HORIZONTAL,
             spacing=12,
@@ -119,8 +119,6 @@ class ConversationRow(Gtk.Box):
         # lands after this row was rebound to someone else.
         self._address = address
         self._avatar.set_custom_image(None)
-        if self._avatars is None:
-            return
 
         def apply(texture: Gdk.Texture) -> None:
             if self._address == address:

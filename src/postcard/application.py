@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Callable
 from gettext import gettext as _
-from typing import cast
 
 import gi
 
@@ -9,9 +8,10 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib
 
 from .composer_window import composer_for_mailto
+from .core import APP_ID
 from .core.store.database import Database
 from .preferences_dialog import PostcardPreferencesDialog
 from .tray import Tray
@@ -27,14 +27,14 @@ class PostcardApplication(Adw.Application):
 
     def __init__(self, version: str) -> None:
         super().__init__(
-            application_id="in.gxanshu.postcard",
+            application_id=APP_ID,
             # HANDLES_OPEN so the desktop can hand us mailto: links.
             flags=Gio.ApplicationFlags.HANDLES_OPEN,
             resource_base_path="/in/gxanshu/postcard",
         )
         self.version = version
         self.db = Database()
-        self.settings = Gio.Settings(schema_id="in.gxanshu.postcard")
+        self.settings = Gio.Settings(schema_id=APP_ID)
         self._should_start_hidden = False
 
         self.tray = Tray(self)
@@ -58,9 +58,6 @@ class PostcardApplication(Adw.Application):
         self._create_action(
             "new-window", self.on_new_window_action, ["<control><shift>n"]
         )
-        self._create_action(
-            "shortcuts", self.on_shortcuts_action, ["<control>question"]
-        )
         self._create_action("quit", lambda *_: self.quit(), ["<control>q"])
         self._create_action("focus-mail", lambda *_: self.do_activate())
         self._create_action(
@@ -69,7 +66,6 @@ class PostcardApplication(Adw.Application):
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
-        self._load_css()
         self.tray.start()
         self.settings.connect(
             "changed::run-in-background", self._on_run_in_background_changed
@@ -118,16 +114,6 @@ class PostcardApplication(Adw.Application):
             return
         composer_for_mailto(self, self.db, accounts[0], self.settings, uri).present()
 
-    def _load_css(self) -> None:
-        display = Gdk.Display.get_default()
-        if display is None:
-            return
-        provider = Gtk.CssProvider()
-        provider.load_from_resource("/in/gxanshu/postcard/style.css")
-        Gtk.StyleContext.add_provider_for_display(
-            display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
-
     # Register an app.<name> action, optionally with keyboard accelerators.
     def _create_action(
         self,
@@ -168,10 +154,3 @@ class PostcardApplication(Adw.Application):
 
     def on_new_window_action(self, *_args: object) -> None:
         PostcardMainWindow(self, self.db, self.settings).present()
-
-    def on_shortcuts_action(self, *_args: object) -> None:
-        builder = Gtk.Builder.new_from_resource(
-            "/in/gxanshu/postcard/ui/shortcuts-dialog.ui"
-        )
-        dialog = cast(Adw.ShortcutsDialog, builder.get_object("shortcuts_dialog"))
-        dialog.present(self.props.active_window)

@@ -42,6 +42,7 @@ PAGE_NO_ACCOUNT = "no-account"
 PAGE_EMPTY = "empty"
 PAGE_LIST = "list"
 PAGE_LOADING = "loading"
+PAGE_MESSAGE = "message"
 
 
 # The next two exist because of the threading model (see CLAUDE.md): a worker

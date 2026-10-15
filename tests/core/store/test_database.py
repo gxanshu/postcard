@@ -71,13 +71,6 @@ def test_save_and_list_accounts(db):
     assert (listed.smtp_host, listed.smtp_port) == ("smtp.example.com", 587)
 
 
-def test_smtp_security_is_inferred_from_the_port(db):
-    implicit = db.save_account("a@x", "A", "imap.x", 993, "smtp.x", 465)
-    starttls = db.save_account("b@x", "B", "imap.x", 993, "smtp.x", 587)
-    assert implicit.smtp_security == "tls"
-    assert starttls.smtp_security == "starttls"
-
-
 def test_an_account_remembers_the_online_account_it_came_from(db):
     # goa_id is what tells credential lookup to ask GNOME Online Accounts
     # instead of the keyring, so it has to survive the round trip.
@@ -111,13 +104,6 @@ def test_an_account_remembers_the_username_it_signs_in_with(db):
     # Left blank, the address is the login -- which is what every account
     # written before the username column has, so they sign in unchanged.
     assert (unnamed.username, unnamed.login_name) == ("", "b@x")
-
-
-def test_an_explicit_smtp_security_wins(db):
-    account = db.save_account(
-        "a@x", "A", "imap.x", 993, "smtp.x", 465, smtp_security="starttls"
-    )
-    assert account.smtp_security == "starttls"
 
 
 def test_deleting_an_account_takes_its_folders_and_emails(db, folder):
@@ -435,9 +421,10 @@ def test_arrival_key_uses_the_imap_uid():
 
 def test_arrival_key_sorts_uid_less_messages_newest():
     # A Sent copy saved locally has no UID until the next sync confirms it.
-    newest = 2**31 - 1
-    assert _arrival_key(_email(server_id=None)) == newest
-    assert _arrival_key(_email(server_id="")) == newest
+    # IMAP UIDs are 32-bit unsigned, so the largest one must still sort older.
+    largest_uid = _arrival_key(_email(server_id=str(2**32 - 1)))
+    assert _arrival_key(_email(server_id=None)) > largest_uid
+    assert _arrival_key(_email(server_id="")) > largest_uid
 
 
 def test_a_zone_less_date_is_read_as_local_time():

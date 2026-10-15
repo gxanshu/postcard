@@ -206,9 +206,9 @@ def test_move_reports_the_ids_up_to_the_first_failure():
 
     outcome = move(graph, ["a", "b", "c"], "archive-id")  # type: ignore[arg-type]
 
-    assert outcome.destination_ids == ["a"]
+    assert outcome.destination_uids == ["a"]
     assert outcome.failed_index == 1
-    assert outcome.error is not None and "not found" in outcome.error
+    assert "not found" in str(outcome.error)
     assert graph.batched[0].body == {"destinationId": "archive-id"}
 
 
@@ -217,4 +217,4 @@ def test_a_move_that_all_succeeds_has_no_failure():
 
     outcome = move(graph, ["a"], "dest")  # type: ignore[arg-type]
 
-    assert (outcome.destination_ids, outcome.failed_index) == (["a"], None)
+    assert (outcome.destination_uids, outcome.failed_index) == (["a"], None)

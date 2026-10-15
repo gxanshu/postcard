@@ -2,7 +2,8 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-APP_ID = "in.gxanshu.postcard"
+from . import APP_ID
+
 ENTRY_NAME = f"{APP_ID}.desktop"
 
 IS_SANDBOXED = Path("/.flatpak-info").exists()

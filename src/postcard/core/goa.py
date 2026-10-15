@@ -225,7 +225,6 @@ def _call(
     object_path: str,
     interface: str,
     method: str,
-    params: GLib.Variant | None = None,
 ) -> GLib.Variant:
     proxy = Gio.DBusProxy.new_for_bus_sync(
         Gio.BusType.SESSION,
@@ -236,4 +235,4 @@ def _call(
         interface,
         None,
     )
-    return proxy.call_sync(method, params, Gio.DBusCallFlags.NONE, _TIMEOUT_MS, None)
+    return proxy.call_sync(method, None, Gio.DBusCallFlags.NONE, _TIMEOUT_MS, None)

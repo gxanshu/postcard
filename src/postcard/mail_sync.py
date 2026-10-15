@@ -20,7 +20,7 @@ from .core.models.folder import Folder, FolderRole
 # Re-exported: callers reach MessageHeader through mail_sync, which is where it
 # is built. It lives in core.models so core.store can accept one directly.
 from .core.models.message_header import MessageHeader
-from .core.net import graph_folders, graph_messages, graph_send
+from .core.net import MoveResult, graph_folders, graph_messages, graph_send
 from .core.net.auth import Credential
 from .core.net.graph_session import GraphSession
 from .core.net.imap_session import (
@@ -84,15 +84,6 @@ class SyncResult:
     offset: int = 0  # how far back from the newest this fetch reached
     all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
     unread_counts: dict[str, int] = field(default_factory=dict)  # by mailbox name
-
-
-@dataclass
-class MoveResult:
-    """Results from the commands attempted by a mailbox move."""
-
-    destination_uids: list[str | None] = field(default_factory=list)
-    failed_index: int | None = None
-    error: str | None = None
 
 
 # How long a pooled connection may sit idle before it is probed with a NOOP.
@@ -437,14 +428,9 @@ def move_messages(
     uids: list[str],
     destination: str,
 ) -> MoveResult:
-    """Move every message in a conversation to another mailbox.
-
-    A failure part-way is reported rather than raised, because the caller has
-    to know which UIDs made it across.
-    """
+    """Move every message in a conversation to another mailbox."""
     if account.is_graph:
-        outcome = graph_messages.move(GraphSession(credential), uids, destination)
-        return MoveResult(outcome.destination_ids, outcome.failed_index, outcome.error)
+        return graph_messages.move(GraphSession(credential), uids, destination)
     with _pooled_session(account, credential) as session:
         session.select(folder_name, is_readonly=False)
         destination_uids = []
@@ -456,7 +442,7 @@ def move_messages(
                 # would then hand on a connection that may have a half-read
                 # reply on the socket. Drop it explicitly instead.
                 close_sessions(account.id)
-                return MoveResult(destination_uids, index, str(error))
+                return MoveResult(destination_uids, index, error)
     return MoveResult(destination_uids)
 
 
@@ -514,6 +500,7 @@ class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
 # urllib agent, not an honest one. No version -- it would have to be threaded
 # down from main() for nothing, since no list branches on it.
 UNSUBSCRIBE_USER_AGENT = "Postcard (+https://postcard.gxanshu.in)"
+UNSUBSCRIBE_TIMEOUT_SECONDS = 15
 
 _unsubscribe_opener = urllib.request.build_opener(_HttpsOnlyRedirect())
 
@@ -535,7 +522,7 @@ def post_unsubscribe(url: str) -> None:
             "User-Agent": UNSUBSCRIBE_USER_AGENT,
         },
     )
-    _unsubscribe_opener.open(request, timeout=15).close()
+    _unsubscribe_opener.open(request, timeout=UNSUBSCRIBE_TIMEOUT_SECONDS).close()
 
 
 def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> None:
@@ -585,21 +572,13 @@ def folder_label(folder: Folder) -> str:
 
 
 def is_outgoing(folder: Folder) -> bool:
-    """is_outgoing_folder for a stored folder, which may know its own role."""
-    return folder.name == OUTBOX_FOLDER or folder_role(folder) in (
-        FolderRole.SENT,
-        FolderRole.DRAFTS,
-    )
-
-
-def is_outgoing_folder(name: str) -> bool:
     """Whether a folder holds mail this account sent.
 
     The sender of everything in one is the account itself, so the list shows
     the recipient instead. Outbox is local-only and role_for_folder, which
     classifies what the server offers, doesn't know it.
     """
-    return name == OUTBOX_FOLDER or role_for_folder(name) in (
+    return folder.name == OUTBOX_FOLDER or folder_role(folder) in (
         FolderRole.SENT,
         FolderRole.DRAFTS,
     )

@@ -1,13 +1,27 @@
 import ipaddress
 import ssl
+from dataclasses import dataclass, field
 
-# Constants shared by the IMAP and SMTP sessions. They live here rather than in
-# either session module so neither has to import the other.
+# What the IMAP, SMTP and Graph sessions share. It lives here rather than in
+# any one session module so none has to import another.
 
 # Socket timeout for both protocols. Generous on purpose: a first sync over a
 # slow link can take a while, and neither imaplib nor smtplib reports partial
 # progress, so a tight timeout looks like a connection failure.
 NET_TIMEOUT_SECONDS = 30
+
+
+@dataclass
+class MoveResult:
+    """The ids that made it across, in order, up to the first that did not.
+
+    A failure part-way is reported rather than raised, because the caller has
+    to know which messages moved.
+    """
+
+    destination_uids: list[str | None] = field(default_factory=list)
+    failed_index: int | None = None
+    error: Exception | None = None
 
 
 def _is_loopback(host: str) -> bool:

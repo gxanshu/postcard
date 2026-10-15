@@ -44,6 +44,8 @@ from .window_types import (
     PAGE_LOADING,
     PAGE_MAIL,
     PAGE_NO_ACCOUNT,
+    PORTAL_NAME,
+    PORTAL_PATH,
     REPLY_FORWARD_ACTIONS,
     SEARCH_DEBOUNCE_MS,
     SECONDS_PER_MINUTE,
@@ -62,6 +64,12 @@ logger = logging.getLogger(__name__)
 SETTING_FOLDER_WIDTH = "folder-sidebar-width"
 SETTING_CONVERSATION_WIDTH = "conversation-sidebar-width"
 SETTING_ACCOUNT_DISPLAY_NAME = "show-account-display-name"
+
+# The desktop's 12h/24h choice (GNOME Settings > Date & Time). The sandbox
+# can't read the host's dconf, so it comes from the Settings portal.
+SETTINGS_INTERFACE = "org.freedesktop.portal.Settings"
+CLOCK_NAMESPACE = "org.gnome.desktop.interface"
+CLOCK_KEY = "clock-format"
 
 # Move is the one action carrying a parameter (the destination folder name), so
 # it is registered on its own wherever these are.
@@ -214,6 +222,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             f"changed::{SETTING_ACCOUNT_DISPLAY_NAME}",
             lambda *_: self._relabel_accounts(),
         )
+        self._is_12_hour_clock = False
+        self._clock_subscription = 0
+        self._watch_clock_format()
 
         # Accounts with a sync in flight. A set, not a flag: every account syncs
         # on the same tick.
@@ -443,6 +454,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._settings.disconnect(self._interval_handler)
         self._settings.disconnect(self._avatar_handler)
         self._settings.disconnect(self._account_label_handler)
+        if self._clock_subscription:
+            Gio.bus_get_sync(Gio.BusType.SESSION).signal_unsubscribe(
+                self._clock_subscription
+            )
         self._avatars.shutdown()
         if self._sync_timer_id:
             GLib.source_remove(self._sync_timer_id)
@@ -1902,7 +1917,77 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             account_label=account.short_label
             if account is not None and self._is_unified()
             else "",
+            is_12_hour_clock=self._is_12_hour_clock,
         )
+
+    # Read the clock format once, then follow it as the user changes it.
+    # Without a portal (or an older one with no ReadOne) times stay 24-hour.
+    def _watch_clock_format(self) -> None:
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        except GLib.Error:
+            logger.info("no session bus, showing 24-hour times")
+            return
+        self._clock_subscription = bus.signal_subscribe(
+            PORTAL_NAME,
+            SETTINGS_INTERFACE,
+            "SettingChanged",
+            PORTAL_PATH,
+            CLOCK_NAMESPACE,
+            Gio.DBusSignalFlags.NONE,
+            self._on_clock_setting_changed,
+            None,
+        )
+        bus.call(
+            PORTAL_NAME,
+            PORTAL_PATH,
+            SETTINGS_INTERFACE,
+            "ReadOne",
+            GLib.Variant("(ss)", (CLOCK_NAMESPACE, CLOCK_KEY)),
+            GLib.VariantType("(v)"),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+            self._on_clock_format_read,
+            None,
+        )
+
+    def _on_clock_format_read(
+        self, bus: Gio.DBusConnection, result: Gio.AsyncResult, _data: object
+    ) -> None:
+        try:
+            (value,) = bus.call_finish(result).unpack()
+        except GLib.Error:
+            logger.info("could not read the clock format, showing 24-hour times")
+            return
+        self._set_clock_format(value)
+
+    def _on_clock_setting_changed(
+        self,
+        _bus: Gio.DBusConnection,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        _signal: str,
+        parameters: GLib.Variant,
+        _data: object,
+    ) -> None:
+        _namespace, key, value = parameters.unpack()
+        if key == CLOCK_KEY:
+            self._set_clock_format(value)
+
+    # Repaint every timestamp on screen in the new format. Rows off screen
+    # pick it up when bound; the reader is rebuilt, as its times are baked
+    # into its labels.
+    def _set_clock_format(self, value: object) -> None:
+        is_12_hour_clock = value == "12h"
+        if is_12_hour_clock == self._is_12_hour_clock:
+            return
+        self._is_12_hour_clock = is_12_hour_clock
+        for conversation, row in self._bound_rows.items():
+            self._bind_row(row, conversation)
+        self._rendered_id = None
+        self._update_reader()
 
     def _on_search_action(self, _action: Gio.SimpleAction, _param: object) -> None:
         self.search_bar.set_search_mode(not self.search_bar.get_search_mode())
@@ -2016,6 +2101,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 on_rendered=self._on_newest_rendered if is_newest else None,
                 is_expanded=is_newest,
                 should_load_remote_images=should_load_remote_images,
+                is_12_hour_clock=self._is_12_hour_clock,
                 delivered_to=delivered_to,
                 avatars=self._avatars,
             )

@@ -76,7 +76,11 @@ class ConversationRow(Gtk.Box):
     # so the row names the recipient instead -- and falls back to the sender for
     # mail that predates the recipient columns.
     def bind(
-        self, conversation: Conversation, is_outgoing: bool, account_label: str
+        self,
+        conversation: Conversation,
+        is_outgoing: bool,
+        account_label: str,
+        is_12_hour_clock: bool = False,
     ) -> None:
         subject = conversation.subject
         if conversation.count > 1:
@@ -94,7 +98,9 @@ class ConversationRow(Gtk.Box):
         self._load_avatar(address)
         self._sender_label.set_label(participants)
         self._star.set_visible(conversation.is_starred)
-        self._date_label.set_label(mail_sync.format_date(conversation.date))
+        self._date_label.set_label(
+            mail_sync.format_date(conversation.date, is_12_hour_clock)
+        )
         self._subject_label.set_label(subject)
         self._preview_label.set_label(conversation.preview)
         self._account_label.set_label(account_label)

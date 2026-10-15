@@ -117,6 +117,7 @@ class MessageView(Gtk.Box):
         on_rendered: Callable[["MessageView"], None] | None = None,
         is_expanded: bool = False,
         should_load_remote_images: bool = False,
+        is_12_hour_clock: bool = False,
         delivered_to: str = "",
         avatars: AvatarLoader | None = None,
     ) -> None:
@@ -129,6 +130,7 @@ class MessageView(Gtk.Box):
         self._on_open_attachment = on_open_attachment
         self._on_rendered = on_rendered
         self._should_load_remote_images = should_load_remote_images
+        self._is_12_hour_clock = is_12_hour_clock
         self._is_loaded = False
         self._is_loading = False
         self._is_released = False
@@ -156,7 +158,9 @@ class MessageView(Gtk.Box):
         header.append(_build_names(email, delivered_to))
 
         date = Gtk.Label(
-            label=mail_sync.format_date(email.date), xalign=1, valign=Gtk.Align.CENTER
+            label=mail_sync.format_date(email.date, is_12_hour_clock),
+            xalign=1,
+            valign=Gtk.Align.CENTER,
         )
         date.add_css_class("dim-label")
         date.add_css_class("caption")
@@ -214,7 +218,9 @@ class MessageView(Gtk.Box):
 
         self._is_loaded = True
         self.raw = raw
-        self.parsed = message_parser.parse_message(raw)
+        self.parsed = message_parser.parse_message(
+            raw, is_12_hour_clock=self._is_12_hour_clock
+        )
 
         self._show_details(self.parsed)
 

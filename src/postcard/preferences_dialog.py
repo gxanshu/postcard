@@ -4,7 +4,7 @@ from gettext import gettext as _
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .core import autostart
-from .window_types import SETTING_SYNC_INTERVAL
+from .window_types import PORTAL_NAME, PORTAL_PATH, SETTING_SYNC_INTERVAL
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,6 @@ DEFAULT_SYNC_INTERVAL_MINUTES = 15
 # The Background portal owns the autostart .desktop file where it exists, and
 # core.autostart writes it on the desktops that have no such portal. Neither can
 # be read back, so the "start-at-login" key is our record of what was last set.
-PORTAL_NAME = "org.freedesktop.portal.Desktop"
-PORTAL_PATH = "/org/freedesktop/portal/desktop"
 BACKGROUND_INTERFACE = "org.freedesktop.portal.Background"
 REQUEST_INTERFACE = "org.freedesktop.portal.Request"
 SETTING_START_AT_LOGIN = "start-at-login"

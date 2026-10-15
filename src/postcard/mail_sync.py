@@ -12,6 +12,7 @@ from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from functools import lru_cache
 from gettext import gettext as _
 
+from .core.mime.message_parser import clock_format
 from .core.models.account import Account
 from .core.models.email import Email
 from .core.models.folder import Folder, FolderRole
@@ -741,7 +742,7 @@ def _iso_date(value: str) -> str:
         return value
 
 
-def format_date(value: str) -> str:
+def format_date(value: str, is_12_hour_clock: bool = False) -> str:
     """Render a stored timestamp as the short label the list and reader show.
 
     "Today 10:00" for today, "Yesterday", a weekday name within the last week,
@@ -756,7 +757,8 @@ def format_date(value: str) -> str:
 
     days = (date.today() - moment.date()).days
     if days == 0:
-        return _("Today {time}").format(time=moment.strftime("%H:%M"))
+        time = moment.strftime(clock_format(is_12_hour_clock)).strip()
+        return _("Today {time}").format(time=time)
     if days == 1:
         return _("Yesterday")
     if 1 < days < 7:

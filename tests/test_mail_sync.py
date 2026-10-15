@@ -494,6 +494,11 @@ def test_todays_mail_shows_the_time():
     assert format_date(days_ago(0, hour=9)) == "Today 09:00"
 
 
+def test_todays_mail_on_a_12_hour_clock():
+    assert format_date(days_ago(0, hour=9), is_12_hour_clock=True) == "Today 9:00 AM"
+    assert format_date(days_ago(0, hour=21), is_12_hour_clock=True) == "Today 9:00 PM"
+
+
 def test_yesterdays_mail_is_named_not_timed():
     assert format_date(days_ago(1)) == "Yesterday"
 

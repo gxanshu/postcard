@@ -36,7 +36,14 @@ class ParsedMessage:
     date: str = ""
 
 
-def parse_message(raw: bytes) -> ParsedMessage:
+def clock_format(is_12_hour_clock: bool) -> str:
+    """The strftime pattern for a time of day: "9:05 PM" or "21:05"."""
+    # %-I drops the leading zero (glibc); a locale with no AM/PM leaves a
+    # trailing space for the caller to strip.
+    return "%-I:%M %p" if is_12_hour_clock else "%H:%M"
+
+
+def parse_message(raw: bytes, *, is_12_hour_clock: bool = False) -> ParsedMessage:
     msg = email.message_from_bytes(raw, policy=default_policy)
     assert isinstance(msg, EmailMessage)
 
@@ -46,7 +53,7 @@ def parse_message(raw: bytes) -> ParsedMessage:
     result.to = _addresses(msg, "To")
     result.cc = _addresses(msg, "Cc")
     result.bcc = _addresses(msg, "Bcc")
-    result.date = _format_date(msg.get("Date"))
+    result.date = _format_date(msg.get("Date"), is_12_hour_clock)
 
     for part in msg.walk():
         if part.is_multipart():
@@ -117,14 +124,14 @@ def _addresses(msg: EmailMessage, header: str) -> list[str]:
     return out
 
 
-def _format_date(raw: object) -> str:
+def _format_date(raw: object, is_12_hour_clock: bool = False) -> str:
     if not raw:
         return ""
     try:
         parsed = email.utils.parsedate_to_datetime(str(raw))
     except (TypeError, ValueError):
         return str(raw)
-    return parsed.strftime("%b %d, %Y %H:%M")
+    return parsed.strftime(f"%b %d, %Y {clock_format(is_12_hour_clock)}").strip()
 
 
 def _as_attachment(part: EmailMessage) -> Attachment:

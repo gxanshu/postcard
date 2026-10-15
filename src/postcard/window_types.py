@@ -8,6 +8,11 @@ from .core.models.folder import Folder
 # dialog only writes it -- the window must not have to import a dialog.
 SETTING_SYNC_INTERVAL = "sync-interval-minutes"
 
+# The desktop portal: the dialog asks it to start Postcard at login, and the
+# window reads the desktop's clock format from it.
+PORTAL_NAME = "org.freedesktop.portal.Desktop"
+PORTAL_PATH = "/org/freedesktop/portal/desktop"
+
 # Window action names, grouped by what enables and disables them together.
 MAIL_ACTIONS = ("toggle-read", "toggle-star", "archive", "trash", "move")
 REPLY_FORWARD_ACTIONS = ("reply", "reply-all", "forward")

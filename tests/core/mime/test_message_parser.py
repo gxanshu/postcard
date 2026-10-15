@@ -127,6 +127,11 @@ def test_format_date():
     assert _format_date("Wed, 16 Jul 2026 10:00:00 +0000") == "Jul 16, 2026 10:00"
 
 
+def test_format_date_on_a_12_hour_clock():
+    raw = "Wed, 16 Jul 2026 22:05:00 +0000"
+    assert _format_date(raw, is_12_hour_clock=True) == "Jul 16, 2026 10:05 PM"
+
+
 def test_format_date_passes_an_unparseable_value_through():
     assert _format_date("sometime last week") == "sometime last week"
 

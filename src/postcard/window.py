@@ -1932,7 +1932,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _on_clock_setting_changed(
         self,
         _bus: Gio.DBusConnection,
-        _sender: str,
+        _sender: str | None,
         _path: str,
         _interface: str,
         _signal: str,

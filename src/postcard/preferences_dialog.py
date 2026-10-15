@@ -176,7 +176,7 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
     def _on_autostart_response(
         self,
         _bus: Gio.DBusConnection,
-        _sender: str,
+        _sender: str | None,
         _path: str,
         _interface: str,
         _signal: str,

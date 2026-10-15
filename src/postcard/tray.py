@@ -8,16 +8,12 @@ import logging
 import math
 from gettext import gettext as _
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 # Comes from the platform like gi does, and pycairo has no stubs on pip.
 import cairo  # pyright: ignore[reportMissingImports]
-from gi.repository import Gio, GLib
+from gi.repository import Gio, GLib, Gtk
 
 from .core import APP_ID
-
-if TYPE_CHECKING:
-    from gi.repository import Gtk
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +212,7 @@ def _menu_layout() -> GLib.Variant:
 
 
 class Tray:
-    def __init__(self, app: "Gtk.Application") -> None:
+    def __init__(self, app: Gtk.Application) -> None:
         self._app = app
         self._bus: Gio.DBusConnection | None = None
         self._status = STATUS_HIDDEN
@@ -379,10 +375,11 @@ class Tray:
             found.activate(None)
 
     # Only the main window has actions; a composer is a plain Adw.Window.
-    def _action_window(self) -> Gio.ActionMap | None:
-        return next(
-            (w for w in self._app.get_windows() if isinstance(w, Gio.ActionMap)), None
-        )
+    # Not isinstance(w, Gio.ActionMap): the stubs declare that interface a
+    # Protocol, which pyright won't accept in an isinstance check.
+    def _action_window(self) -> Gtk.ApplicationWindow | None:
+        windows = self._app.get_windows()
+        return next((w for w in windows if isinstance(w, Gtk.ApplicationWindow)), None)
 
     def _menu_property(
         self,

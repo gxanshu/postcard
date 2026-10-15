@@ -52,6 +52,11 @@
 			<summary>Signature text</summary>
 			<description>The signature appended to outgoing messages.</description>
 		</key>
+		<key name="signature-is-html" type="b">
+			<default>false</default>
+			<summary>Signature is HTML</summary>
+			<description>Insert the signature text as HTML markup instead of plain text.</description>
+		</key>
 		<key name="window-width" type="i">
 			<default>1600</default>
 			<summary>Main window width</summary>

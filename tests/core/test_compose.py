@@ -112,6 +112,12 @@ def test_signature_block_uses_the_rfc3676_delimiter_and_escapes():
     assert signature_block("a\nb<") == '<div class="signature">-- <br>a<br>b&lt;</div>'
 
 
+def test_an_html_signature_goes_in_unescaped():
+    assert signature_block("<b>A</b>", is_html=True) == (
+        '<div class="signature">-- <br><b>A</b></div>'
+    )
+
+
 def test_an_empty_signature_adds_nothing():
     assert signature_block("") == ""
 
@@ -125,7 +131,7 @@ def test_quote_reply_body_escapes_the_attribution_and_quotes_the_body():
 
 
 def test_quote_reply_body_inserts_the_signature_above_the_quote():
-    body = quote_reply_body("A", "D", "T", signature="Sig")
+    body = quote_reply_body("A", "D", "T", signature_html=signature_block("Sig"))
     assert body.index('class="signature"') < body.index("wrote:")
 
 

@@ -42,6 +42,7 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
     autostart_row: Adw.SwitchRow = Gtk.Template.Child()
     interval_row: Adw.ComboRow = Gtk.Template.Child()
     signature_enabled_row: Adw.SwitchRow = Gtk.Template.Child()
+    signature_html_row: Adw.SwitchRow = Gtk.Template.Child()
     signature_view: Gtk.TextView = Gtk.Template.Child()
 
     def __init__(self, settings: Gio.Settings) -> None:
@@ -57,12 +58,11 @@ class PostcardPreferencesDialog(Adw.PreferencesDialog):
         )
         settings.bind("run-in-background", self.background_row, "active", flags)
         settings.bind("signature-enabled", self.signature_enabled_row, "active", flags)
-        settings.bind(
-            "signature-enabled",
-            self.signature_view,
-            "sensitive",
-            Gio.SettingsBindFlags.GET,
-        )
+        settings.bind("signature-is-html", self.signature_html_row, "active", flags)
+        for widget in (self.signature_html_row, self.signature_view):
+            settings.bind(
+                "signature-enabled", widget, "sensitive", Gio.SettingsBindFlags.GET
+            )
 
         self.interval_row.set_model(
             Gtk.StringList.new([label for _minutes, label in SYNC_INTERVALS])

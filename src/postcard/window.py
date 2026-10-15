@@ -20,7 +20,11 @@ from . import mail_sync, message_view
 from .account_dialog import PostcardAccountDialog
 from .accounts_dialog import PostcardAccountsDialog
 from .avatar_loader import AvatarLoader
-from .composer_window import PostcardComposerWindow, composer_for_mailto
+from .composer_window import (
+    PostcardComposerWindow,
+    composer_for_mailto,
+    signature_html,
+)
 from .conversation_row import ConversationRow
 from .core import compose, goa, secrets
 from .core.mime.message_parser import ParsedMessage, Unsubscribe, parse_unsubscribe
@@ -559,16 +563,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Highest id sorts last, so this is the one just added.
         self._start_sync(self._db.accounts()[-1], in_background=True)
 
-    def _signature_text(self) -> str:
-        if not self._settings.get_boolean("signature-enabled"):
-            return ""
-        return self._settings.get_string("signature-text").strip()
-
     def _on_compose_clicked(self, *_args: object) -> None:
         # The tray can reach this before any account exists.
         if self._account is None:
             return
-        self._open_composer(body=compose.signature_block(self._signature_text()))
+        self._open_composer(body=signature_html(self._settings))
 
     def _on_reply_clicked(self, *_args: object) -> None:
         self._open_reply(should_reply_all=False)
@@ -594,7 +593,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             from_header,
             str(headers["Date"] or ""),
             _original_text(self._active_view.parsed),
-            signature=self._signature_text(),
+            signature_html=signature_html(self._settings),
         )
         self._open_composer(
             to=to_addr,
@@ -630,7 +629,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             str(headers["Date"] or ""),
             str(headers["Subject"] or ""),
             _original_text(parsed),
-            signature=self._signature_text(),
+            signature_html=signature_html(self._settings),
         )
         self._open_composer(
             subject=subject, body=body, account=self._account_for_reply()

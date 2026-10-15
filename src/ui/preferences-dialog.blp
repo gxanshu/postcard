@@ -52,6 +52,11 @@ template $PostcardPreferencesDialog: Adw.PreferencesDialog {
         subtitle: _("Add a signature to messages you send");
       }
 
+      Adw.SwitchRow signature_html_row {
+        title: _("HTML Signature");
+        subtitle: _("Use the text below as HTML markup, as-is");
+      }
+
       Gtk.ScrolledWindow {
         height-request: 120;
         margin-top: 12;

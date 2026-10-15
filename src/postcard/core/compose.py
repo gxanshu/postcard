@@ -79,20 +79,29 @@ def forward_subject(subject: str) -> str:
     return f"Fwd: {subject}"
 
 
-def signature_block(text: str) -> str:
-    """The signature as HTML, or "" when there is none."""
+def signature_block(text: str, *, is_html: bool = False) -> str:
+    """The signature as HTML, or "" when there is none.
+
+    An HTML signature is the user's own markup, pasted from a signature
+    generator or another client, so it goes in as-is rather than escaped.
+    """
     if not text:
         return ""
+    content = text if is_html else to_html(text)
     # The "-- " delimiter is the RFC 3676 convention for a signature.
-    return f'<div class="signature">-- <br>{to_html(text)}</div>'
+    return f'<div class="signature">-- <br>{content}</div>'
 
 
 def quote_reply_body(
-    original_from: str, original_date: str, original_text: str, signature: str = ""
+    original_from: str,
+    original_date: str,
+    original_text: str,
+    signature_html: str = "",
 ) -> str:
+    """signature_html is a finished signature_block(), placed above the quote."""
     return (
         "<div><br></div>"
-        + signature_block(signature)
+        + signature_html
         + f"<div>On {escape(original_date)}, {escape(original_from)} wrote:</div>"
         + f"<blockquote>{to_html(original_text)}</blockquote>"
     )
@@ -103,11 +112,11 @@ def forward_body(
     original_date: str,
     original_subject: str,
     original_text: str,
-    signature: str = "",
+    signature_html: str = "",
 ) -> str:
     return (
         "<div><br></div>"
-        + signature_block(signature)
+        + signature_html
         + "<div>---------- Forwarded message ----------<br>"
         + f"From: {escape(original_from)}<br>"
         + f"Date: {escape(original_date)}<br>"

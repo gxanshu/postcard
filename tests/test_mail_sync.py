@@ -174,7 +174,7 @@ def test_folder_role_members_keep_their_stored_string_values():
 
 
 def test_icon_for_folder():
-    assert icon_for_folder("INBOX") == "mail-unread-symbolic"
+    assert icon_for_folder("INBOX") == "mail-inbox-symbolic"
     assert icon_for_folder("[Gmail]/Sent Mail") == "mail-send-symbolic"
     assert icon_for_folder("Drafts") == "document-edit-symbolic"
     assert icon_for_folder("Trash") == "user-trash-symbolic"

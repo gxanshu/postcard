@@ -690,7 +690,7 @@ def icon_for_folder(name: str) -> str:
 
 def icon_for_role(role: FolderRole) -> str:
     return {
-        FolderRole.INBOX: "mail-unread-symbolic",
+        FolderRole.INBOX: "mail-inbox-symbolic",
         FolderRole.SENT: "mail-send-symbolic",
         FolderRole.DRAFTS: "document-edit-symbolic",
         FolderRole.ARCHIVE: "mail-archive-symbolic",

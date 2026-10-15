@@ -179,6 +179,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # guard clause -- background callbacks can fire before then.
         self._account: Account | None = None
         self._accounts: dict[int, Account] = {}
+        # Each account's last sync failure, so one account's success doesn't
+        # hide another's error: (message, is it the password?).
+        self._sync_failures: dict[int, tuple[str, bool]] = {}
 
         self._current_folder: Folder | None = None
         self._active_view: MessageView | None = None
@@ -310,7 +313,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             id=ALL_INBOXES_ID,
             account_id=0,
             name=_("All Inboxes"),
-            icon_name="mail-unread-symbolic",
+            icon_name="mail-inbox-symbolic",
         )
 
         # Accounts and the All Inboxes row share the top level of the tree.
@@ -1049,7 +1052,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         label = self._archive_label()
         self.archive_button_content.set_label(label)
         self.archive_button_content.set_icon_name(
-            "mail-unread-symbolic" if is_unarchive else "mail-archive-symbolic"
+            "mail-inbox-symbolic" if is_unarchive else "mail-archive-symbolic"
         )
         self.archive_button.set_tooltip_text(label)
 
@@ -2596,7 +2599,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         self._reload_folders()
         self._refresh_conversations(keep_id=keep_id)
-        self.connection_banner.set_revealed(False)
+        self._sync_failures.pop(account.id, None)
+        self._show_sync_failures()
 
         self._notify_arrivals(account.id, new_messages, target.id, arrived_elsewhere)
         return False
@@ -2718,8 +2722,24 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._show_list_or_placeholder()
         if self._is_stale(account):
             return False
-        self._show_connection_banner(message, self._retry_button_label(is_auth_failure))
+        self._sync_failures[account.id] = (message, is_auth_failure)
+        self._show_sync_failures()
         return False
+
+    def _show_sync_failures(self) -> None:
+        failures = [
+            (self._accounts[account_id], failure)
+            for account_id, failure in self._sync_failures.items()
+            if account_id in self._accounts
+        ]
+        if not failures:
+            self.connection_banner.set_revealed(False)
+            return
+        account, (message, is_auth_failure) = failures[-1]
+        self._show_connection_banner(
+            _("{account}: {reason}").format(account=account.email, reason=message),
+            self._retry_button_label(is_auth_failure),
+        )
 
     @staticmethod
     def _retry_button_label(is_auth_failure: bool) -> str:

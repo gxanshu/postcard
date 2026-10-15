@@ -1,4 +1,5 @@
 import logging
+import math
 from collections.abc import Callable
 
 import gi
@@ -31,9 +32,14 @@ SMALL_GUTTER = 6
 EDGE = 24
 AVATAR_SIZE = 40
 
-# Tall enough that most messages need no inner scrolling; the WebView can't
-# report its content height until after layout, so this is a fixed guess.
-BODY_HEIGHT = 800
+# A body is as tall as its content, so the reader pane is the only scroller.
+# The root element is a block formatting context, so its box holds floats and
+# the body's margins, unlike scrollHeight, which never drops below the viewport.
+MEASURE_BODY = "document.documentElement.getBoundingClientRect().height"
+# Used only if measuring fails, so the body never collapses to nothing.
+FALLBACK_BODY_HEIGHT = 800
+# Let a window drag settle before reloading a body reflowed by the new width.
+RELOAD_DELAY_MS = 100
 
 # An unrelated WebView costs its own web process: ~300 MB and up to 1.5 s to
 # start. Related views share one, so every message body hangs off this anchor,
@@ -72,6 +78,40 @@ def release_anchor() -> None:
         return
     _anchor.terminate_web_process()
     _anchor = None
+
+
+class _BodyView(WebKit.WebView):
+    """A WebView exactly as tall as the body it last measured.
+
+    WebKit's own natural height is its scroll height, which never drops below
+    the current viewport. Every load starts at 1px for the same reason: a body
+    may size itself to the viewport (`min-height: 100vh`), and measured at its
+    old height it could never shrink. 1px, not 0: a view laid out at zero
+    height never paints, even once it grows.
+    """
+
+    __gtype_name__ = "PostcardBodyView"
+
+    def __init__(self, on_width_changed: Callable[[int], None]) -> None:
+        super().__init__(related_view=_ensure_anchor())
+        self.body_height = 1
+        self._width = 0
+        self._on_width_changed = on_width_changed
+
+    def do_measure(
+        self, orientation: Gtk.Orientation, for_size: int
+    ) -> tuple[int, int, int, int]:
+        if orientation == Gtk.Orientation.HORIZONTAL:
+            return WebKit.WebView.do_measure(self, orientation, for_size)
+        return self.body_height, self.body_height, -1, -1
+
+    # Here rather than on MessageView: GTK never calls size_allocate on a widget
+    # with a layout manager, which a Gtk.Box is.
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        WebKit.WebView.do_size_allocate(self, width, height, baseline)
+        if width != self._width:
+            self._width = width
+            self._on_width_changed(width)
 
 
 def _build_names(email: Email, delivered_to: str) -> Gtk.Box:
@@ -135,9 +175,11 @@ class MessageView(Gtk.Box):
         self._is_loading = False
         self._is_released = False
         self._placeholder: Gtk.Widget | None = None
-        self._webview: WebKit.WebView | None = None
+        self._webview: _BodyView | None = None
         self._html: str | None = None
         self._dark_handler_id = 0
+        self._loaded_width = 0
+        self._reload_id = 0
 
         self.raw: bytes | None = None
         self.parsed: message_parser.ParsedMessage | None = None
@@ -280,11 +322,15 @@ class MessageView(Gtk.Box):
             self._body.append(banner)
             self._images_banner = banner
 
-        webview = WebKit.WebView(related_view=_ensure_anchor())
-        webview.set_size_request(-1, BODY_HEIGHT)
+        webview = _BodyView(self._on_body_width_changed)
         webview.connect("decide-policy", self._on_decide_policy)
+        webview.connect("load-changed", self._on_load_changed)
         settings = webview.get_settings()
-        settings.set_enable_javascript(False)
+        # Our own height measurement needs JavaScript on; the message's never
+        # runs. Markup off strips <script>, on* handlers and javascript: URLs at
+        # parse time, and the sandbox CSP refuses any script that slips past.
+        settings.set_enable_javascript(True)
+        settings.set_enable_javascript_markup(False)
         # A message body needs none of these, and each one carries buffers.
         settings.set_enable_page_cache(False)
         settings.set_enable_media(False)
@@ -294,16 +340,60 @@ class MessageView(Gtk.Box):
         # Transparent, so the reader's own surface shows through wherever the
         # recolored body leaves its page color out.
         webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
-        webview.load_html(self._sandboxed_html(), None)
         self._webview = webview
+        self._load_body()
         self._body.append(webview)
         self._dark_handler_id = Adw.StyleManager.get_default().connect(
             "notify::dark", self._on_dark_changed
         )
 
+    def _on_body_width_changed(self, width: int) -> None:
+        if width == self._loaded_width:
+            return
+        if self._reload_id:
+            GLib.source_remove(self._reload_id)
+        self._reload_id = GLib.timeout_add(RELOAD_DELAY_MS, self._on_reload)
+
+    def _on_reload(self) -> bool:
+        self._reload_id = 0
+        self._load_body()
+        return GLib.SOURCE_REMOVE
+
+    # Load at 1px and measure once loaded (see `_BodyView`); a finished load is
+    # also the one point where WebKit is sure to have laid out the new width.
+    def _load_body(self) -> None:
+        if self._webview is None:
+            return
+        self._loaded_width = self._webview.get_width()
+        self._webview.body_height = 1
+        self._webview.queue_resize()
+        self._webview.load_html(self._sandboxed_html(), None)
+
+    def _on_load_changed(
+        self, _webview: WebKit.WebView, event: WebKit.LoadEvent
+    ) -> None:
+        if event == WebKit.LoadEvent.FINISHED and self._webview is not None:
+            self._webview.evaluate_javascript(
+                MEASURE_BODY, -1, None, None, None, self._on_body_measured
+            )
+
+    def _on_body_measured(self, webview: _BodyView, result: Gio.AsyncResult) -> None:
+        if webview is not self._webview:
+            return
+        try:
+            height = math.ceil(webview.evaluate_javascript_finish(result).to_double())
+        except GLib.Error:
+            logger.warning(
+                "could not measure the body of message %s",
+                self._email.message_id,
+                exc_info=True,
+            )
+            height = FALLBACK_BODY_HEIGHT
+        webview.body_height = height
+        webview.queue_resize()
+
     def _on_dark_changed(self, _manager: Adw.StyleManager, _pspec: object) -> None:
-        if self._webview is not None:
-            self._webview.load_html(self._sandboxed_html(), None)
+        self._load_body()
 
     def _sandboxed_html(self) -> str:
         return message_parser.sandbox_html(
@@ -358,7 +448,7 @@ class MessageView(Gtk.Box):
             return
         self._should_load_remote_images = True
         self._images_banner.set_revealed(False)
-        self._webview.load_html(self._sandboxed_html(), None)
+        self._load_body()
 
     def _populate_attachments(self, attachments: list[Attachment]) -> None:
         if not attachments:
@@ -421,11 +511,15 @@ class MessageView(Gtk.Box):
         memory until the cyclic collector came round.
         """
         self._is_released = True
+        if self._reload_id:
+            GLib.source_remove(self._reload_id)
+            self._reload_id = 0
         if self._dark_handler_id:
             Adw.StyleManager.get_default().disconnect(self._dark_handler_id)
             self._dark_handler_id = 0
         if self._webview is not None:
             self._webview.disconnect_by_func(self._on_decide_policy)
+            self._webview.disconnect_by_func(self._on_load_changed)
             self._webview.unparent()
             self._webview = None
         self._html = None

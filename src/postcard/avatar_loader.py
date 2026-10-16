@@ -13,12 +13,15 @@ MAX_WORKERS = 4
 # ponytail: clears wholesale rather than evicting; an LRU if churn shows up.
 MAX_CACHED = 500
 
+OnReady = Callable[[Gdk.Texture | None], None]
+
 
 class AvatarLoader:
     """Address to texture, fetched in the background and cached in memory.
 
     Nothing is written to disk. A cached None means nobody had a picture, so
-    a sender without one costs a single request per session.
+    a sender without one costs a single request per session. `on_ready` is
+    always called, with None when there is no picture or avatars are off.
     """
 
     def __init__(self, settings: Gio.Settings) -> None:
@@ -27,17 +30,14 @@ class AvatarLoader:
             max_workers=MAX_WORKERS, thread_name_prefix="avatar"
         )
         self._cache: dict[str, Gdk.Texture | None] = {}
-        self._waiting_callbacks: dict[str, list[Callable[[Gdk.Texture], None]]] = {}
+        self._waiting_callbacks: dict[str, list[OnReady]] = {}
 
-    def load(self, address: str, on_ready: Callable[[Gdk.Texture], None]) -> None:
+    def load(self, address: str, on_ready: OnReady) -> None:
         address = address.strip().lower()
         if not address or not self._settings.get_boolean("load-sender-avatars"):
-            return
-
-        if address in self._cache:
-            texture = self._cache[address]
-            if texture:
-                on_ready(texture)
+            on_ready(None)
+        elif address in self._cache:
+            on_ready(self._cache[address])
         elif address in self._waiting_callbacks:
             self._waiting_callbacks[address].append(on_ready)
         else:
@@ -66,6 +66,5 @@ class AvatarLoader:
         self._cache[address] = texture
 
         for on_ready in self._waiting_callbacks.pop(address, []):
-            if texture:
-                on_ready(texture)
+            on_ready(texture)
         return GLib.SOURCE_REMOVE

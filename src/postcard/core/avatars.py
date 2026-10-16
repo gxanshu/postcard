@@ -3,12 +3,17 @@ import gi
 gi.require_version("GdkPixbuf", "2.0")
 
 import hashlib
+import io
 import logging
+import math
 import time
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 
+# Comes from the platform like gi does, and pycairo has no stubs on pip.
+import cairo  # pyright: ignore[reportMissingImports]
 from gi.repository import GdkPixbuf, GLib
 
 logger = logging.getLogger(__name__)
@@ -44,6 +49,17 @@ TIMEOUT = 5.0
 # answer "nobody has one", and finite so a sender who later gets a picture
 # eventually shows it.
 CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
+
+PLACEHOLDER_PX = 128
+# GNOME palette shades dark enough to carry white initials.
+PLACEHOLDER_COLORS = (
+    (0.110, 0.443, 0.847),
+    (0.149, 0.635, 0.412),
+    (0.776, 0.275, 0.000),
+    (0.753, 0.110, 0.157),
+    (0.506, 0.239, 0.612),
+    (0.525, 0.369, 0.235),
+)
 
 
 def gravatar(address: str) -> GdkPixbuf.Pixbuf | None:
@@ -98,6 +114,46 @@ def fetch(address: str) -> GdkPixbuf.Pixbuf | None:
             return image
     _write_cache(path, None)
     return None
+
+
+def placeholder(name: str) -> bytes:
+    """A PNG of the name's initials on a coloured disc, for a sender with no
+    picture.
+
+    Adw.Avatar draws the same thing in the app, but only once it is on screen,
+    so it can't render one for a notification.
+    """
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, PLACEHOLDER_PX, PLACEHOLDER_PX)
+    context = cairo.Context(surface)
+    center = PLACEHOLDER_PX / 2
+    context.arc(center, center, center, 0, 2 * math.pi)
+    color = PLACEHOLDER_COLORS[zlib.crc32(name.encode()) % len(PLACEHOLDER_COLORS)]
+    context.set_source_rgb(*color)
+    context.fill()
+
+    text = initials(name)
+    context.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    context.set_font_size(PLACEHOLDER_PX * 0.4)
+    context.set_source_rgb(1, 1, 1)
+    extents = context.text_extents(text)
+    context.move_to(
+        center - extents.width / 2 - extents.x_bearing,
+        center - extents.height / 2 - extents.y_bearing,
+    )
+    context.show_text(text)
+
+    buffer = io.BytesIO()
+    surface.write_to_png(buffer)
+    return buffer.getvalue()
+
+
+def initials(name: str) -> str:
+    """First letters of the first and last words, the way Adw.Avatar picks them."""
+    words = name.split()
+    if not words:
+        return ""
+    first, last = words[0][0], words[-1][0] if len(words) > 1 else ""
+    return (first + last).upper()
 
 
 def _cache_path(address: str) -> Path:

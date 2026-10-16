@@ -26,7 +26,7 @@ from .composer_window import (
     signature_html,
 )
 from .conversation_row import ConversationRow
-from .core import compose, goa, secrets
+from .core import avatars, compose, goa, secrets
 from .core.mime.message_parser import ParsedMessage, Unsubscribe, parse_unsubscribe
 from .core.models.account import Account
 from .core.models.attachment import Attachment
@@ -75,6 +75,9 @@ SETTING_ACCOUNT_DISPLAY_NAME = "show-account-display-name"
 SETTINGS_INTERFACE = "org.freedesktop.portal.Settings"
 CLOCK_NAMESPACE = "org.gnome.desktop.interface"
 CLOCK_KEY = "clock-format"
+
+# xdg-desktop-portal's limit for a notification icon, which must also be square.
+MAX_NOTIFY_ICON_PX = 512
 
 # Move is the one action carrying a parameter (the destination folder name), so
 # it is registered on its own wherever these are.
@@ -2695,22 +2698,40 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if app is None:
             return
 
-        if len(messages) == 1:
-            notification = Gio.Notification.new(messages[0].sender)
-            notification.set_body(messages[0].subject)
-            # Clicking it opens that thread, which is what marks it read.
-            notification.set_default_action_and_target(
-                "app.open-mail", GLib.Variant("(is)", (folder_id, messages[0].uid))
-            )
-        else:
+        if len(messages) > 1:
             senders = ", ".join(dict.fromkeys(message.sender for message in messages))
             notification = Gio.Notification.new(
                 _("{n} new messages").format(n=len(messages))
             )
             notification.set_body(senders)
             notification.set_default_action("app.focus-mail")
+            app.send_notification(f"new-mail-{account_id}", notification)
+            return
 
-        app.send_notification(f"new-mail-{account_id}", notification)
+        message = messages[0]
+        notification = Gio.Notification.new(message.sender)
+        notification.set_body(message.subject)
+        # Clicking it opens that thread, which is what marks it read.
+        notification.set_default_action_and_target(
+            "app.open-mail", GLib.Variant("(is)", (folder_id, message.uid))
+        )
+
+        # Held back until the sender's picture is in, since a notification
+        # can't be updated in place without popping up again.
+        def send_with_face(texture: Gdk.Texture | None) -> None:
+            # The portal drops the whole notification, silently, over an icon
+            # that isn't square or is past its size limit -- favicons can be.
+            if (
+                texture is not None
+                and texture.get_width() == texture.get_height() <= MAX_NOTIFY_ICON_PX
+            ):
+                png = texture.save_to_png_bytes()
+            else:
+                png = GLib.Bytes.new(avatars.placeholder(message.sender))
+            notification.set_icon(Gio.BytesIcon.new(png))
+            app.send_notification(f"new-mail-{account_id}", notification)
+
+        self._avatars.load(message.sender_address, send_with_face)
 
     def _on_sync_error(
         self, account: Account, is_auth_failure: bool, message: str

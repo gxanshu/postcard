@@ -17,6 +17,8 @@ from postcard.core.avatars import (
     favicon_urls,
     fetch,
     gravatar,
+    initials,
+    placeholder,
 )
 
 
@@ -232,3 +234,19 @@ def test_load_swallows_network_errors(monkeypatch) -> None:
 
     monkeypatch.setattr("urllib.request.urlopen", boom)
     assert _load("https://example.com/a.png") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [("Jane Doe", "JD"), ("jane", "J"), ("Ana María de la Cruz", "AC"), ("", "")],
+)
+def test_initials_take_the_first_and_last_words(name: str, expected: str) -> None:
+    assert initials(name) == expected
+
+
+def test_placeholder_is_a_square_png() -> None:
+    loader = GdkPixbuf.PixbufLoader()
+    loader.write(placeholder("Jane Doe"))
+    loader.close()
+    picture = loader.get_pixbuf()
+    assert picture.get_width() == picture.get_height() == avatars.PLACEHOLDER_PX

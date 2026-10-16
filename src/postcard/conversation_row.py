@@ -120,7 +120,7 @@ class ConversationRow(Gtk.Box):
         self._address = address
         self._avatar.set_custom_image(None)
 
-        def apply(texture: Gdk.Texture) -> None:
+        def apply(texture: Gdk.Texture | None) -> None:
             if self._address == address:
                 self._avatar.set_custom_image(texture)
 

@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PyGObject and pytest
+      - name: Install PyGObject, pycairo and pytest
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-glib-2.0 \
-            gir1.2-gdkpixbuf-2.0 python3-pytest
+            gir1.2-gdkpixbuf-2.0 python3-cairo python3-pytest
 
       # Lint + format + types, enforcing .claude/skills/coding-standards.
       # Installed with pip rather than `just check` so CI needs no `just`.

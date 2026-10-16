@@ -59,6 +59,20 @@
   </screenshots>
 
   <releases>
+    <release version="1.14.0" date="2026-10-16">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>Signatures can include rich text and HTML formatting</li>
+          <li>New mail notifications show sender avatars</li>
+          <li>Email timestamps follow the desktop's clock format</li>
+          <li>Message bodies resize to fit their content</li>
+          <li>Clearer feedback for mail operations and composing, with sync errors
+          preserved across accounts</li>
+          <li>Updated to the GNOME 51 runtime</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.13.0" date="2026-09-26">
       <description translate="no">
         <p>New in this release:</p>

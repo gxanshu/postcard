@@ -9,7 +9,7 @@ Postcard is a GTK 4 / libadwaita email client written in Python, built and shipp
 Everything goes through the Flatpak toolchain via [`just`](justfile) — there is **no host-level `python app.py`**. The Flatpak build compiles the **current working tree, uncommitted edits included** (the manifest uses a `"dir"` source), so you never need to commit to test a change.
 
 ```bash
-just init      # one-time: add Flathub, install the GNOME 50 runtime + SDK
+just init      # one-time: add Flathub, install the GNOME 51 runtime + SDK
 just build     # build the Flatpak from the working tree, install --user
 just run       # build, then launch (the normal dev loop)
 just run-debug # run with G_MESSAGES_DEBUG=all

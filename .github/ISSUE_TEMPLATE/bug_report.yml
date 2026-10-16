@@ -96,7 +96,7 @@ body:
     id: environment
     attributes:
       label: Distro, desktop, and how you installed
-      placeholder: Fedora 43, GNOME 50, Flatpak from the releases page / built from source
+      placeholder: Fedora 43, GNOME 51, Flatpak from the releases page / built from source
     validations:
       required: true
 

@@ -51,7 +51,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
     env:
       GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID }}
@@ -88,7 +88,7 @@ jobs:
     if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
     env:
       VERSION: ${{ needs.check.outputs.version }}
@@ -144,7 +144,7 @@ jobs:
           EOF
           # One-click install: adds the remote *and* installs the app, so users
           # never run `flatpak remote-add` themselves. RuntimeRepo is what lets
-          # flatpak pull org.gnome.Platform//50 from Flathub on a fresh machine.
+          # flatpak pull org.gnome.Platform//51 from Flathub on a fresh machine.
           # Written outside site/ deliberately — it ships as a GitHub release
           # asset only, so every install shows up in the download counter.
           cat > postcard.flatpakref <<EOF

@@ -59,6 +59,14 @@
   </screenshots>
 
   <releases>
+    <release version="1.14.1" date="2026-10-19">
+      <description translate="no">
+        <p>Fixed in this release:</p>
+        <ul>
+          <li>Accent-colored text stays readable in dark mode with dark desktop accents</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.14.0" date="2026-10-16">
       <description translate="no">
         <p>New in this release:</p>

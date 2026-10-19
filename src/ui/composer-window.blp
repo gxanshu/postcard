@@ -15,18 +15,27 @@ template $PostcardComposerWindow: Adw.Window {
       [start]
       Gtk.Button cancel_button {
         label: _("Cancel");
+        action-name: "window.close";
       }
 
       [end]
-      Gtk.Button send_button {
-        label: _("Send");
-        sensitive: false;
+      Gtk.Button {
+        action-name: "composer.send";
 
         styles ["suggested-action"]
+
+        // Homogeneous, so the button keeps the label's width while it spins.
+        child: Gtk.Stack send_stack {
+          Gtk.Label {
+            label: _("Send");
+          }
+
+          Adw.Spinner send_spinner {}
+        };
       }
     }
 
-    content: Gtk.Box {
+    content: Gtk.Box form {
       orientation: vertical;
       spacing: 12;
       margin-top: 12;
@@ -138,10 +147,31 @@ template $PostcardComposerWindow: Adw.Window {
     };
 
     [bottom]
-    Gtk.Box {
+    Gtk.Box format_bar {
       spacing: 6;
 
       styles ["toolbar"]
+
+      // focus-on-click off, so the caret stays in the body between clicks.
+      Gtk.Button {
+        icon-name: "edit-undo-symbolic";
+        tooltip-text: _("Undo");
+        action-name: "composer.undo";
+        focus-on-click: false;
+
+        styles ["flat"]
+      }
+
+      Gtk.Button {
+        icon-name: "edit-redo-symbolic";
+        tooltip-text: _("Redo");
+        action-name: "composer.redo";
+        focus-on-click: false;
+
+        styles ["flat"]
+      }
+
+      Gtk.Separator {}
 
       Gtk.ToggleButton bold_button {
         icon-name: "format-text-bold-symbolic";
@@ -189,9 +219,10 @@ template $PostcardComposerWindow: Adw.Window {
 
       Gtk.Separator {}
 
-      Gtk.Button link_button {
+      Gtk.Button {
         icon-name: "insert-link-symbolic";
         tooltip-text: _("Insert Link");
+        action-name: "composer.link";
 
         styles ["flat"]
       }

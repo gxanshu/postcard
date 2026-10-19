@@ -77,4 +77,42 @@ Adw.ShortcutsDialog shortcuts_dialog {
       action-name: "win.trash";
     }
   }
+
+  Adw.ShortcutsSection {
+    title: _("Composer");
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Send");
+      accelerator: "<Control>Return";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Undo");
+      accelerator: "<Control>z";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Redo");
+      accelerator: "<Control><Shift>z";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Bold");
+      accelerator: "<Control>b";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Italic");
+      accelerator: "<Control>i";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Underline");
+      accelerator: "<Control>u";
+    }
+
+    Adw.ShortcutsItem {
+      title: C_("shortcut window", "Insert Link");
+      accelerator: "<Control>k";
+    }
+  }
 }

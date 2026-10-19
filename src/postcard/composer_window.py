@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 from email.utils import getaddresses
 from gettext import gettext as _
+from typing import cast
 
 import gi
 
@@ -49,58 +50,178 @@ _EDITOR_PAGE = """<!DOCTYPE html>
     background: transparent;
     outline: none;
   }}
-  p {{ margin: 0; }}
   a {{ color: #1c71d8; }}
-  blockquote {{
-    margin: 0 0 0 2px;
-    padding-left: 10px;
-    border-left: 2px solid #c0bfbc;
-    color: #5e5c64;
-  }}
+  blockquote {{ color: #5e5c64; }}
   .signature {{ color: #5e5c64; }}
   @media (prefers-color-scheme: dark) {{
     body {{ color: #f6f5f4; }}
     a {{ color: #78aeed; }}
-    blockquote {{ border-left-color: #5e5c64; color: #c0bfbc; }}
-    .signature {{ color: #c0bfbc; }}
+    blockquote, .signature {{ color: #c0bfbc; }}
   }}
 </style>
 </head>
 <body contenteditable="true">{body}</body>
-<script>
-  var COMMANDS = {commands};
-
-  function post() {{
-    var states = {{}};
-    COMMANDS.forEach(function (name) {{
-      states[name] = document.queryCommandState(name);
-    }});
-    window.webkit.messageHandlers.editor.postMessage(JSON.stringify({{
-      html: document.body.innerHTML,
-      states: states
-    }}));
-  }}
-
-  document.addEventListener('input', post);
-  document.addEventListener('selectionchange', post);
-
-  // <div> separators inherit no margin, so a sent message keeps the spacing it
-  // was typed with even in clients that apply their own stylesheet.
-  document.execCommand('defaultParagraphSeparator', false, 'div');
-  document.body.focus();
-
-  var first = document.body.firstChild;
-  if (first) {{
-    var range = document.createRange();
-    range.setStart(first, 0);
-    range.collapse(true);
-    var selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }}
-</script>
 </html>
 """
+
+# Injected as a user script rather than written into the page: a <script> in
+# the page is part of document.body.innerHTML, and so of every message sent.
+_EDITOR_SCRIPT = """
+// WebKit writes the editor's own font and colour onto text it moves -- a
+// paste, two lines joined -- and in a message they would override the
+// recipient's. A signature keeps its own: it is the user's markup.
+const EDITOR_STYLES = ['font-size', 'font-family', 'line-height', 'color'];
+
+function messageHtml() {
+  const copy = document.body.cloneNode(true);
+  for (const element of copy.querySelectorAll('[style]')) {
+    if (element.closest('.signature')) continue;
+    for (const name of EDITOR_STYLES) element.style.removeProperty(name);
+    if (!element.style.length) element.removeAttribute('style');
+  }
+  return copy.innerHTML;
+}
+
+function post(isEdit = false) {
+  const states = {};
+  for (const name of COMMANDS) {
+    states[name] = document.queryCommandState(name);
+  }
+  window.webkit.messageHandlers.editor.postMessage(JSON.stringify({
+    html: messageHtml(),
+    states: states,
+    isEdit: isEdit,
+  }));
+}
+
+function insertLink(url) {
+  if (getSelection().isCollapsed) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.textContent = url;
+    document.execCommand('insertHTML', false, link.outerHTML);
+  } else {
+    document.execCommand('createLink', false, url);
+  }
+  post();
+}
+
+// Pasted markup is rebuilt from a few plain tags with no attributes but a
+// link's href. Anything the source styled -- a <p> margin, a dark-theme text
+// colour, a font -- would reach recipients looking unlike it does here.
+const KEPT = new RegExp(
+  '^(A|B|STRONG|I|EM|U|S|STRIKE|BR|DIV|UL|OL|LI|BLOCKQUOTE|PRE|CODE|' +
+  'TABLE|THEAD|TBODY|TR|TH|TD)$'
+);
+const DROPPED = /^(SCRIPT|STYLE|META|TITLE|LINK|IMG|svg|IFRAME|OBJECT)$/;
+const PARAGRAPH = /^(P|H[1-6])$/;
+
+function wrapContents(element, tag) {
+  const wrapper = element.ownerDocument.createElement(tag);
+  wrapper.append(...element.childNodes);
+  element.append(wrapper);
+}
+
+function tidy(element) {
+  const tag = element.tagName;
+  // WebKit's marker for "the copy ended at a line break", not a line itself.
+  if (DROPPED.test(tag) || element.className === 'Apple-interchange-newline') {
+    element.remove();
+    return;
+  }
+  // Rich-text editors mark formatting with inline styles on a <span>, and
+  // Google Docs wraps a whole paste in <b style="font-weight:normal">.
+  const style = element.style;
+  const isBoldTag = tag === 'B' || tag === 'STRONG';
+  if (isBoldTag && /normal|400/.test(style.fontWeight)) {
+    element.replaceWith(...element.childNodes);
+    return;
+  }
+  const decoration = style.textDecoration;
+  if (!isBoldTag && /bold|[6-9]00/.test(style.fontWeight)) {
+    wrapContents(element, 'B');
+  }
+  if (style.fontStyle === 'italic' && !/^(I|EM)$/.test(tag)) {
+    wrapContents(element, 'I');
+  }
+  if (/underline/.test(decoration) && tag !== 'U') wrapContents(element, 'U');
+  if (/line-through/.test(decoration) && tag !== 'S') wrapContents(element, 'S');
+
+  if (PARAGRAPH.test(tag)) {
+    // A paragraph's gap is a margin every client draws differently, so it
+    // becomes a <div>, and the gap an empty line the writer can see and delete.
+    const next = element.nextElementSibling;
+    if (/^H/.test(tag)) wrapContents(element, 'B');
+    if (element.parentElement && element.parentElement.closest('li')) {
+      if (next) element.after(element.ownerDocument.createElement('br'));
+      element.replaceWith(...element.childNodes);
+      return;
+    }
+    const line = element.ownerDocument.createElement('div');
+    line.append(...element.childNodes);
+    element.replaceWith(line);
+    if (next && PARAGRAPH.test(next.tagName)) {
+      const blank = element.ownerDocument.createElement('div');
+      blank.append(element.ownerDocument.createElement('br'));
+      line.after(blank);
+    }
+    return;
+  }
+  const href = element.getAttribute('href') || '';
+  if (!KEPT.test(tag) || (tag === 'A' && !/^(https?|mailto):/i.test(href))) {
+    element.replaceWith(...element.childNodes);
+    return;
+  }
+  for (const attribute of Array.from(element.attributes)) {
+    if (attribute.name !== 'href') element.removeAttribute(attribute.name);
+  }
+}
+
+function clean(parent) {
+  for (const node of Array.from(parent.childNodes)) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      clean(node);
+      tidy(node);
+    } else if (node.nodeType !== Node.TEXT_NODE) {
+      node.remove();
+    }
+  }
+}
+
+document.addEventListener('paste', (event) => {
+  const html = event.clipboardData.getData('text/html');
+  if (!html) return;
+  event.preventDefault();
+  const body = new DOMParser().parseFromString(html, 'text/html').body;
+  clean(body);
+  document.execCommand('insertHTML', false, body.innerHTML);
+});
+
+// A dropped file would go in as a file:// link that no recipient can open.
+document.addEventListener('drop', (event) => {
+  if (event.dataTransfer.files.length) event.preventDefault();
+});
+
+document.addEventListener('input', () => post(true));
+document.addEventListener('selectionchange', () => post());
+
+// <div> separators inherit no margin, so a sent message keeps the spacing it
+// was typed with even in clients that apply their own stylesheet.
+document.execCommand('defaultParagraphSeparator', false, 'div');
+document.body.focus();
+
+const first = document.body.firstChild;
+if (first) {
+  const range = document.createRange();
+  range.setStart(first, 0);
+  range.collapse(true);
+  getSelection().removeAllRanges();
+  getSelection().addRange(range);
+}
+"""
+
+# Every message opens on an empty line to type on, above any signature or quote.
+_BLANK_LINE = "<div><br></div>"
 
 
 class _AddressSuggestions:
@@ -205,13 +326,37 @@ _FORMAT_COMMANDS = {
     "numbers_button": "insertOrderedList",
 }
 
+_HISTORY_COMMANDS = {
+    "undo": WebKit.EDITING_COMMAND_UNDO,
+    "redo": WebKit.EDITING_COMMAND_REDO,
+}
+
+# Caught on the editor's container in the capture phase: WebKit takes every
+# key in its own capture phase, so a controller on the WebView itself never
+# sees one. Ctrl+Z in an address row stays that row's own undo.
+_EDITOR_SHORTCUTS = {
+    "<Control>z": "composer.undo",
+    "<Control><Shift>z|<Control>y": "composer.redo",
+    "<Control>b": "composer.bold",
+    "<Control>i": "composer.italic",
+    "<Control>u": "composer.underline",
+    "<Control>k": "composer.link",
+}
+
+_WINDOW_SHORTCUTS = {
+    "<Control>Return|<Control>KP_Enter": "composer.send",
+}
+
 
 @Gtk.Template(resource_path="/in/gxanshu/postcard/ui/composer-window.ui")
 class PostcardComposerWindow(Adw.Window):
     __gtype_name__ = "PostcardComposerWindow"
 
+    send_stack: Gtk.Stack = Gtk.Template.Child()
+    send_spinner: Adw.Spinner = Gtk.Template.Child()
     cancel_button: Gtk.Button = Gtk.Template.Child()
-    send_button: Gtk.Button = Gtk.Template.Child()
+    form: Gtk.Box = Gtk.Template.Child()
+    format_bar: Gtk.Box = Gtk.Template.Child()
     from_row: Adw.ComboRow = Gtk.Template.Child()
     to_row: Adw.EntryRow = Gtk.Template.Child()
     extra_recipients_button: Gtk.ToggleButton = Gtk.Template.Child()
@@ -228,7 +373,6 @@ class PostcardComposerWindow(Adw.Window):
     strike_button: Gtk.ToggleButton = Gtk.Template.Child()
     bullets_button: Gtk.ToggleButton = Gtk.Template.Child()
     numbers_button: Gtk.ToggleButton = Gtk.Template.Child()
-    link_button: Gtk.Button = Gtk.Template.Child()
     attach_button: Gtk.Button = Gtk.Template.Child()
     attachments_group: Gtk.Box = Gtk.Template.Child()
     attachments_list: Gtk.ListBox = Gtk.Template.Child()
@@ -254,13 +398,19 @@ class PostcardComposerWindow(Adw.Window):
         self._db = db
         self._account = account
         self._attachments: list[Attachment] = []
-        self._body_html = body or "<div><br></div>"
+        self._body_html = _BLANK_LINE + body
         self._syncing = False
+        self._is_sending = False
+        self._is_editor_loaded = False
+        # Whether closing should keep a draft: an untouched reply or a new
+        # message holding only its signature is not one.
+        self._is_edited = False
 
         self._format_buttons = {
             command: getattr(self, name) for name, command in _FORMAT_COMMANDS.items()
         }
 
+        self._build_actions()
         self._build_from_row(account)
         self.to_row.set_text(to)
         self.cc_row.set_text(cc)
@@ -276,16 +426,16 @@ class PostcardComposerWindow(Adw.Window):
         self.extra_recipients_button.connect(
             "toggled", self._on_extra_recipients_toggled
         )
-        self.cancel_button.connect("clicked", self._on_cancel_clicked)
-        self.send_button.connect("clicked", self._on_send_clicked)
+        self.connect("close-request", self._on_close_request)
         self.attach_button.connect("clicked", self._on_attach_clicked)
-        self.link_button.connect("clicked", self._on_link_clicked)
+        self.add_controller(_shortcut_controller(_WINDOW_SHORTCUTS))
 
         for command, button in self._format_buttons.items():
             button.connect("toggled", self._on_format_toggled, command)
 
         for row in (self.to_row, self.cc_row, self.bcc_row, self.subject_row):
             row.connect("changed", self._update_send_sensitivity)
+            row.connect("changed", self._mark_edited)
         self._update_send_sensitivity()
 
         known = db.contact_addresses()
@@ -293,6 +443,33 @@ class PostcardComposerWindow(Adw.Window):
             _AddressSuggestions(row, known)
             for row in (self.to_row, self.cc_row, self.bcc_row)
         ]
+
+        # A new message starts at its first field; a reply, already addressed,
+        # starts in the body.
+        (self._webview if to else self.to_row).grab_focus()
+
+    def _build_actions(self) -> None:
+        callbacks = {
+            "send": self._send,
+            "link": self._ask_for_link,
+            "bold": lambda: self._toggle(self.bold_button),
+            "italic": lambda: self._toggle(self.italic_button),
+            "underline": lambda: self._toggle(self.underline_button),
+        } | {
+            name: lambda command=command: self._webview.execute_editing_command(command)
+            for name, command in _HISTORY_COMMANDS.items()
+        }
+        group = Gio.SimpleActionGroup()
+        self._actions: dict[str, Gio.SimpleAction] = {}
+        for name, callback in callbacks.items():
+            action = Gio.SimpleAction(name=name)
+            action.connect("activate", lambda *_args, callback=callback: callback())
+            group.add_action(action)
+            self._actions[name] = action
+        self.insert_action_group("composer", group)
+        # Nothing to undo yet; the editor turns these on as it fills its history.
+        for name in _HISTORY_COMMANDS:
+            self._actions[name].set_enabled(False)
 
     # Gtk.Revealer is the obvious fit here, but its transition is ease-out in
     # both directions: a collapse jumps away and then crawls the last few
@@ -384,31 +561,59 @@ class PostcardComposerWindow(Adw.Window):
         manager = WebKit.UserContentManager()
         manager.register_script_message_handler("editor", None)
         manager.connect("script-message-received::editor", self._on_editor_changed)
+        manager.add_script(
+            WebKit.UserScript.new(
+                f"const COMMANDS = {json.dumps(list(self._format_buttons))};"
+                + _EDITOR_SCRIPT,
+                WebKit.UserContentInjectedFrames.TOP_FRAME,
+                WebKit.UserScriptInjectionTime.END,
+                None,
+                None,
+            )
+        )
 
         self._webview = WebKit.WebView(
             user_content_manager=manager, hexpand=True, vexpand=True
         )
         self._webview.get_settings().set_auto_load_images(False)
+        self._webview.connect("decide-policy", self._on_decide_policy)
+        self.body_container.add_controller(_shortcut_controller(_EDITOR_SHORTCUTS))
+        context = self._webview.get_context()
+        context.set_spell_checking_enabled(True)
+        context.set_spell_checking_languages(_spelling_languages())
         # Transparent, so the Adwaita "card" behind it supplies the background
         # and the editor tracks the theme without hardcoding its colours.
         self._webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
         family, size = _gtk_font()
         self._webview.load_html(
-            _EDITOR_PAGE.format(
-                family=family,
-                size=size,
-                body=self._body_html,
-                commands=json.dumps(list(self._format_buttons)),
-            ),
+            _EDITOR_PAGE.format(family=family, size=size, body=self._body_html),
             None,
         )
         self.body_container.append(self._webview)
+
+    def _on_decide_policy(
+        self,
+        _webview: WebKit.WebView,
+        decision: WebKit.PolicyDecision,
+        decision_type: WebKit.PolicyDecisionType,
+    ) -> bool:
+        if decision_type == WebKit.PolicyDecisionType.RESPONSE:
+            return False
+        # The first navigation is load_html putting the editor up. It is never
+        # left after that: a followed link would take the message with it.
+        if self._is_editor_loaded:
+            decision.ignore()
+            return True
+        self._is_editor_loaded = True
+        return False
 
     def _on_editor_changed(
         self, _manager: WebKit.UserContentManager, value: JavaScriptCore.Value
     ) -> None:
         payload = json.loads(value.to_string())
         self._body_html = payload["html"]
+        if payload["isEdit"]:
+            self._mark_edited()
 
         self._syncing = True
         for command, button in self._format_buttons.items():
@@ -416,24 +621,36 @@ class PostcardComposerWindow(Adw.Window):
         self._syncing = False
 
         self._update_send_sensitivity()
+        for name, command in _HISTORY_COMMANDS.items():
+            self._webview.can_execute_editing_command(
+                command, None, self._on_history_checked, name
+            )
 
-    def _exec(self, command: str, argument: str | None = None) -> None:
-        arg = json.dumps(argument) if argument is not None else "null"
-        self._webview.evaluate_javascript(
-            f"document.execCommand({json.dumps(command)}, false, {arg})",
-            -1,
-            None,
-            None,
-            None,
+    def _on_history_checked(
+        self, webview: WebKit.WebView, result: Gio.AsyncResult, name: str
+    ) -> None:
+        self._actions[name].set_enabled(
+            webview.can_execute_editing_command_finish(result)
         )
+
+    def _mark_edited(self, *_args: object) -> None:
+        self._is_edited = True
+
+    def _run_script(self, script: str) -> None:
+        self._webview.evaluate_javascript(script, -1, None, None, None)
+
+    def _toggle(self, button: Gtk.ToggleButton) -> None:
+        button.set_active(not button.get_active())
 
     def _on_format_toggled(self, _button: Gtk.ToggleButton, command: str) -> None:
         if self._syncing:
             return
-        self._exec(command)
+        # post() as well: a toggle at a bare caret changes no text, so the
+        # editor would not report the new state until the next keystroke.
+        self._run_script(f"document.execCommand({json.dumps(command)}); post();")
         self._webview.grab_focus()
 
-    def _on_link_clicked(self, _button: Gtk.Button) -> None:
+    def _ask_for_link(self) -> None:
         entry = Gtk.Entry(placeholder_text="https://", activates_default=True)
         dialog = Adw.AlertDialog(heading=_("Insert Link"), extra_child=entry)
         dialog.add_response("cancel", _("Cancel"))
@@ -447,13 +664,18 @@ class PostcardComposerWindow(Adw.Window):
         self, _dialog: Adw.AlertDialog, response: str, entry: Gtk.Entry
     ) -> None:
         url = entry.get_text().strip()
-        if response == "insert" and url:
-            self._exec("createLink", url)
         self._webview.grab_focus()
+        if response != "insert" or not url:
+            return
+        # "example.com" would be a link relative to nothing in the recipient's
+        # client.
+        if not url.lower().startswith(("http://", "https://", "mailto:")):
+            url = f"mailto:{url}" if "@" in url else f"https://{url}"
+        self._run_script(f"insertLink({json.dumps(url)})")
 
     def _update_send_sensitivity(self, *_args: object) -> None:
         has_recipient = bool(self._to_addrs() or self._cc_addrs() or self._bcc_addrs())
-        self.send_button.set_sensitive(
+        self._actions["send"].set_enabled(
             has_recipient and bool(self.subject_row.get_text().strip())
         )
 
@@ -494,16 +716,21 @@ class PostcardComposerWindow(Adw.Window):
 
     def _on_attach_clicked(self, _button: Gtk.Button) -> None:
         dialog = Gtk.FileDialog()
-        dialog.open(self, None, self._on_attach_dialog_done)
+        dialog.open_multiple(self, None, self._on_attach_dialog_done)
 
     def _on_attach_dialog_done(
         self, dialog: Gtk.FileDialog, result: Gio.AsyncResult
     ) -> None:
         try:
-            file = dialog.open_finish(result)
+            files = dialog.open_multiple_finish(result)
         except GLib.Error:
             return  # user cancelled the dialog
 
+        # A Gio.ListModel of Gio.File, which the stubs only know as GObjects.
+        for file in files or []:
+            self._attach(cast("Gio.File", file))
+
+    def _attach(self, file: Gio.File) -> None:
         try:
             _ok, content, _etag = file.load_contents(None)
         except GLib.Error as error:
@@ -517,6 +744,7 @@ class PostcardComposerWindow(Adw.Window):
         )
         self._attachments.append(attachment)
         self._add_attachment_row(attachment)
+        self._mark_edited()
 
     def _add_attachment_row(self, attachment: Attachment) -> None:
         row = Adw.ActionRow(title=attachment.filename)
@@ -540,36 +768,44 @@ class PostcardComposerWindow(Adw.Window):
         self.attachments_list.remove(row)
         self.attachments_group.set_visible(bool(self._attachments))
 
-    def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
-        if self._has_content():
-            folder = mail_sync.drafts_folder(self._db, self._account.id)
-            msg = compose.build_mime_message(
-                self._account.email,
-                self._to_addrs(),
-                self._cc_addrs(),
-                self.subject_row.get_text().strip(),
-                self._body_html,
-                self._attachments,
-            )
-            recipient, recipient_address = mail_sync.first_recipient(
-                self.to_row.get_text()
-            )
-            row = self._db.save_email(
-                folder.id,
-                sender=self._recipients_display(),
-                recipient=recipient,
-                recipient_address=recipient_address,
-                subject=self.subject_row.get_text().strip() or NO_SUBJECT,
-                preview=self._preview_text()[:100],
-                date=_now(),
-                is_unread=False,
-            )
-            self._db.save_raw_message(row.id, msg.as_bytes())
-            self.emit("finished", "")
+    # Cancel is window.close, so a draft is kept however the window goes.
+    def _on_close_request(self, _window: Adw.Window) -> bool:
+        if self._is_sending:
+            # The message is already in the Outbox and its send carries on; the
+            # window only hides, so the result still has somewhere to land.
+            self.set_visible(False)
+            return True
+        if self._is_edited and self._has_content():
+            self._save_draft()
+        return False
 
-        self.close()
+    def _save_draft(self) -> None:
+        folder = mail_sync.drafts_folder(self._db, self._account.id)
+        msg = compose.build_mime_message(
+            self._account.email,
+            self._to_addrs(),
+            self._cc_addrs(),
+            self.subject_row.get_text().strip(),
+            self._body_html,
+            self._attachments,
+        )
+        recipient, recipient_address = mail_sync.first_recipient(self.to_row.get_text())
+        row = self._db.save_email(
+            folder.id,
+            sender=self._recipients_display(),
+            recipient=recipient,
+            recipient_address=recipient_address,
+            subject=self.subject_row.get_text().strip() or NO_SUBJECT,
+            preview=self._preview_text()[:100],
+            date=_now(),
+            is_unread=False,
+        )
+        self._db.save_raw_message(row.id, msg.as_bytes())
+        self.emit("finished", "")
 
-    def _on_send_clicked(self, _button: Gtk.Button) -> None:
+    def _send(self) -> None:
+        if self._is_sending:
+            return
         to_addrs = self._to_addrs()
         cc_addrs = self._cc_addrs()
         bcc_addrs = self._bcc_addrs()
@@ -613,6 +849,13 @@ class PostcardComposerWindow(Adw.Window):
             is_unread=False,
         )
         self._db.save_raw_message(row.id, raw)
+
+        # The button stays lit, spinning, rather than greyed out like the rest.
+        self._is_sending = True
+        self.send_stack.set_visible_child(self.send_spinner)
+        # Edits made now would not be in the message already on its way.
+        for widget in (self.cancel_button, self.form, self.format_bar):
+            widget.set_sensitive(False)
 
         thread = threading.Thread(
             target=self._send_worker,
@@ -670,19 +913,41 @@ class PostcardComposerWindow(Adw.Window):
         )
         self._db.save_raw_message(row.id, raw)
         self.emit("finished", "")
-        self.close()
+        # destroy, not close: there is no draft to keep of a message sent.
+        self.destroy()
         return False
 
     def _on_send_failed(self, message: str) -> bool:
         self.emit(
             "finished", _("Couldn't send: {msg}. Saved to Outbox.").format(msg=message)
         )
-        self.close()
+        self.destroy()
         return False
 
 
 def _now() -> str:
     return datetime.now().astimezone().isoformat()
+
+
+def _shortcut_controller(shortcuts: dict[str, str]) -> Gtk.ShortcutController:
+    controller = Gtk.ShortcutController(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+    for trigger, action in shortcuts.items():
+        controller.add_shortcut(
+            Gtk.Shortcut(
+                trigger=Gtk.ShortcutTrigger.parse_string(trigger),
+                action=Gtk.NamedAction.new(action),
+            )
+        )
+    return controller
+
+
+def _spelling_languages() -> list[str]:
+    """The locale's languages as dictionary names: en_US.UTF-8 -> en_US, en."""
+    return [
+        name
+        for name in GLib.get_language_names()
+        if name != "C" and "." not in name and "@" not in name
+    ]
 
 
 def _gtk_font() -> tuple[str, str]:

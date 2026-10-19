@@ -13,6 +13,7 @@ from postcard.core.compose import (
     reply_subject,
     signature_block,
     suggest_addresses,
+    to_html,
 )
 from postcard.core.models.attachment import Attachment
 
@@ -101,6 +102,28 @@ def test_html_to_text_collapses_runs_of_blank_lines():
     assert html_to_text("<p></p><p></p><p>x</p>") == "x"
 
 
+def test_html_to_text_treats_line_breaks_in_markup_as_spaces():
+    assert html_to_text("<div>one\ntwo</div><div>three</div>") == "one two\nthree"
+
+
+def test_html_to_text_keeps_preformatted_line_breaks():
+    assert html_to_text("<pre>a\nb</pre>") == "a\nb"
+
+
+def test_html_to_text_keeps_a_paragraph_in_a_list_item_on_its_bullet():
+    assert html_to_text("<ol><li><p>a</p></li><li><p>b</p></li></ol>") == "- a\n- b"
+
+
+def test_to_html_breaks_crlf_text_once_per_line():
+    assert to_html("a\r\nb\n\nc") == "a<br>b<br><br>c"
+
+
+def test_html_to_text_starts_a_quote_on_its_own_line():
+    assert html_to_text("<div>A wrote:</div><blockquote>Hi</blockquote>") == (
+        "A wrote:\nHi"
+    )
+
+
 def test_html_to_text_of_nothing():
     assert html_to_text("") == ""
 
@@ -123,11 +146,9 @@ def test_an_empty_signature_adds_nothing():
 
 
 def test_quote_reply_body_escapes_the_attribution_and_quotes_the_body():
-    assert quote_reply_body("A <a@b>", "Jul 1", "line1\nline2") == (
-        "<div><br></div>"
-        "<div>On Jul 1, A &lt;a@b&gt; wrote:</div>"
-        "<blockquote>line1<br>line2</blockquote>"
-    )
+    body = quote_reply_body("A <a@b>", "Jul 1", "line1\nline2")
+    assert body.startswith("<div>On Jul 1, A &lt;a@b&gt; wrote:</div><blockquote")
+    assert body.endswith(">line1<br>line2</blockquote>")
 
 
 def test_quote_reply_body_inserts_the_signature_above_the_quote():
@@ -145,7 +166,12 @@ def test_forward_body_includes_the_original_headers():
     assert "From: A &lt;a@b&gt;" in body
     assert "Date: Jul 1" in body
     assert "Subject: Lunch" in body
-    assert "<blockquote>T</blockquote>" in body
+    assert body.endswith(">T</blockquote>")
+
+
+def test_quotes_carry_their_own_margins():
+    # A bare <blockquote> is indented 40px with 1em margins in most clients.
+    assert '<blockquote style="margin:0' in quote_reply_body("A", "D", "T")
 
 
 # --- build_mime_message -----------------------------------------------------

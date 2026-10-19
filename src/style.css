@@ -1,5 +1,18 @@
+/* A desktop accent (KDE hands over its own through the portal) can be dark
+   enough to vanish on a dark background when used as text, so clamp its
+   lightness per scheme, as libadwaita does for its standalone accent. */
+:root {
+  --accent-text-color: oklab(from var(--accent-bg-color) min(l, 0.5) a b);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-text-color: oklab(from var(--accent-bg-color) max(l, 0.8) a b);
+  }
+}
+
 .unread-dot {
-  color: @accent_color;
+  color: var(--accent-text-color);
 }
 
 .conversation-sender {
@@ -12,7 +25,7 @@
 
 .unread .conversation-subject {
   font-weight: bold;
-  color: @accent_color;
+  color: var(--accent-text-color);
 }
 
 /* Reader: the subject sits in its own block over a plain body, so the thread
@@ -38,7 +51,7 @@
 }
 
 .sender-address {
-  color: @accent_color;
+  color: var(--accent-text-color);
 }
 
 /* The Cc/Bcc pair slides open inside the boxed list, so the row holding it may

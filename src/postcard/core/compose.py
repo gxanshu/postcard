@@ -1,5 +1,6 @@
 import email
 import email.utils
+import re
 from dataclasses import dataclass
 from email.message import EmailMessage, Message
 from html import escape
@@ -8,7 +9,8 @@ from urllib.parse import unquote
 
 from .models.attachment import Attachment
 
-_BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}
+_HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+_BLOCK_TAGS = {"p", "div", "br", "li", "tr", "blockquote", "pre"} | _HEADINGS
 
 
 class _TextExtractor(HTMLParser):
@@ -16,24 +18,36 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip = 0
+        self._pre = 0
 
     def handle_starttag(self, tag: str, _attrs: object) -> None:
         if tag in ("script", "style"):
             self._skip += 1
+        elif tag == "pre":
+            self._pre += 1
         elif tag == "li":
+            # The item's own line break stands in for one closing the last.
+            if self.parts[-1:] == ["\n"]:
+                self.parts.pop()
             self.parts.append("\n- ")
-        elif tag in _BLOCK_TAGS:
+        # A paragraph opening a list item stays on the bullet's line.
+        elif tag in _BLOCK_TAGS and self.parts[-1:] != ["\n- "]:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style"):
             self._skip = max(0, self._skip - 1)
+        elif tag == "pre":
+            self._pre = max(0, self._pre - 1)
         elif tag in ("p", "blockquote"):
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if not self._skip:
-            self.parts.append(data)
+        if self._skip:
+            return
+        # A line break in markup is whitespace like any other; only <br> and
+        # block tags break a line, as a browser draws it.
+        self.parts.append(data if self._pre else re.sub(r"\s+", " ", data))
 
 
 def html_to_text(html: str) -> str:
@@ -50,7 +64,9 @@ def html_to_text(html: str) -> str:
 
 
 def to_html(text: str) -> str:
-    return escape(text).replace("\n", "<br>")
+    # splitlines, not split("\n"): a CRLF body would otherwise leave a stray
+    # "\r" before every <br>.
+    return "<br>".join(escape(text).splitlines())
 
 
 def reply_subject(subject: str) -> str:
@@ -92,6 +108,13 @@ def signature_block(text: str, *, is_html: bool = False) -> str:
     return f'<div class="signature">-- <br>{content}</div>'
 
 
+# Inline, since recipients draw a bare <blockquote> with their own indent and
+# margins. This is the rule Gmail writes on its own quotes.
+_QUOTE_OPEN = (
+    '<blockquote style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">'
+)
+
+
 def quote_reply_body(
     original_from: str,
     original_date: str,
@@ -100,10 +123,9 @@ def quote_reply_body(
 ) -> str:
     """signature_html is a finished signature_block(), placed above the quote."""
     return (
-        "<div><br></div>"
-        + signature_html
+        signature_html
         + f"<div>On {escape(original_date)}, {escape(original_from)} wrote:</div>"
-        + f"<blockquote>{to_html(original_text)}</blockquote>"
+        + f"{_QUOTE_OPEN}{to_html(original_text)}</blockquote>"
     )
 
 
@@ -115,13 +137,12 @@ def forward_body(
     signature_html: str = "",
 ) -> str:
     return (
-        "<div><br></div>"
-        + signature_html
+        signature_html
         + "<div>---------- Forwarded message ----------<br>"
         + f"From: {escape(original_from)}<br>"
         + f"Date: {escape(original_date)}<br>"
         + f"Subject: {escape(original_subject)}</div>"
-        + f"<blockquote>{to_html(original_text)}</blockquote>"
+        + f"{_QUOTE_OPEN}{to_html(original_text)}</blockquote>"
     )
 
 

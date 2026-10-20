@@ -13,5 +13,8 @@
     <file alias="metainfo.xml">in.gxanshu.postcard.metainfo.xml</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/mail-archive-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/mail-inbox-symbolic.svg</file>
+    <!-- Not in Breeze, which KDE themes the sandbox with. -->
+    <file preprocess="xml-stripblanks">icons/scalable/actions/view-list-bullet-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/view-list-ordered-symbolic.svg</file>
   </gresource>
 </gresources>

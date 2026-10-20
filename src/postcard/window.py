@@ -873,6 +873,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 continue
             change = FlagChange(
                 folder_name=folder.name,
+                uidvalidity=folder.uidvalidity,
                 uids=uids,
                 flag=flag,
                 should_add=not value if is_flag_inverted else value,
@@ -904,6 +905,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 change.uids,
                 change.flag,
                 change.should_add,
+                uidvalidity=change.uidvalidity,
             )
         except Exception as error:
             logger.exception(
@@ -1236,10 +1238,25 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             ).start()
 
     def _restore_move(self, pending: PendingMove) -> None:
-        self._db.reconcile_moved_emails(pending.originals)
+        self._restore_originals(pending)
         self._clear_move_tombstones(pending)
         self._reload_folders()
         self._refresh_conversations()
+
+    def _restore_originals(self, pending: PendingMove, start: int = 0) -> None:
+        """Put moved mail back at its source UIDs, from `start` on.
+
+        Unless the source got a new UIDVALIDITY since the move was made: those
+        UIDs now name other messages, so only the placeholders are dropped. The
+        sync that recorded the new value has already refilled the source.
+        """
+        originals = pending.originals[start:]
+        source = self._folders_by_id.get(pending.source.id)
+        if source is None or source.uidvalidity != pending.source.uidvalidity:
+            originals = [
+                (email_id, folder_id, None) for email_id, folder_id, _ in originals
+            ]
+        self._db.reconcile_moved_emails(originals)
 
     def _clear_move_tombstones(self, pending: PendingMove, start: int = 0) -> None:
         for tombstone in pending.tombstones[start:]:
@@ -1282,6 +1299,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 pending.source.name,
                 pending.uids,
                 pending.dest.name,
+                uidvalidity=pending.source.uidvalidity,
             )
             GLib.idle_add(self._on_move_result, pending, result)
         except Exception as error:
@@ -1313,7 +1331,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         if failed_index is None and completed < len(pending.uids):
             failed_index = completed
         if failed_index is not None:
-            self._db.reconcile_moved_emails(pending.originals[failed_index:])
+            self._restore_originals(pending, failed_index)
             self._clear_move_tombstones(pending, failed_index)
         self._reload_folders()
         self._refresh_conversations()
@@ -2110,7 +2128,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         account, folder = origin
 
         request = BodyRequest(
-            email_id=mail.id, uid=mail.server_id, folder_name=folder.name
+            email_id=mail.id,
+            uid=mail.server_id,
+            folder_name=folder.name,
+            uidvalidity=folder.uidvalidity,
         )
         thread = threading.Thread(
             target=self._body_worker,
@@ -2141,7 +2162,11 @@ class PostcardMainWindow(Adw.ApplicationWindow):
 
         try:
             raw = mail_sync.fetch_full_message(
-                account, credential, request.folder_name, request.uid
+                account,
+                credential,
+                request.folder_name,
+                request.uid,
+                uidvalidity=request.uidvalidity,
             )
         except Exception as error:
             logger.exception(
@@ -2567,6 +2592,20 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         target = self._db.get_or_create_folder(
             account.id, result.folder, mail_sync.icon_for_folder(result.folder)
         )
+        if self._db.set_folder_uidvalidity(target.id, result.uidvalidity):
+            # The cache is gone: the paging depth and any pending-move
+            # tombstones name old UIDs. A pending move's own placeholders are
+            # handled by _restore_originals and _select.
+            # ponytail: a change seen by an older-page fetch refills only that
+            # page until the next poll brings the newest one back.
+            logger.info(
+                "%s on %s has a new UIDVALIDITY; dropped its cached mail",
+                result.folder,
+                account.email,
+            )
+            self._loaded_counts.pop(target.id, None)
+            for key in [key for key in self._move_tombstones if key[0] == target.id]:
+                del self._move_tombstones[key]
         new_messages: list[mail_sync.MessageHeader] = []
         for message in result.messages:
             if (target.id, message.uid) in self._move_tombstones:

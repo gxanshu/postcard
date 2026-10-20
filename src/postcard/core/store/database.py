@@ -98,6 +98,8 @@ MIGRATIONS = [
     ALTER TABLE folders ADD COLUMN role TEXT NOT NULL DEFAULT '';
     ALTER TABLE folders ADD COLUMN label TEXT NOT NULL DEFAULT '';
     """,
+    # NULL until the next sync reads it; see set_folder_uidvalidity.
+    "ALTER TABLE folders ADD COLUMN uidvalidity INTEGER",
 ]
 
 
@@ -302,6 +304,7 @@ class Database:
             delimiter=row["delimiter"],
             role=row["role"],
             label=row["label"],
+            uidvalidity=row["uidvalidity"],
         )
 
     def folders_for_account(self, account_id: int) -> list[Folder]:
@@ -356,6 +359,36 @@ class Database:
             (role, label, folder_id),
         )
         self._conn.commit()
+
+    def set_folder_uidvalidity(self, folder_id: int, uidvalidity: int | None) -> bool:
+        """Record the mailbox's UIDVALIDITY; return True if it had changed.
+
+        A change means every cached UID (and body) may now belong to a
+        different message, so drop the folder's server-backed rows and let the
+        sync refill them. Locally saved copies have no UID and stay. The first
+        value recorded counts as a change: rows cached before it -- under a
+        version that never checked -- can't be shown to belong to it. A server
+        that sends no UIDVALIDITY leaves everything as it is.
+        """
+        row = self._conn.execute(
+            "SELECT uidvalidity FROM folders WHERE id = ?", (folder_id,)
+        ).fetchone()
+        stored = row["uidvalidity"] if row else None
+        if uidvalidity is None or stored == uidvalidity:
+            return False
+        with self._conn:
+            self._conn.execute(
+                """
+                DELETE FROM emails
+                WHERE folder_id = ? AND server_id IS NOT NULL AND server_id != ''
+                """,
+                (folder_id,),
+            )
+            self._conn.execute(
+                "UPDATE folders SET uidvalidity = ? WHERE id = ?",
+                (uidvalidity, folder_id),
+            )
+        return True
 
     def _delete_folder_tree(self, folder_id: int) -> None:
         # Deepest first, for the same FK reason as delete_account.

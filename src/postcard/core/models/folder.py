@@ -37,6 +37,7 @@ class Folder(GObject.Object):
         delimiter: str = "/",
         role: str = "",
         label: str = "",
+        uidvalidity: int | None = None,
     ) -> None:
         super().__init__()
         self.id: int = id
@@ -51,6 +52,8 @@ class Folder(GObject.Object):
         self.role: str = role
         # The server's display name, or "" to derive it from name.
         self.label: str = label
+        # The IMAP UIDVALIDITY its cached UIDs belong to; None if not known.
+        self.uidvalidity: int | None = uidvalidity
 
     # Strip to the leaf name only when there is a parent row to indent under.
     @property

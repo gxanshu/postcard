@@ -30,6 +30,7 @@ from .core.net.imap_session import (
     ImapError,
     ImapSession,
     MailboxInfo,
+    UidValidityError,
     decode_mailbox_name,
 )
 from .core.net.smtp_session import SmtpSession
@@ -84,6 +85,7 @@ class SyncResult:
     offset: int = 0  # how far back from the newest this fetch reached
     all_uids: set[str] | None = None  # authoritative UID snapshot for newest page
     unread_counts: dict[str, int] = field(default_factory=dict)  # by mailbox name
+    uidvalidity: int | None = None  # what the UIDs above belong to; None on Graph
 
 
 # How long a pooled connection may sit idle before it is probed with a NOOP.
@@ -251,6 +253,7 @@ def fetch_mailbox(
         mailboxes = session.list_folders()
         target = folder or inbox_name([m.name for m in mailboxes])
         exists = session.select(target)
+        uidvalidity = session.uidvalidity()
         all_uids = session.search_all_uids() if offset == 0 else None
         raw = session.fetch_recent_headers(exists, limit, offset)
         should_count = should_count_unread and offset == 0
@@ -266,7 +269,27 @@ def fetch_mailbox(
         offset=offset,
         all_uids=all_uids,
         unread_counts=counts,
+        uidvalidity=uidvalidity,
     )
+
+
+def _select(
+    session: ImapSession, mailbox: str, uidvalidity: int | None, is_readonly: bool
+) -> None:
+    """Open a mailbox to act on UIDs that were cached under `uidvalidity`.
+
+    If the server has renumbered it since, those UIDs now name other messages,
+    so refuse rather than flag, move or download the wrong ones. None means
+    they were cached before any value was recorded, which proves nothing, so
+    that is refused too. The next sync records the value and clears the cache.
+    Only a server that sends no UIDVALIDITY goes unchecked.
+    """
+    session.select(mailbox, is_readonly)
+    current = session.uidvalidity()
+    if current is not None and current != uidvalidity:
+        raise UidValidityError(
+            f"{mailbox} was renumbered (UIDVALIDITY {uidvalidity} -> {current})"
+        )
 
 
 def _unread_counts(
@@ -375,13 +398,18 @@ def _to_message_header(fetched: FetchedHeader) -> MessageHeader:
 
 
 def fetch_full_message(
-    account: Account, credential: Credential, folder_name: str, uid: str
+    account: Account,
+    credential: Credential,
+    folder_name: str,
+    uid: str,
+    *,
+    uidvalidity: int | None,
 ) -> bytes:
     """Open one folder and download a single full message."""
     if account.is_graph:
         return graph_messages.fetch_mime(GraphSession(credential), uid)
     with _pooled_session(account, credential) as session:
-        session.select(folder_name)
+        _select(session, folder_name, uidvalidity, is_readonly=True)
         return session.fetch_message(uid)
 
 
@@ -403,6 +431,8 @@ def set_flag(
     uids: Sequence[str],
     flag: str,
     should_add: bool,
+    *,
+    uidvalidity: int | None,
 ) -> None:
     """Add or remove an IMAP flag on every message in a conversation.
 
@@ -417,7 +447,7 @@ def set_flag(
         graph_messages.set_flags(GraphSession(credential), list(uids), flag, should_add)
         return
     with _pooled_session(account, credential) as session:
-        session.select(folder_name, is_readonly=False)
+        _select(session, folder_name, uidvalidity, is_readonly=False)
         session.store_flags(",".join(uids), flag, should_add)
 
 
@@ -427,12 +457,14 @@ def move_messages(
     folder_name: str,
     uids: list[str],
     destination: str,
+    *,
+    uidvalidity: int | None,
 ) -> MoveResult:
     """Move every message in a conversation to another mailbox."""
     if account.is_graph:
         return graph_messages.move(GraphSession(credential), uids, destination)
     with _pooled_session(account, credential) as session:
-        session.select(folder_name, is_readonly=False)
+        _select(session, folder_name, uidvalidity, is_readonly=False)
         destination_uids = []
         for index, uid in enumerate(uids):
             try:

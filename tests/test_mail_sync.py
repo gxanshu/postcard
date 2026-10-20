@@ -17,6 +17,7 @@ from postcard.core.net.imap_session import (
     FetchedHeader,
     ImapError,
     MailboxInfo,
+    UidValidityError,
 )
 from postcard.core.store.database import Database
 from postcard.mail_sync import (
@@ -298,6 +299,9 @@ class FakeImapSession:
 
     def select(self, mailbox, is_readonly=True):
         return 0
+
+    def uidvalidity(self):
+        return 1
 
     def search_all_uids(self):
         return set()
@@ -680,8 +684,16 @@ def storing_imap(monkeypatch):
     return StoringImapSession
 
 
-def set_flag(*uids: str) -> None:
-    mail_sync.set_flag(account(), CREDENTIAL, "INBOX", uids, FLAG_SEEN, should_add=True)
+def set_flag(*uids: str, uidvalidity: int | None = 1) -> None:
+    mail_sync.set_flag(
+        account(),
+        CREDENTIAL,
+        "INBOX",
+        uids,
+        FLAG_SEEN,
+        should_add=True,
+        uidvalidity=uidvalidity,
+    )
 
 
 def test_a_whole_thread_is_flagged_in_one_store(storing_imap):
@@ -697,6 +709,44 @@ def test_flagging_nothing_sends_no_command(storing_imap):
     set_flag()
 
     assert storing_imap.stores == []
+
+
+def test_a_renumbered_mailbox_is_not_flagged(storing_imap):
+    # UID 4 under the old numbering is some other message now.
+    with pytest.raises(UidValidityError):
+        set_flag("4", uidvalidity=7)
+
+    assert storing_imap.stores == []
+
+
+def test_uids_cached_before_any_uidvalidity_are_not_flagged(storing_imap):
+    # Nothing ties them to the server's current numbering.
+    with pytest.raises(UidValidityError):
+        set_flag("4", uidvalidity=None)
+
+    assert storing_imap.stores == []
+
+
+def test_a_server_that_sends_no_uidvalidity_is_still_flagged(storing_imap, monkeypatch):
+    monkeypatch.setattr(storing_imap, "uidvalidity", lambda self: None)
+
+    set_flag("4", uidvalidity=None)
+
+    assert storing_imap.stores == [("4", FLAG_SEEN, True)]
+
+
+def test_a_renumbered_mailbox_is_not_downloaded_from(storing_imap):
+    with pytest.raises(UidValidityError):
+        fetch_full_message(account(), CREDENTIAL, "INBOX", "4", uidvalidity=7)
+
+
+def test_a_renumbered_mailbox_is_not_moved_from(pooled):
+    with pytest.raises(UidValidityError):
+        move_messages(account(), CREDENTIAL, "INBOX", ["4"], "Archive", uidvalidity=7)
+
+
+def test_a_sync_reports_the_mailbox_s_uidvalidity(storing_imap):
+    assert fetch_mailbox(account(), CREDENTIAL).uidvalidity == 1
 
 
 # --- connection pool --------------------------------------------------------
@@ -794,7 +844,9 @@ def test_a_move_that_fails_does_not_go_back_in_the_pool(pooled):
     # move_messages reports the failure instead of raising, so the pool cannot
     # see it -- it has to be told.
     pooled.move_fails = True
-    assert move_messages(account(), CREDENTIAL, "INBOX", ["4"], "Archive").error
+    assert move_messages(
+        account(), CREDENTIAL, "INBOX", ["4"], "Archive", uidvalidity=1
+    ).error
     pooled.move_fails = False
 
     fetch_mailbox(account(), CREDENTIAL)
@@ -1084,9 +1136,14 @@ def test_graph_operations_go_to_graph(graph, monkeypatch):
     monkeypatch.setattr(mail_sync, "SmtpSession", no_imap)
     account = graph_account()
 
-    assert fetch_full_message(account, GRAPH_TOKEN, "in", "m1") == b"raw"
-    mail_sync.set_flag(account, GRAPH_TOKEN, "in", ("m1",), FLAG_SEEN, True)
-    moved = move_messages(account, GRAPH_TOKEN, "in", ["m1", "m2"], "bin")
+    raw = fetch_full_message(account, GRAPH_TOKEN, "in", "m1", uidvalidity=None)
+    assert raw == b"raw"
+    mail_sync.set_flag(
+        account, GRAPH_TOKEN, "in", ("m1",), FLAG_SEEN, True, uidvalidity=None
+    )
+    moved = move_messages(
+        account, GRAPH_TOKEN, "in", ["m1", "m2"], "bin", uidvalidity=None
+    )
     send_message(account, GRAPH_TOKEN, account.email, ["x@y"], b"raw")
 
     assert moved is graph.moved

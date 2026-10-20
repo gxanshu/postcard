@@ -197,6 +197,37 @@ def test_a_different_message_at_the_same_uid_replaces_the_stored_one(db, folder)
     assert db.get_raw_message(mail.id) is None
 
 
+def test_a_renumbered_mailbox_drops_its_cached_mail_but_not_local_copies(db, folder):
+    # Covers what the Message-ID check can't: mail with no Message-ID, and
+    # cached rows the sync never re-fetches.
+    assert db.set_folder_uidvalidity(folder.id, 7) is True
+    incoming(db, folder.id, "1", message_id="")
+    incoming(db, folder.id, "500", message_id="<old@x>")
+    db.save_email(folder.id, "me@x", "Sent copy", "", "Jul 16", False)
+
+    assert db.set_folder_uidvalidity(folder.id, 7) is False
+    assert len(db.emails_in_folder(folder.id)) == 3
+
+    assert db.set_folder_uidvalidity(folder.id, 8) is True
+    assert [mail.subject for mail in db.emails_in_folder(folder.id)] == ["Sent copy"]
+    assert db.folders_for_account(folder.account_id)[0].uidvalidity == 8
+
+
+def test_the_first_uidvalidity_drops_mail_cached_before_it(db, folder):
+    # Cached by a version that never checked, so it may predate a renumber.
+    incoming(db, folder.id, "1")
+
+    assert db.set_folder_uidvalidity(folder.id, 7) is True
+    assert db.emails_in_folder(folder.id) == []
+
+
+def test_a_missing_uidvalidity_drops_nothing(db, folder):
+    incoming(db, folder.id, "1")
+
+    assert db.set_folder_uidvalidity(folder.id, None) is False
+    assert len(db.emails_in_folder(folder.id)) == 1
+
+
 def test_resyncing_the_same_message_keeps_its_cached_body(db, folder):
     incoming(db, folder.id, "1", message_id="<a@x>")
     (mail,) = db.emails_in_folder(folder.id)

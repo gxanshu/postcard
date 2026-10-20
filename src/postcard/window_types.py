@@ -57,6 +57,7 @@ class FlagChange:
     """One IMAP flag edit to apply to a set of messages in one mailbox."""
 
     folder_name: str
+    uidvalidity: int | None
     uids: tuple[str, ...]
     flag: str
     should_add: bool
@@ -69,6 +70,7 @@ class BodyRequest:
     email_id: int
     uid: str
     folder_name: str
+    uidvalidity: int | None
 
 
 @dataclass(frozen=True, slots=True)

@@ -86,6 +86,26 @@ def test_a_connection_that_does_not_answer_a_noop_is_not_alive(monkeypatch, noop
     assert connect(monkeypatch, imap).is_alive() is False
 
 
+class SelectingImap(FakeImap):
+    def __init__(self, uidvalidity):
+        super().__init__()
+        self._uidvalidity = uidvalidity
+
+    def response(self, code):
+        return code, self._uidvalidity
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [([b"1700000000"], 1700000000), ([None], None), ([b"junk"], None)],
+)
+def test_uidvalidity_reads_the_select_response_code(monkeypatch, data, expected):
+    # imaplib files "* OK [UIDVALIDITY n]" under its code; [None] if never sent.
+    session = connect(monkeypatch, SelectingImap(data))
+
+    assert session.uidvalidity() == expected
+
+
 def test_search_all_uids_uses_uid_search_all_and_returns_the_uids(monkeypatch):
     imap = FakeImap()
     session = connect(monkeypatch, imap)

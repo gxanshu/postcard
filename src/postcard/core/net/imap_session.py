@@ -88,6 +88,11 @@ class ImapError(Exception):
     """Raised when talking to the server fails (bad login, dropped link, ..)"""
 
 
+class UidValidityError(ImapError):
+    """The server renumbered a mailbox since its UIDs were cached, so acting on
+    them would hit whatever message now holds each number."""
+
+
 class ImapSession:
     def __init__(self, host: str, port: int, security: str = "tls") -> None:
         self._host = host
@@ -195,6 +200,17 @@ class ImapSession:
         if status != STATUS_OK:
             raise ImapError(f"could not open {mailbox}: {payload}")
         return int(payload[0]) if payload and payload[0] else 0
+
+    def uidvalidity(self) -> int | None:
+        """The selected mailbox's UIDVALIDITY, or None if the server sent none.
+
+        A UID only names a message together with this value: a server that
+        renumbers a mailbox gives it a new one. Read it right after select() --
+        imaplib hands each untagged response over once.
+        """
+        _code, data = self._require_imap().response("UIDVALIDITY")
+        value = data[-1] if data else None
+        return int(value) if isinstance(value, bytes) and value.isdigit() else None
 
     def unseen_count(self, mailbox: str) -> int:
         """How many unread messages a mailbox holds.

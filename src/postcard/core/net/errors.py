@@ -5,7 +5,7 @@ import ssl
 from gettext import gettext as _
 
 from .graph_session import GraphError
-from .imap_session import ImapError
+from .imap_session import ImapError, UidValidityError
 from .smtp_session import SmtpError
 
 # Substrings (lowercased) that mean the server rejected the credentials.
@@ -42,6 +42,8 @@ def classify(exc: Exception, host: str) -> tuple[bool, str]:  # noqa: PLR0911
         return False, _("Connecting to {host} timed out.").format(host=host)
     if isinstance(exc, GraphError):
         return _classify_graph(exc)
+    if isinstance(exc, UidValidityError):
+        return False, _("This folder changed on the server. Refresh and try again.")
     if isinstance(exc, (ImapError, SmtpError)):
         text = str(exc).lower()
         if any(hint in text for hint in _AUTH_HINTS):

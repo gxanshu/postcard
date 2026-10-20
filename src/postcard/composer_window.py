@@ -208,7 +208,8 @@ document.addEventListener('selectionchange', () => post());
 // <div> separators inherit no margin, so a sent message keeps the spacing it
 // was typed with even in clients that apply their own stylesheet.
 document.execCommand('defaultParagraphSeparator', false, 'div');
-document.body.focus();
+// A new message starts in the To field; focusing the body would take it.
+if (FOCUS_BODY) document.body.focus();
 
 const first = document.body.firstChild;
 if (first) {
@@ -556,6 +557,7 @@ class PostcardComposerWindow(Adw.Window):
 
     def _on_from_changed(self, *_args: object) -> None:
         self._account = self._accounts[self.from_row.get_selected()]
+        self._mark_edited()
 
     def _build_editor(self) -> None:
         manager = WebKit.UserContentManager()
@@ -564,6 +566,7 @@ class PostcardComposerWindow(Adw.Window):
         manager.add_script(
             WebKit.UserScript.new(
                 f"const COMMANDS = {json.dumps(list(self._format_buttons))};"
+                + f"const FOCUS_BODY = {json.dumps(bool(self.to_row.get_text()))};"
                 + _EDITOR_SCRIPT,
                 WebKit.UserContentInjectedFrames.TOP_FRAME,
                 WebKit.UserScriptInjectionTime.END,

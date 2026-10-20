@@ -36,12 +36,6 @@
 			<summary>Background notice already shown</summary>
 			<description>Whether the notice about the app still checking for mail after the window is closed has been shown. It is only shown once.</description>
 		</key>
-		<key name="sync-interval-minutes" type="i">
-			<range min="0" max="1440"/>
-			<default>15</default>
-			<summary>Sync interval in minutes</summary>
-			<description>How often to check for new mail. Set to 0 to check manually only.</description>
-		</key>
 		<key name="signature-enabled" type="b">
 			<default>false</default>
 			<summary>Append a signature</summary>

@@ -3,6 +3,8 @@ import email
 import imaplib
 import logging
 import re
+import socket
+from contextlib import suppress
 from email import policy
 from typing import NamedTuple
 
@@ -30,6 +32,22 @@ ATTR_NOSELECT = "\\Noselect"
 # Gmail files its own copy of everything sent through it. This capability is how
 # it identifies itself, so we don't append a second copy on top.
 GMAIL_CAPABILITY = "X-GM-EXT-1"
+
+# RFC 2177: the server pushes changes to the selected mailbox instead of waiting
+# to be asked.
+IDLE_CAPABILITY = "IDLE"
+
+# What a server says, during IDLE, when a message arrives in the mailbox or
+# leaves it. A flag change (FETCH) is left to the next sync.
+IDLE_CHANGES = frozenset({"EXISTS", "EXPUNGE"})
+
+# A suspend, a roaming laptop or a NAT that forgot the connection all drop it
+# without a word, and IDLE would wait out its whole window on a socket that
+# will never speak again. TCP keepalive has the kernel notice: probe after this
+# long silent, this often, and give up after this many go unanswered.
+KEEPALIVE_IDLE_SECONDS = 60
+KEEPALIVE_INTERVAL_SECONDS = 10
+KEEPALIVE_PROBES = 3
 
 
 class FetchedHeader(NamedTuple):
@@ -144,6 +162,20 @@ class ImapSession:
             return False
         return status == STATUS_OK
 
+    def interrupt(self) -> None:
+        """Fail whatever this session is blocked on, from another thread.
+
+        shutdown rather than close: closing a socket another thread is reading
+        leaves that read waiting and frees the descriptor for reuse. The plain
+        socket's shutdown, not SSLSocket's, which would also drop the TLS state
+        out from under the reading thread.
+        """
+        imap = self._imap
+        if imap is None:
+            return
+        with suppress(OSError):
+            socket.socket.shutdown(imap.socket(), socket.SHUT_RDWR)
+
     def logout(self) -> None:
         # Runs from a `finally:` on every operation, so it must not raise and
         # mask the error that is already on its way out. Logged at debug
@@ -244,6 +276,39 @@ class ImapSession:
         """Whether the server advertises a capability. imaplib upper-cases the
         ones it parsed, so the comparison has to as well."""
         return name.upper() in self._require_imap().capabilities
+
+    def refresh_capabilities(self) -> None:
+        """Re-read CAPABILITY. imaplib only reads it on connect, and a server
+        may advertise more -- IDLE among it -- once signed in."""
+        imap = self._require_imap()
+        status, payload = imap.capability()
+        line = payload[-1] if payload else None
+        if status != STATUS_OK or not isinstance(line, bytes):
+            raise ImapError(f"could not read capabilities: {payload}")
+        imap.capabilities = tuple(line.decode("ascii", "replace").upper().split())
+
+    def idle(self, seconds: float) -> bool:
+        """Wait in IDLE on the selected mailbox for up to `seconds`.
+
+        True as soon as the server reports a message arriving or leaving,
+        False if the time ran out first. The caller issues it again, and has
+        to: a server may drop an IDLE left running for 30 minutes.
+        """
+        imap = self._require_imap()
+        sock = imap.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, KEEPALIVE_IDLE_SECONDS)
+        sock.setsockopt(
+            socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, KEEPALIVE_INTERVAL_SECONDS
+        )
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, KEEPALIVE_PROBES)
+        try:
+            # New in Python 3.14, which the Flatpak runtime ships; pyright
+            # checks against 3.12. It sends DONE on the way out of the block.
+            with imap.idle(duration=seconds) as idler:  # pyright: ignore[reportAttributeAccessIssue]
+                return any(kind in IDLE_CHANGES for kind, _data in idler)
+        except imaplib.IMAP4.error as error:
+            raise ImapError(f"IDLE failed: {error}") from error
 
     def append(self, mailbox: str, raw: bytes) -> None:
         """Upload a message into a mailbox, without selecting it first.

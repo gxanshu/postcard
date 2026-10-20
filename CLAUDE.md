@@ -90,7 +90,7 @@ than queueing behind a sync, so a click never waits on a background sync. Every
 operation must still `select()` its own mailbox, since a pooled session carries the last
 one. `close_sessions()` drops connections — on account removal, on going offline, and
 after a failure a caller swallowed rather than raising (see `move_messages`), since the
-pool can only discard what it sees fail. SMTP stays per-operation.
+pool can only discard what it sees fail. SMTP stays per-operation. New inbox mail is pushed, not polled: `mail_sync.watch_inboxes` keeps one `_InboxWatcher` thread per account holding its *own* IMAP connection in IDLE on the inbox (IDLE blocks the connection it runs on, so it can't be the pooled one), calling back on every arrival and on each reconnect. Graph and servers without IDLE are polled every minute instead. The window reconciles watchers from `_reload_folders` while online, `close_sessions()` stops them, and a fixed 15-minute `_sync_all` is the safety net for other folders and flag changes.
 
 ### No account is a real state
 
@@ -106,7 +106,7 @@ UI is authored in `src/ui/*.blp` (Blueprint). At build time meson runs `blueprin
 - **Conversation threading:** `core/threader.py` union-finds emails by Message-ID / In-Reply-To / References with a normalized-subject fallback; the conversation id is the smallest email id in the group. `Database.reassign_conversations` recomputes and persists it after each sync.
 - Message ordering uses the IMAP UID (`server_id`), **not** the local autoincrement id, because load-on-scroll backfill assigns newer local ids to older mail (see `_arrival_key`).
 - Folders mirror the server list each sync (`prune_folders`), keeping only the local `Outbox`. Folder role/icon/display-name classification lives in `mail_sync.py` (`role_for_folder`, `icon_for_folder`, `display_name_for_folder`) — matched by name substring, tolerant of casing and Gmail's `[Gmail]/` prefixes. `role_for_folder` returns a `FolderRole` `StrEnum` (defined in `core/models/folder.py`, re-exported by `mail_sync`); compare against its members rather than bare strings, and note that both `Archive` and Gmail's `All Mail` classify as `ARCHIVE`, which `_folder_with_role` breaks in favour of a real `Archive` folder. A folder row can also carry a `role` and `label` its server stated (Graph does; IMAP leaves both empty) — so in the GTK layer read a stored `Folder` through `mail_sync.folder_role`, `folder_label` and `is_outgoing`, never `role_for_folder(folder.name)`, which gives `OTHER` for a Graph folder id and misses a localized "Gesendete Elemente".
-- Settings are GSettings, schema `in.gxanshu.postcard` in `data/*.gschema.xml` (sync interval, notifications, remote-image loading, signature, window geometry). Add keys there before reading them.
+- Settings are GSettings, schema `in.gxanshu.postcard` in `data/*.gschema.xml` (notifications, remote-image loading, signature, window geometry). Add keys there before reading them.
 - Passwords are stored in the system keyring via libsecret (`core/secrets.py`), never in the DB.
 
 ### Credentials come from one of two places

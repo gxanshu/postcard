@@ -125,7 +125,7 @@ Turn on **Keep running in the background** and **Start at Login** in Preferences
 Postcard asks the desktop portal to create the autostart entry, so there is no
 file to write by hand.
 
-Postcard starts with no window, checks for mail on your sync interval, and notifies you when something arrives. Click the notification to open it.
+Postcard starts with no window, gets new mail the moment it lands, and notifies you when something arrives. Click the notification to open it.
 
 ## Building from source
 

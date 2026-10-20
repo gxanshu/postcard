@@ -4,7 +4,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -26,6 +26,7 @@ from .core.net.graph_session import GraphSession
 from .core.net.imap_session import (
     ATTR_NOSELECT,
     GMAIL_CAPABILITY,
+    IDLE_CAPABILITY,
     FetchedHeader,
     ImapError,
     ImapSession,
@@ -135,6 +136,152 @@ def _graph_state(account_id: int) -> _GraphState:
         return _graph_states.setdefault(account_id, _GraphState())
 
 
+# RFC 2177 lets a server drop an IDLE left running for 30 minutes, so it is
+# renewed well before that. A renewal is two short lines.
+IDLE_RENEW_SECONDS = 20 * 60
+
+# How often an account with no push -- Graph, or a server without IDLE -- is
+# asked for its inbox instead.
+PUSHLESS_POLL_SECONDS = 60
+
+# The wait before reconnecting a watcher whose connection failed. It doubles
+# per failure up to the cap, and resets once a connection is watching again.
+WATCH_RETRY_SECONDS = 15
+WATCH_RETRY_MAX_SECONDS = 15 * 60
+
+
+class _InboxWatcher:
+    """Calls on_change(account id), from its own thread, when an inbox changes.
+
+    An IMAP account gets a connection of its own held in IDLE on the inbox:
+    IDLE blocks the connection it runs on, so it can't be the pooled one. A
+    Graph account, or a server without IDLE, offers no push a desktop client
+    can receive, so it is polled instead. on_change also fires every time a
+    connection starts watching, for whatever arrived while none was.
+
+    The account is a snapshot and the thread touches neither the database nor
+    GTK; credential_for is called on the thread, like every worker's.
+    """
+
+    def __init__(
+        self,
+        account: Account,
+        credential_for: Callable[[Account], Credential | None],
+        on_change: Callable[[int], object],
+    ) -> None:
+        self._account = account
+        self._credential_for = credential_for
+        self._on_change = on_change
+        self._stop = threading.Event()
+        self._session: ImapSession | None = None
+        self._retry = WATCH_RETRY_SECONDS
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def stop(self) -> None:
+        """Returns at once: the thread notices and exits on its own."""
+        self._stop.set()
+        session = self._session
+        if session is not None:
+            session.interrupt()
+
+    def _changed(self) -> None:
+        if not self._stop.is_set():
+            self._on_change(self._account.id)
+
+    def _run(self) -> None:
+        if not self._account.is_graph:
+            self._watch_idle()
+        while not self._stop.wait(PUSHLESS_POLL_SECONDS):
+            self._changed()
+
+    def _watch_idle(self) -> None:
+        """Returns once stopped, or once the server turns out to have no IDLE."""
+        while not self._stop.is_set():
+            try:
+                if not self._idle_on_inbox():
+                    return
+            except Exception:
+                if self._stop.is_set():
+                    return
+                logger.warning(
+                    "lost the IDLE connection to %s (account %s); retrying in %d s",
+                    self._account.imap_host,
+                    self._account.email,
+                    self._retry,
+                    exc_info=True,
+                )
+            self._stop.wait(self._retry)
+            self._retry = min(self._retry * 2, WATCH_RETRY_MAX_SECONDS)
+
+    def _idle_on_inbox(self) -> bool:
+        """Watch over one connection until stopped. False: the server has no
+        IDLE. Raises when the connection fails."""
+        account = self._account
+        credential = self._credential_for(account)
+        if credential is None:
+            raise ImapError(f"no credential for {account.email}")
+        session = ImapSession(
+            account.imap_host, account.imap_port, account.imap_security
+        )
+        self._session = session
+        try:
+            session.connect()
+            # stop() may have come before there was a socket to interrupt.
+            if self._stop.is_set():
+                return True
+            session.sign_in(credential)
+            session.refresh_capabilities()
+            if not session.has_capability(IDLE_CAPABILITY):
+                logger.info(
+                    "%s has no IDLE; polling the inbox of %s instead",
+                    account.imap_host,
+                    account.email,
+                )
+                return False
+            session.select(inbox_name([box.name for box in session.list_folders()]))
+            self._retry = WATCH_RETRY_SECONDS
+            self._changed()
+            while not self._stop.is_set():
+                if session.idle(IDLE_RENEW_SECONDS):
+                    self._changed()
+        finally:
+            self._session = None
+            session.logout()
+        return True
+
+
+# One watcher per account, guarded by _pool_lock like the pool beside it.
+_watchers: dict[int, _InboxWatcher] = {}
+
+
+def watch_inboxes(
+    accounts: Iterable[Account],
+    credential_for: Callable[[Account], Credential | None],
+    on_change: Callable[[int], object],
+) -> None:
+    """Keep one inbox watcher running per account in `accounts`, and no other.
+
+    Idempotent, so it is safe to call whenever the accounts may have changed.
+    on_change runs on a watcher thread with an account id; see _InboxWatcher.
+    close_sessions stops watchers too, and the next call here restarts them.
+    """
+    wanted = {account.id: account for account in accounts}
+    with _pool_lock:
+        stale = [_watchers.pop(one) for one in list(_watchers) if one not in wanted]
+        fresh = {
+            one: _InboxWatcher(account, credential_for, on_change)
+            for one, account in wanted.items()
+            if one not in _watchers
+        }
+        _watchers.update(fresh)
+    for watcher in stale:
+        watcher.stop()
+    for watcher in fresh.values():
+        watcher.start()
+
+
 def _signed_in(account: Account, credential: Credential) -> ImapSession:
     session = ImapSession(account.imap_host, account.imap_port, account.imap_security)
     session.connect()
@@ -202,7 +349,8 @@ def _pooled_session(account: Account, credential: Credential) -> Iterator[ImapSe
 
 
 def close_sessions(account_id: int | None = None) -> None:
-    """Drop pooled connections -- one account's, or every one.
+    """Drop pooled connections and stop inbox watchers -- one account's, or
+    every one.
 
     Dropped rather than logged out: the caller is usually the main thread,
     where a LOGOUT to a server that stopped answering blocks for the socket
@@ -211,15 +359,28 @@ def close_sessions(account_id: int | None = None) -> None:
     """
     with _pool_lock:
         ids = list(_pool) if account_id is None else [account_id]
+        watcher_ids = list(_watchers) if account_id is None else [account_id]
+        watchers = [_watchers.pop(one) for one in watcher_ids if one in _watchers]
         if account_id is None:
             _graph_states.clear()
         else:
             _graph_states.pop(account_id, None)
         for one in ids:
-            entry = _pool.get(one)
-            if entry is not None:
-                entry.session = None
-                entry.generation += 1
+            _discard_pooled(one)
+    for watcher in watchers:
+        watcher.stop()
+
+
+def _discard_pooled(account_id: int) -> None:
+    """Forget an account's pooled connection. Caller holds _pool_lock.
+
+    Only the pool: the account's inbox watcher runs on a connection of its own,
+    which a failure on the pooled one says nothing about.
+    """
+    entry = _pool.get(account_id)
+    if entry is not None:
+        entry.session = None
+        entry.generation += 1
 
 
 def inbox_name(folders: list[str]) -> str:
@@ -472,8 +633,10 @@ def move_messages(
             except Exception as error:
                 # Swallowing it here hides the failure from the pool, which
                 # would then hand on a connection that may have a half-read
-                # reply on the socket. Drop it explicitly instead.
-                close_sessions(account.id)
+                # reply on the socket. Drop it explicitly instead -- and only
+                # it, so the inbox watcher keeps pushing new mail.
+                with _pool_lock:
+                    _discard_pooled(account.id)
                 return MoveResult(destination_uids, index, error)
     return MoveResult(destination_uids)
 

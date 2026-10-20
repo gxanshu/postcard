@@ -53,8 +53,7 @@ from .window_types import (
     PORTAL_PATH,
     REPLY_FORWARD_ACTIONS,
     SEARCH_DEBOUNCE_MS,
-    SECONDS_PER_MINUTE,
-    SETTING_SYNC_INTERVAL,
+    SYNC_POLL_SECONDS,
     BodyRequest,
     FlagChange,
     OutboxResult,
@@ -236,13 +235,13 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         # Accounts with a sync in flight. A set, not a flag: every account syncs
         # on the same tick.
         self._syncing_account_ids: set[int] = set()
+        # Accounts whose inbox changed while a sync was already running, which
+        # may have read it before the change: synced again once it finishes.
+        self._resync_account_ids: set[int] = set()
         # Same, for the Outbox: queued mail is only deleted once SMTP confirms
         # it, so a second drain over the same rows would send them twice.
         self._draining_account_ids: set[int] = set()
         self._sync_timer_id = 0
-        self._interval_handler = self._settings.connect(
-            f"changed::{SETTING_SYNC_INTERVAL}", lambda *_: self._reschedule_sync()
-        )
 
         self.connect("close-request", self._on_close_request)
         if not self._is_online:
@@ -362,7 +361,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._reload_folders()
         self._refresh_online_account_names()
 
-        self._reschedule_sync()
+        self._schedule_sync()
         if self._is_online:
             self._sync_all(in_background=True)
 
@@ -453,11 +452,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self.set_visible(False)
             self._notify_background()
 
-            # Keep the app alive so the sync timer keeps running.
+            # Keep the app alive so the inbox watchers keep running.
             return True
 
+        # Their callbacks would otherwise land on a window that is gone.
+        mail_sync.close_sessions()
         self._network.disconnect(self._network_handler)
-        self._settings.disconnect(self._interval_handler)
         self._settings.disconnect(self._avatar_handler)
         self._settings.disconnect(self._account_label_handler)
         if self._clock_subscription:
@@ -519,6 +519,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._current_folder = None
             self.main_stack.set_visible_child_name(PAGE_NO_ACCOUNT)
             self._push_tray_unread([])
+            self._watch_inboxes()
             return
         if self._account is None:
             self._load_mail_view()
@@ -1655,6 +1656,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 row.bind(folder, self._unread_badge(folder))
 
         self._push_tray_unread(folders)
+        # Every path that adds or removes an account ends up here.
+        self._watch_inboxes()
 
     def _push_tray_unread(self, folders: list[Folder]) -> None:
         app = cast("PostcardApplication | None", self.get_application())
@@ -2503,21 +2506,41 @@ class PostcardMainWindow(Adw.ApplicationWindow):
                 folder_name=open_names.get(account.id),
             )
 
-    # Refresh on a timer using the configured interval (0 = manual only).
-    def _reschedule_sync(self) -> None:
-        if self._sync_timer_id:
-            GLib.source_remove(self._sync_timer_id)
-            self._sync_timer_id = 0
-        minutes = self._settings.get_int(SETTING_SYNC_INTERVAL)
-        if minutes > 0:
+    # The safety net under the inbox watchers: it refreshes the open folder,
+    # every badge and flags changed elsewhere, and catches a missed push.
+    def _schedule_sync(self) -> None:
+        if not self._sync_timer_id:
             self._sync_timer_id = GLib.timeout_add_seconds(
-                minutes * SECONDS_PER_MINUTE, self._on_sync_tick
+                SYNC_POLL_SECONDS, self._on_sync_tick
             )
 
     def _on_sync_tick(self) -> bool:
         if self._accounts and self._is_online:
             self._sync_all(in_background=True)
         return True
+
+    # Offline, the watchers are stopped (close_sessions) and stay stopped until
+    # the network returns, rather than retrying into nothing. The callback runs
+    # on a watcher thread, so it only hands over to the main loop.
+    def _watch_inboxes(self) -> None:
+        if self._is_online:
+            mail_sync.watch_inboxes(
+                self._accounts.values(),
+                secrets.credential_for,
+                lambda account_id: GLib.idle_add(self._on_inbox_changed, account_id),
+            )
+
+    # Synced as the inbox whatever folder is open, since that is where the
+    # change is; the list on screen refreshes from the database either way.
+    def _on_inbox_changed(self, account_id: int) -> bool:
+        account = self._accounts.get(account_id)
+        if account is None or not self._is_online:
+            return False
+        if account_id in self._syncing_account_ids:
+            self._resync_account_ids.add(account_id)
+            return False
+        self._start_sync(account, in_background=True)
+        return False
 
     # Runs on the worker thread: network only, no Gtk/database access.
     def _sync_worker(
@@ -2644,6 +2667,10 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self._show_sync_failures()
 
         self._notify_arrivals(account.id, new_messages, target.id, arrived_elsewhere)
+
+        if account.id in self._resync_account_ids:
+            self._resync_account_ids.discard(account.id)
+            self._start_sync(account, in_background=True)
         return False
 
     def _store_mailboxes(
@@ -2835,6 +2862,7 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._show_offline_banner()
             return
         self.connection_banner.set_revealed(False)
+        self._watch_inboxes()
         if self._accounts:
             self._sync_all()
 

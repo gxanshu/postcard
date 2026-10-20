@@ -1,3 +1,5 @@
+import queue
+import threading
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -1153,3 +1155,136 @@ def test_graph_operations_go_to_graph(graph, monkeypatch):
         ("move", ["m1", "m2"], "bin"),
         ("send", b"raw", ["x@y"]),
     ]
+
+
+# --- inbox watchers ----------------------------------------------------------
+
+
+class IdlingImapSession(FakeImapSession):
+    """A server with IDLE. Each idle() reports the next of `pushes`, then
+    blocks like a quiet server until interrupted."""
+
+    capabilities: set[str] = {"IDLE"}
+    pushes: list[bool] = []
+    connects = 0
+    failing_connects = 0
+    interrupted = threading.Event()
+
+    def connect(self):
+        type(self).connects += 1
+        if type(self).failing_connects:
+            type(self).failing_connects -= 1
+            raise OSError("connection refused")
+
+    def refresh_capabilities(self):
+        pass
+
+    def has_capability(self, name):
+        return name in type(self).capabilities
+
+    def idle(self, seconds):
+        if type(self).pushes:
+            return type(self).pushes.pop(0)
+        type(self).interrupted.wait(5)
+        raise ImapError("interrupted")
+
+    def interrupt(self):
+        type(self).interrupted.set()
+
+
+@pytest.fixture
+def idling_imap(monkeypatch):
+    IdlingImapSession.capabilities = {"IDLE"}
+    IdlingImapSession.pushes = []
+    IdlingImapSession.connects = 0
+    IdlingImapSession.failing_connects = 0
+    IdlingImapSession.interrupted = threading.Event()
+    monkeypatch.setattr(mail_sync, "ImapSession", IdlingImapSession)
+    monkeypatch.setattr(mail_sync, "WATCH_RETRY_SECONDS", 0.01)
+    monkeypatch.setattr(mail_sync, "PUSHLESS_POLL_SECONDS", 0.01)
+    return IdlingImapSession
+
+
+def watch(watched: Account) -> "queue.Queue[int]":
+    changes: queue.Queue[int] = queue.Queue()
+    mail_sync.watch_inboxes([watched], lambda _account: CREDENTIAL, changes.put)
+    return changes
+
+
+def take(changes: "queue.Queue[int]", count: int) -> list[int]:
+    return [changes.get(timeout=5) for _ in range(count)]
+
+
+def test_a_watcher_catches_up_on_connect_then_reports_each_push(idling_imap):
+    idling_imap.pushes = [True, False, True]
+
+    changes = watch(account())
+
+    # One for connecting, one per push; the renewal in between says nothing.
+    assert take(changes, 3) == [1, 1, 1]
+    assert changes.empty()
+
+
+def test_closing_sessions_interrupts_a_watcher_blocked_in_idle(idling_imap):
+    changes = watch(account())
+    take(changes, 1)
+
+    mail_sync.close_sessions(account().id)
+
+    assert idling_imap.interrupted.wait(5)
+    assert changes.empty()
+
+
+def test_a_failed_connection_is_retried_and_catches_up(idling_imap):
+    idling_imap.failing_connects = 2
+
+    changes = watch(account())
+
+    assert take(changes, 1) == [1]
+    assert idling_imap.connects == 3
+
+
+def test_a_server_without_idle_is_polled_instead(idling_imap):
+    idling_imap.capabilities = set()
+
+    changes = watch(account())
+
+    assert take(changes, 3) == [1, 1, 1]
+    assert idling_imap.connects == 1
+
+
+def test_watching_again_keeps_the_running_watcher(idling_imap):
+    changes = watch(account())
+    take(changes, 1)
+
+    mail_sync.watch_inboxes([account()], lambda _account: CREDENTIAL, changes.put)
+
+    assert idling_imap.connects == 1
+
+
+def test_an_account_left_out_has_its_watcher_stopped(idling_imap):
+    changes = watch(account())
+    take(changes, 1)
+
+    mail_sync.watch_inboxes([], lambda _account: CREDENTIAL, changes.put)
+
+    assert idling_imap.interrupted.wait(5)
+
+
+def test_a_failed_move_leaves_the_inbox_watcher_running(idling_imap, monkeypatch):
+    # The move drops its own pooled connection; the watcher's is a different
+    # one, and stopping it would silence new mail until the safety-net sync.
+    def refuse(self, uid, destination):
+        raise ImapError("move refused")
+
+    monkeypatch.setattr(IdlingImapSession, "move", refuse, raising=False)
+    changes = watch(account())
+    take(changes, 1)
+
+    result = move_messages(
+        account(), CREDENTIAL, "INBOX", ["4"], "Archive", uidvalidity=1
+    )
+
+    assert result.error is not None
+    assert account().id in mail_sync._watchers
+    assert not idling_imap.interrupted.is_set()

@@ -341,3 +341,69 @@ def test_connect_gives_starttls_a_verifying_context(monkeypatch):
 
     assert imap.calls[0][0] == "STARTTLS"
     _assert_verifies(imap.calls[0][1])
+
+
+class FakeSocket:
+    def setsockopt(self, level, option, value):
+        pass
+
+
+class FakeIdler:
+    """imaplib's Idler: yields untagged responses until the time runs out."""
+
+    def __init__(self, responses):
+        self._responses = responses
+        self.is_done = False
+
+    def __enter__(self):
+        return iter(self._responses)
+
+    def __exit__(self, *exc_info):
+        self.is_done = True
+        return False
+
+
+def idling(monkeypatch, responses) -> tuple[ImapSession, FakeIdler]:
+    imap = FakeImap()
+    idler = FakeIdler(responses)
+    imap.idle = lambda duration: idler
+    imap.socket = FakeSocket
+    return connect(monkeypatch, imap), idler
+
+
+def test_idle_reports_a_new_message(monkeypatch):
+    session, idler = idling(monkeypatch, [("OK", [b"Still here"]), ("EXISTS", [b"5"])])
+
+    assert session.idle(60) is True
+    assert idler.is_done
+
+
+def test_idle_that_runs_out_reports_no_change(monkeypatch):
+    # A flag change is left to the next sync rather than counted as arrival.
+    session, idler = idling(monkeypatch, [("FETCH", [b"3 (FLAGS (\\Seen))"])])
+
+    assert session.idle(60) is False
+    assert idler.is_done
+
+
+def test_a_dropped_idle_raises_imap_error(monkeypatch):
+    session, _idler = idling(monkeypatch, [])
+
+    def dropped(duration):
+        raise imaplib.IMAP4.abort("socket error: EOF")
+
+    session._imap.idle = dropped
+
+    with pytest.raises(ImapError):
+        session.idle(60)
+
+
+def test_capabilities_are_reread_after_sign_in(monkeypatch):
+    imap = FakeImap()
+    imap.capabilities = ("IMAP4REV1",)
+    imap.capability = lambda: ("OK", [b"IMAP4rev1 idle"])
+    session = connect(monkeypatch, imap)
+
+    session.refresh_capabilities()
+
+    assert session.has_capability("IDLE")

@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from .core.models.account import Account
 from .core.models.folder import Folder
 
-# GSettings key for the poll interval. Named here rather than in
-# preferences_dialog because the window schedules the timer from it and the
-# dialog only writes it -- the window must not have to import a dialog.
-SETTING_SYNC_INTERVAL = "sync-interval-minutes"
+# How often every account is synced regardless. New inbox mail doesn't wait on
+# this -- mail_sync's inbox watchers push it -- so it only has to catch what
+# they don't see: other folders, and flags changed from another client.
+SYNC_POLL_SECONDS = 15 * 60
 
 # The desktop portal: the dialog asks it to start Postcard at login, and the
 # window reads the desktop's clock format from it.
@@ -30,8 +30,6 @@ SEARCH_DEBOUNCE_MS = 200
 # ponytail: a flat window, so a folder can read up to a minute stale; the
 # refresh button syncs the open folder, which is the way out of it.
 FOLDER_SYNC_COOLDOWN_SECONDS = 60
-
-SECONDS_PER_MINUTE = 60
 
 # Negative so it can never collide with a SQLite rowid.
 ALL_INBOXES_ID = -1

@@ -3,6 +3,7 @@ import os
 import sqlite3
 from collections.abc import Sequence
 from datetime import datetime
+from email.parser import BytesHeaderParser
 
 from gi.repository import GLib
 
@@ -602,8 +603,16 @@ class Database:
         return row["raw_message"] if row else None
 
     def save_raw_message(self, email_id: int, raw: bytes) -> None:
+        # A row saved locally (a Sent copy, a draft) has no Message-ID of its own
+        # until now; save_incoming_email needs it to spot the server's copy.
+        message_id = BytesHeaderParser().parsebytes(raw)["Message-ID"] or ""
         self._conn.execute(
-            "UPDATE emails SET raw_message = ? where id = ?", (raw, email_id)
+            """
+            UPDATE emails
+            SET raw_message = ?, message_id = COALESCE(NULLIF(message_id, ''), ?)
+            WHERE id = ?
+            """,
+            (raw, str(message_id).strip(), email_id),
         )
         self._conn.commit()
 
@@ -670,6 +679,16 @@ class Database:
                 (folder_id, header.uid),
             )
             is_new = True
+        if header.message_id:
+            # The UID-less copy saved when the message was sent (or moved) is
+            # now a duplicate, and one that sorts as newest forever.
+            self._conn.execute(
+                """
+                DELETE FROM emails
+                WHERE folder_id = ? AND server_id IS NULL AND message_id = ?
+                """,
+                (folder_id, header.message_id),
+            )
         self._conn.execute(
             """
             INSERT INTO emails

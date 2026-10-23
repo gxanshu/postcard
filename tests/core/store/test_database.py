@@ -427,6 +427,17 @@ def test_a_completed_move_without_a_uid_drops_the_placeholder(db, folder):
     assert db.emails_in_folder(folder.id) == []
 
 
+def test_the_servers_copy_of_a_sent_message_replaces_the_local_one(db, folder):
+    # The local copy has no UID, so left behind it would sort as newest forever.
+    local = db.save_email(folder.id, "me", "Hi", "Hi", "2026-10-23", False)
+    db.save_raw_message(local.id, b"Message-ID: <a@x>\r\nSubject: Hi\r\n\r\nbody")
+
+    incoming(db, folder.id, "89", subject="Hi", message_id="<a@x>")
+
+    (kept,) = db.emails_in_folder(folder.id)
+    assert kept.server_id == "89"
+
+
 def test_deleting_an_email(db, folder):
     incoming(db, folder.id, "1")
     (email,) = db.emails_in_folder(folder.id)

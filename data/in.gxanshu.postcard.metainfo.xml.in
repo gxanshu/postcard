@@ -59,6 +59,18 @@
   </screenshots>
 
   <releases>
+    <release version="1.15.0" date="2026-10-26">
+      <description translate="no">
+        <p>New in this release:</p>
+        <ul>
+          <li>New mail arrives promptly with IMAP IDLE on supported servers</li>
+          <li>Rich-text composing now supports safer pasting, spell checking, undo and
+          redo, keyboard shortcuts, and attaching multiple files at once</li>
+          <li>Fix stale messages and unsafe actions when an IMAP mailbox is renumbered</li>
+          <li>Fix duplicate sent messages after the server copy arrives</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.14.1" date="2026-10-19">
       <description translate="no">
         <p>Fixed in this release:</p>

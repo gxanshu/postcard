@@ -3,8 +3,14 @@ import ssl
 
 import pytest
 
+from postcard.core.net import NET_TIMEOUT_SECONDS
 from postcard.core.net.auth import MECHANISM_XOAUTH2, Credential
-from postcard.core.net.imap_session import FetchedHeader, ImapError, ImapSession
+from postcard.core.net.imap_session import (
+    PROBE_TIMEOUT_SECONDS,
+    FetchedHeader,
+    ImapError,
+    ImapSession,
+)
 
 
 class FakeImap:
@@ -15,6 +21,7 @@ class FakeImap:
         self._search_reply = search_reply
         self._fetch_reply = fetch_reply
         self._status_reply = status_reply
+        self.sock = FakeSocket()
 
     def uid(self, *args):
         self.calls.append(args)
@@ -37,6 +44,9 @@ class FakeImap:
     def starttls(self, ssl_context=None):
         self.calls.append(("STARTTLS", ssl_context))
 
+    def socket(self):
+        return self.sock
+
 
 def connect(monkeypatch, imap: FakeImap) -> ImapSession:
     monkeypatch.setattr(
@@ -53,6 +63,17 @@ def test_a_connection_that_answers_noop_is_alive(monkeypatch):
     imap.noop = lambda: ("OK", [b""])
 
     assert connect(monkeypatch, imap).is_alive() is True
+
+
+def test_the_probe_waits_briefly_then_restores_the_timeout(monkeypatch):
+    imap = FakeImap()
+    timeouts = []
+    imap.noop = lambda: (timeouts.append(imap.sock.timeout), ("OK", [b""]))[1]
+
+    connect(monkeypatch, imap).is_alive()
+
+    assert timeouts == [PROBE_TIMEOUT_SECONDS]
+    assert imap.sock.timeout == NET_TIMEOUT_SECONDS
 
 
 def test_a_refused_list_raises_instead_of_returning_no_folders(monkeypatch):
@@ -344,8 +365,13 @@ def test_connect_gives_starttls_a_verifying_context(monkeypatch):
 
 
 class FakeSocket:
+    timeout = None
+
     def setsockopt(self, level, option, value):
         pass
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
 
 
 class FakeIdler:
@@ -367,7 +393,6 @@ def idling(monkeypatch, responses) -> tuple[ImapSession, FakeIdler]:
     imap = FakeImap()
     idler = FakeIdler(responses)
     imap.idle = lambda duration: idler
-    imap.socket = FakeSocket
     return connect(monkeypatch, imap), idler
 
 

@@ -49,6 +49,10 @@ KEEPALIVE_IDLE_SECONDS = 60
 KEEPALIVE_INTERVAL_SECONDS = 10
 KEEPALIVE_PROBES = 3
 
+# How long is_alive waits for a NOOP before writing the connection off. A live
+# server answers one in a round trip; reconnecting costs a second or two.
+PROBE_TIMEOUT_SECONDS = 3
+
 
 class FetchedHeader(NamedTuple):
     """One message's headers exactly as the server sent them.
@@ -155,11 +159,18 @@ class ImapSession:
 
     def is_alive(self) -> bool:
         # A server that hung up on an idle connection says nothing about it
-        # until the next command, so probe before reusing one.
+        # until the next command, so probe before reusing one. A connection a
+        # NAT or a suspend dropped silently never answers at all, so the probe
+        # gets a short timeout of its own -- at NET_TIMEOUT_SECONDS, opening a
+        # message after a quiet spell sat on "Loading…" for half a minute.
+        imap = self._require_imap()
+        sock = imap.socket()
+        sock.settimeout(PROBE_TIMEOUT_SECONDS)
         try:
-            status, _payload = self._require_imap().noop()
+            status, _payload = imap.noop()
         except (OSError, imaplib.IMAP4.error):
             return False
+        sock.settimeout(NET_TIMEOUT_SECONDS)
         return status == STATUS_OK
 
     def interrupt(self) -> None:

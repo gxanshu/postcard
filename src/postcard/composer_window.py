@@ -35,7 +35,7 @@ from .core.threader import NO_SUBJECT
 logger = logging.getLogger(__name__)
 
 _EDITOR_PAGE = """<!DOCTYPE html>
-<html>
+<html data-theme="{theme}">
 <head>
 <meta charset="utf-8">
 <style>
@@ -53,11 +53,10 @@ _EDITOR_PAGE = """<!DOCTYPE html>
   a {{ color: #1c71d8; }}
   blockquote {{ color: #5e5c64; }}
   .signature {{ color: #5e5c64; }}
-  @media (prefers-color-scheme: dark) {{
-    body {{ color: #f6f5f4; }}
-    a {{ color: #78aeed; }}
-    blockquote, .signature {{ color: #c0bfbc; }}
-  }}
+  html[data-theme="dark"] body {{ color: #f6f5f4; }}
+  html[data-theme="dark"] a {{ color: #78aeed; }}
+  html[data-theme="dark"] blockquote,
+  html[data-theme="dark"] .signature {{ color: #c0bfbc; }}
 </style>
 </head>
 <body contenteditable="true">{body}</body>
@@ -72,14 +71,25 @@ _EDITOR_SCRIPT = """
 // recipient's. A signature keeps its own: it is the user's markup.
 const EDITOR_STYLES = ['font-size', 'font-family', 'line-height', 'color'];
 
-function messageHtml() {
-  const copy = document.body.cloneNode(true);
-  for (const element of copy.querySelectorAll('[style]')) {
+function removeEditorStyles(root) {
+  for (const element of root.querySelectorAll('[style]')) {
     if (element.closest('.signature')) continue;
     for (const name of EDITOR_STYLES) element.style.removeProperty(name);
     if (!element.style.length) element.removeAttribute('style');
   }
+}
+
+function messageHtml() {
+  const copy = document.body.cloneNode(true);
+  removeEditorStyles(copy);
   return copy.innerHTML;
+}
+
+function setEditorTheme(isDark) {
+  document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  // WebKit can freeze the previous theme's text colour into editing spans.
+  // Keep the live draft consistent with the HTML we send, without reloading it.
+  removeEditorStyles(document.body);
 }
 
 function post(isEdit = false) {
@@ -560,6 +570,10 @@ class PostcardComposerWindow(Adw.Window):
         self._mark_edited()
 
     def _build_editor(self) -> None:
+        self._is_editor_ready = False
+        self._editor_dark_handler_id = 0
+        self.connect("realize", self._on_editor_realized)
+        self.connect("unrealize", self._on_editor_unrealized)
         manager = WebKit.UserContentManager()
         manager.register_script_message_handler("editor", None)
         manager.connect("script-message-received::editor", self._on_editor_changed)
@@ -580,19 +594,49 @@ class PostcardComposerWindow(Adw.Window):
         )
         self._webview.get_settings().set_auto_load_images(False)
         self._webview.connect("decide-policy", self._on_decide_policy)
+        self._webview.connect("load-changed", self._on_editor_load_changed)
         self.body_container.add_controller(_shortcut_controller(_EDITOR_SHORTCUTS))
         context = self._webview.get_context()
         context.set_spell_checking_enabled(True)
         context.set_spell_checking_languages(_spelling_languages())
-        # Transparent, so the Adwaita "card" behind it supplies the background
-        # and the editor tracks the theme without hardcoding its colours.
+        # The Adwaita card supplies the background; its StyleManager also drives
+        # the page palette, independently of WebKit's system-theme preference.
         self._webview.set_background_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0))
         family, size = _gtk_font()
         self._webview.load_html(
-            _EDITOR_PAGE.format(family=family, size=size, body=self._body_html),
+            _EDITOR_PAGE.format(
+                family=family,
+                size=size,
+                body=self._body_html,
+                theme="dark" if Adw.StyleManager.get_default().get_dark() else "light",
+            ),
             None,
         )
         self.body_container.append(self._webview)
+
+    def _on_editor_realized(self, _widget: Gtk.Widget) -> None:
+        self._editor_dark_handler_id = Adw.StyleManager.get_default().connect(
+            "notify::dark", self._on_editor_theme_changed
+        )
+        self._on_editor_theme_changed(Adw.StyleManager.get_default(), None)
+
+    def _on_editor_unrealized(self, _widget: Gtk.Widget) -> None:
+        if self._editor_dark_handler_id:
+            Adw.StyleManager.get_default().disconnect(self._editor_dark_handler_id)
+            self._editor_dark_handler_id = 0
+
+    def _on_editor_load_changed(
+        self, _webview: WebKit.WebView, event: WebKit.LoadEvent
+    ) -> None:
+        if event == WebKit.LoadEvent.FINISHED:
+            self._is_editor_ready = True
+            self._on_editor_theme_changed(Adw.StyleManager.get_default(), None)
+
+    def _on_editor_theme_changed(
+        self, manager: Adw.StyleManager, _pspec: object
+    ) -> None:
+        if self._is_editor_ready:
+            self._run_script(f"setEditorTheme({json.dumps(manager.get_dark())});")
 
     def _on_decide_policy(
         self,

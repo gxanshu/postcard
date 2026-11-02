@@ -70,6 +70,7 @@ Postcard has the classic three panel layout. folders on the left, conversations 
 - **Rich text**: bold, italic, underline, strikethrough, bulleted and numbered lists, links. Mail is sent as HTML with a plain-text version included.
 - **Reply, reply-all and forward**, with Cc/Bcc, a signature, and a Drafts/Outbox that does not lose your message.
 - **Recipient autocomplete** from the addresses already in your mail.
+- **Theme-aware editor** that follows light and dark mode without resetting your draft, selection or undo history.
 
 ### 🖥️ Desktop
 

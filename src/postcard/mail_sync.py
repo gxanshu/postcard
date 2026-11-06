@@ -766,6 +766,25 @@ def folder_label(folder: Folder) -> str:
     )
 
 
+# The sidebar order of the role folders, as Thunderbird and Outlook have it.
+_SIDEBAR_ROLES = (
+    FolderRole.INBOX,
+    FolderRole.DRAFTS,
+    FolderRole.SENT,
+    FolderRole.ARCHIVE,
+    FolderRole.JUNK,
+    FolderRole.TRASH,
+    FolderRole.STARRED,
+)
+
+
+def sidebar_key(folder: Folder) -> tuple[int, str]:
+    """Sort key among siblings: role folders first, then the rest by name."""
+    role = folder_role(folder)
+    rank = _SIDEBAR_ROLES.index(role) if role in _SIDEBAR_ROLES else len(_SIDEBAR_ROLES)
+    return rank, folder_label(folder).casefold()
+
+
 def is_outgoing(folder: Folder) -> bool:
     """Whether a folder holds mail this account sent.
 

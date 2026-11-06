@@ -1605,7 +1605,9 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         folders = [
             folder
             for account in accounts
-            for folder in self._db.folders_for_account(account.id)
+            for folder in sorted(
+                self._db.folders_for_account(account.id), key=mail_sync.sidebar_key
+            )
         ]
         self._folders_by_id = {folder.id: folder for folder in folders}
         # Two kinds of branch: top-level folders hang off their account, the

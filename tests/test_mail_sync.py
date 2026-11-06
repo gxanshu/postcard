@@ -48,6 +48,7 @@ from postcard.mail_sync import (
     send_message,
     sent_folder,
     server_uids,
+    sidebar_key,
 )
 
 CREDENTIAL = Credential("ada@example.com", "hunter2")
@@ -980,6 +981,22 @@ def test_imap_mailboxes_are_stored_shortest_name_first():
     boxes = mailboxes("Work/Acme", "Work", "INBOX")
 
     assert [box.name for box in creation_order(boxes)] == ["Work", "INBOX", "Work/Acme"]
+
+
+def test_sidebar_puts_role_folders_first_then_the_rest_by_name():
+    names = ["Uni", "Junk", "Sent", "WebDE", "Trash", "INBOX", "Drafts", "Archive"]
+    folders = [stored_folder(name) for name in names]
+
+    assert [f.name for f in sorted(folders, key=sidebar_key)] == [
+        "INBOX",
+        "Drafts",
+        "Sent",
+        "Archive",
+        "Junk",
+        "Trash",
+        "Uni",
+        "WebDE",
+    ]
 
 
 def test_graph_mailboxes_keep_the_order_they_came_in():

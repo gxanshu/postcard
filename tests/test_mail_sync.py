@@ -148,17 +148,26 @@ def test_a_role_word_inside_another_word_is_not_that_role(name):
 
 def test_mailbox_with_role_finds_the_provider_s_own_spelling():
     assert (
-        mailbox_with_role(["INBOX", "Sent Items", "Trash"], FolderRole.SENT)
+        mailbox_with_role(mailboxes("INBOX", "Sent Items", "Trash"), FolderRole.SENT)
         == "Sent Items"
     )
     assert (
-        mailbox_with_role(["INBOX", "[Gmail]/Sent Mail"], FolderRole.SENT)
+        mailbox_with_role(mailboxes("INBOX", "[Gmail]/Sent Mail"), FolderRole.SENT)
         == "[Gmail]/Sent Mail"
     )
 
 
+def test_mailbox_with_role_trusts_a_stated_role_over_the_name():
+    boxes = [
+        MailboxInfo("INBOX", "/", ""),
+        MailboxInfo("Gesendete Objekte", "/", "\\HasNoChildren \\Sent", role="sent"),
+    ]
+
+    assert mailbox_with_role(boxes, FolderRole.SENT) == "Gesendete Objekte"
+
+
 def test_mailbox_with_role_returns_none_when_the_server_lists_none():
-    assert mailbox_with_role(["INBOX", "Notes"], FolderRole.SENT) is None
+    assert mailbox_with_role(mailboxes("INBOX", "Notes"), FolderRole.SENT) is None
 
 
 def test_role_for_folder_returns_a_folder_role_member():
@@ -241,12 +250,12 @@ def test_sent_folder_creates_one_before_the_first_sync(db_account):
 
 
 def test_inbox_name_prefers_the_server_s_own_spelling():
-    assert inbox_name(["Sent", "Inbox", "Trash"]) == "Inbox"
+    assert inbox_name(mailboxes("Sent", "Inbox", "Trash")) == "Inbox"
 
 
 def test_inbox_name_falls_back_when_the_server_lists_none():
     assert inbox_name([]) == "INBOX"
-    assert inbox_name(["Sent"]) == "INBOX"
+    assert inbox_name(mailboxes("Sent")) == "INBOX"
 
 
 def test_parent_mailbox_name():

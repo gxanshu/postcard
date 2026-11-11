@@ -1117,11 +1117,14 @@ class PostcardMainWindow(Adw.ApplicationWindow):
     def _folder_with_role(
         self, role: mail_sync.FolderRole, account: Account, exclude_id: int
     ) -> Folder | None:
-        matches = [
-            folder
-            for folder in self._db.folders_for_account(account.id)
-            if folder.id != exclude_id and mail_sync.folder_role(folder) == role
-        ]
+        matches = sorted(
+            (
+                folder
+                for folder in self._db.folders_for_account(account.id)
+                if folder.id != exclude_id and mail_sync.folder_role(folder) == role
+            ),
+            key=lambda folder: not folder.role,  # a stated role beats a name match
+        )
         if role == mail_sync.FolderRole.ARCHIVE:
             # role_for_folder maps both "Archive" and Gmail's "All Mail" to
             # ARCHIVE. When an account has both, a folder actually named
@@ -1386,7 +1389,8 @@ class PostcardMainWindow(Adw.ApplicationWindow):
         self, action_prefix: str, account: Account, source_id: int
     ) -> Gio.Menu:
         menu = Gio.Menu()
-        for folder in self._db.folders_for_account(account.id):
+        folders = self._db.folders_for_account(account.id)
+        for folder in sorted(folders, key=mail_sync.sidebar_key):
             if folder.id == source_id:
                 continue
             item = Gio.MenuItem.new(mail_sync.folder_label(folder), None)
@@ -2699,8 +2703,12 @@ class PostcardMainWindow(Adw.ApplicationWindow):
             self._db.set_folder_parent(
                 folder.id, parent.id if parent else None, mailbox.delimiter
             )
-            if mailbox.role or mailbox.label:
-                self._db.set_folder_identity(folder.id, mailbox.role, mailbox.label)
+            self._db.set_folder_identity(
+                folder.id,
+                mailbox.role,
+                mailbox.label,
+                mail_sync.icon_for_mailbox(mailbox),
+            )
 
     # Notification ids carry the account: every account syncs on the same tick,
     # and a repeated id replaces the notification already on screen.

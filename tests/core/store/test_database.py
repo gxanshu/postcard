@@ -671,7 +671,7 @@ def test_an_account_remembers_its_protocol(db):
 
 
 def test_a_folder_keeps_the_role_and_label_its_server_stated(db, folder):
-    db.set_folder_identity(folder.id, "sent", "Gesendete Elemente")
+    db.set_folder_identity(folder.id, "sent", "Gesendete Elemente", "folder-symbolic")
 
     [stored] = db.folders_for_account(folder.account_id)
 

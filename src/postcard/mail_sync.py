@@ -1,3 +1,4 @@
+import locale
 import logging
 import re
 import threading
@@ -785,7 +786,7 @@ def sidebar_key(folder: Folder) -> tuple[int, str]:
     """Sort key among siblings: role folders first, then the rest by name."""
     role = folder_role(folder)
     rank = _SIDEBAR_ROLES.index(role) if role in _SIDEBAR_ROLES else len(_SIDEBAR_ROLES)
-    return rank, folder_label(folder).casefold()
+    return rank, locale.strxfrm(folder_label(folder).casefold())
 
 
 def is_outgoing(folder: Folder) -> bool:
@@ -819,7 +820,12 @@ def mailbox_with_role(mailboxes: Iterable[MailboxInfo], role: FolderRole) -> str
     "Sent Items", "Sent Messages", "[Gmail]/Sent Mail" or "INBOX.Sent" -- so
     the name has to come from the server's own list, never from a constant.
     """
-    return next((box.name for box in mailboxes if mailbox_role(box) is role), None)
+    match = min(
+        (box for box in mailboxes if mailbox_role(box) is role),
+        key=lambda box: not box.role,  # a stated role beats a name match
+        default=None,
+    )
+    return match.name if match else None
 
 
 def sent_folder(db: Database, account_id: int) -> Folder:
@@ -848,7 +854,11 @@ def _folder_for_role(
     db: Database, account_id: int, role: FolderRole, fallback_name: str
 ) -> Folder:
     folders = db.folders_for_account(account_id)
-    match = next((folder for folder in folders if folder_role(folder) is role), None)
+    match = min(
+        (folder for folder in folders if folder_role(folder) is role),
+        key=lambda folder: not folder.role,  # a stated role beats a name match
+        default=None,
+    )
     if match is not None:
         return match
     return db.get_or_create_folder(
@@ -870,11 +880,11 @@ def parent_of(mailbox: MailboxInfo) -> str:
 
 
 def creation_order(mailboxes: list[MailboxInfo]) -> list[MailboxInfo]:
-    """The order to first store mailboxes in, which is their sidebar order.
+    """The order to first store mailboxes in (the sidebar re-sorts them by
+    sidebar_key, so this only decides row ids).
 
     IMAP lists in whatever order the server likes, so shortest name first
-    keeps a parent above its children. Graph mailboxes arrive already ordered,
-    role folders first.
+    keeps a parent above its children. Graph mailboxes are kept as they came.
     """
     if any(mailbox.parent is not None for mailbox in mailboxes):
         return mailboxes

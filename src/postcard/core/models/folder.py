@@ -8,8 +8,9 @@ class FolderRole(StrEnum):
 
     A StrEnum so it compares and persists as the plain lowercase string it
     always was -- the database column and the icon table store these values.
-    IMAP infers it from the mailbox name (mail_sync.role_for_folder); Microsoft
-    Graph says so outright, which is the only way to tell a localized
+    IMAP takes it from a SPECIAL-USE attribute when the server sends one and
+    otherwise infers it from the mailbox name (mail_sync.role_for_folder);
+    Microsoft Graph always says so outright, which is the only way to tell a localized
     "Gesendete Elemente" is the sent folder.
     """
 

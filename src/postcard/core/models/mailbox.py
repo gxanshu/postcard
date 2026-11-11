@@ -4,7 +4,8 @@ from typing import NamedTuple
 class MailboxInfo(NamedTuple):
     """One mailbox as a server lists it, before it becomes a Folder row.
 
-    IMAP fills only the first three: the role and the display name are inferred
+    IMAP fills the first three, plus the role when the server marks it with a
+    SPECIAL-USE attribute; otherwise the role and the display name are inferred
     from the name, and the parent is found by splitting it on the delimiter.
     Graph addresses folders by opaque id, so it states all three outright.
     """

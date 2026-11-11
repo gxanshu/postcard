@@ -3,6 +3,7 @@ import ssl
 
 import pytest
 
+from postcard.core.models.folder import FolderRole
 from postcard.core.net import NET_TIMEOUT_SECONDS
 from postcard.core.net.auth import MECHANISM_XOAUTH2, Credential
 from postcard.core.net.imap_session import (
@@ -82,6 +83,28 @@ def test_a_refused_list_raises_instead_of_returning_no_folders(monkeypatch):
 
     with pytest.raises(ImapError):
         connect(monkeypatch, imap).list_folders()
+
+
+def test_list_reads_the_role_from_special_use_attributes(monkeypatch):
+    imap = FakeImap()
+    imap.list = lambda: (
+        "OK",
+        [
+            b'(\\HasNoChildren) "/" "INBOX"',
+            b'(\\HasNoChildren \\SENT) "/" "Gesendete Objekte"',
+            b'(\\HasNoChildren \\Trash) "/" "Papierkorb"',
+            b'(\\HasNoChildren) "/" "Uni"',
+        ],
+    )
+
+    roles = {box.name: box.role for box in connect(monkeypatch, imap).list_folders()}
+
+    assert roles == {
+        "INBOX": "",
+        "Gesendete Objekte": FolderRole.SENT,
+        "Papierkorb": FolderRole.TRASH,
+        "Uni": "",
+    }
 
 
 def _raising(error: Exception):

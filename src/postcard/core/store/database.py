@@ -353,11 +353,14 @@ class Database:
         self._conn.commit()
 
     # Written on every sync, since a folder can be renamed on the server
-    # without its Graph id changing.
-    def set_folder_identity(self, folder_id: int, role: str, label: str) -> None:
+    # without its Graph id changing, and an IMAP server can move a
+    # SPECIAL-USE role (and with it the icon) to another mailbox.
+    def set_folder_identity(
+        self, folder_id: int, role: str, label: str, icon_name: str
+    ) -> None:
         self._conn.execute(
-            "UPDATE folders SET role = ?, label = ? WHERE id = ?",
-            (role, label, folder_id),
+            "UPDATE folders SET role = ?, label = ?, icon_name = ? WHERE id = ?",
+            (role, label, icon_name, folder_id),
         )
         self._conn.commit()
 

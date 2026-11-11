@@ -1,3 +1,4 @@
+import locale
 import logging
 import re
 import threading
@@ -240,7 +241,7 @@ class _InboxWatcher:
                     account.email,
                 )
                 return False
-            session.select(inbox_name([box.name for box in session.list_folders()]))
+            session.select(inbox_name(session.list_folders()))
             self._retry = WATCH_RETRY_SECONDS
             self._changed()
             while not self._stop.is_set():
@@ -383,11 +384,11 @@ def _discard_pooled(account_id: int) -> None:
         entry.generation += 1
 
 
-def inbox_name(folders: list[str]) -> str:
+def inbox_name(mailboxes: list[MailboxInfo]) -> str:
     """The server's inbox mailbox. IMAP calls it INBOX but servers vary the
     casing (Yahoo lists it as "Inbox"), so match by role and fall back to the
     canonical name."""
-    return mailbox_with_role(folders, FolderRole.INBOX) or INBOX_MAILBOX
+    return mailbox_with_role(mailboxes, FolderRole.INBOX) or INBOX_MAILBOX
 
 
 def fetch_mailbox(
@@ -412,7 +413,7 @@ def fetch_mailbox(
         )
     with _pooled_session(account, credential) as session:
         mailboxes = session.list_folders()
-        target = folder or inbox_name([m.name for m in mailboxes])
+        target = folder or inbox_name(mailboxes)
         exists = session.select(target)
         uidvalidity = session.uidvalidity()
         all_uids = session.search_all_uids() if offset == 0 else None
@@ -468,7 +469,7 @@ def _unread_counts(
     for mailbox in mailboxes:
         if mailbox.name == target or ATTR_NOSELECT in mailbox.flags:
             continue
-        if role_for_folder(mailbox.name) is FolderRole.OTHER:
+        if mailbox_role(mailbox) is FolderRole.OTHER:
             continue
         try:
             counts[mailbox.name] = session.unseen_count(mailbox.name)
@@ -724,9 +725,7 @@ def _append_to_sent(account: Account, credential: Credential, raw: bytes) -> Non
     with _pooled_session(account, credential) as session:
         if session.has_capability(GMAIL_CAPABILITY):
             return
-        sent = mailbox_with_role(
-            (mailbox.name for mailbox in session.list_folders()), FolderRole.SENT
-        )
+        sent = mailbox_with_role(session.list_folders(), FolderRole.SENT)
         if sent is None:
             logger.warning(
                 "no Sent mailbox on %s (account %s)", account.imap_host, account.email
@@ -759,11 +758,35 @@ def folder_role(folder: Folder) -> FolderRole:
         return role_for_folder(folder.name)
 
 
+def mailbox_role(mailbox: MailboxInfo) -> FolderRole:
+    """A listed mailbox's role: the one its server stated, else from its name."""
+    return FolderRole(mailbox.role) if mailbox.role else role_for_folder(mailbox.name)
+
+
 def folder_label(folder: Folder) -> str:
     """What the sidebar and menus call a folder."""
     return folder.label or display_name_for_folder(
         folder.name, folder.display_delimiter
     )
+
+
+# The sidebar order of the role folders, as Thunderbird and Outlook have it.
+_SIDEBAR_ROLES = (
+    FolderRole.INBOX,
+    FolderRole.DRAFTS,
+    FolderRole.SENT,
+    FolderRole.ARCHIVE,
+    FolderRole.JUNK,
+    FolderRole.TRASH,
+    FolderRole.STARRED,
+)
+
+
+def sidebar_key(folder: Folder) -> tuple[int, str]:
+    """Sort key among siblings: role folders first, then the rest by name."""
+    role = folder_role(folder)
+    rank = _SIDEBAR_ROLES.index(role) if role in _SIDEBAR_ROLES else len(_SIDEBAR_ROLES)
+    return rank, locale.strxfrm(folder_label(folder).casefold())
 
 
 def is_outgoing(folder: Folder) -> bool:
@@ -790,14 +813,19 @@ def first_recipient(to_header: str) -> tuple[str, str]:
     return name or address, address
 
 
-def mailbox_with_role(names: Iterable[str], role: FolderRole) -> str | None:
+def mailbox_with_role(mailboxes: Iterable[MailboxInfo], role: FolderRole) -> str | None:
     """The mailbox this server uses for a role, or None when it lists none.
 
     Every provider spells these its own way -- sent mail lives in "Sent",
     "Sent Items", "Sent Messages", "[Gmail]/Sent Mail" or "INBOX.Sent" -- so
     the name has to come from the server's own list, never from a constant.
     """
-    return next((name for name in names if role_for_folder(name) is role), None)
+    match = min(
+        (box for box in mailboxes if mailbox_role(box) is role),
+        key=lambda box: not box.role,  # a stated role beats a name match
+        default=None,
+    )
+    return match.name if match else None
 
 
 def sent_folder(db: Database, account_id: int) -> Folder:
@@ -826,7 +854,11 @@ def _folder_for_role(
     db: Database, account_id: int, role: FolderRole, fallback_name: str
 ) -> Folder:
     folders = db.folders_for_account(account_id)
-    match = next((folder for folder in folders if folder_role(folder) is role), None)
+    match = min(
+        (folder for folder in folders if folder_role(folder) is role),
+        key=lambda folder: not folder.role,  # a stated role beats a name match
+        default=None,
+    )
     if match is not None:
         return match
     return db.get_or_create_folder(
@@ -848,11 +880,11 @@ def parent_of(mailbox: MailboxInfo) -> str:
 
 
 def creation_order(mailboxes: list[MailboxInfo]) -> list[MailboxInfo]:
-    """The order to first store mailboxes in, which is their sidebar order.
+    """The order to first store mailboxes in (the sidebar re-sorts them by
+    sidebar_key, so this only decides row ids).
 
     IMAP lists in whatever order the server likes, so shortest name first
-    keeps a parent above its children. Graph mailboxes arrive already ordered,
-    role folders first.
+    keeps a parent above its children. Graph mailboxes are kept as they came.
     """
     if any(mailbox.parent is not None for mailbox in mailboxes):
         return mailboxes
@@ -862,9 +894,7 @@ def creation_order(mailboxes: list[MailboxInfo]) -> list[MailboxInfo]:
 def icon_for_mailbox(mailbox: MailboxInfo) -> str:
     if ATTR_NOSELECT in mailbox.flags:
         return "folder-symbolic"
-    if mailbox.role:
-        return icon_for_role(FolderRole(mailbox.role))
-    return icon_for_folder(mailbox.name)
+    return icon_for_role(mailbox_role(mailbox))
 
 
 def display_name_for_folder(name: str, delimiter: str | None = None) -> str:

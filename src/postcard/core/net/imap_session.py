@@ -8,6 +8,8 @@ from contextlib import suppress
 from email import policy
 from typing import NamedTuple
 
+from ..models.folder import FolderRole
+
 # Re-exported (the "as" form): MailboxInfo is what list_folders returns, and
 # lives in core.models only so the Graph backend can build one too.
 from ..models.mailbox import MailboxInfo as MailboxInfo
@@ -28,6 +30,19 @@ FLAG_FLAGGED = "\\Flagged"
 # A LIST attribute, not a message flag: the mailbox is a container that cannot
 # hold mail (Gmail's "[Gmail]"), so it is shown but never selected.
 ATTR_NOSELECT = "\\Noselect"
+
+# RFC 6154 SPECIAL-USE attributes: the server stating a mailbox's role, which is
+# the only way to tell a localized "Gesendete Objekte" is the sent folder.
+# Keyed casefolded, as LIST attributes are case-insensitive.
+SPECIAL_USE_ROLES: dict[str, FolderRole] = {
+    "\\all": FolderRole.ARCHIVE,
+    "\\archive": FolderRole.ARCHIVE,
+    "\\drafts": FolderRole.DRAFTS,
+    "\\flagged": FolderRole.STARRED,
+    "\\junk": FolderRole.JUNK,
+    "\\sent": FolderRole.SENT,
+    "\\trash": FolderRole.TRASH,
+}
 
 # Gmail files its own copy of everything sent through it. This capability is how
 # it identifies itself, so we don't append a second copy on top.
@@ -228,7 +243,15 @@ class ImapSession:
             delim_raw = match.group(2)
             name = _unquote(match.group(3).strip())
             delimiter = "" if delim_raw == "NIL" else _unquote(delim_raw)
-            result.append(MailboxInfo(name, delimiter, flags_part))
+            role = next(
+                (
+                    SPECIAL_USE_ROLES[attr]
+                    for attr in flags_part.casefold().split()
+                    if attr in SPECIAL_USE_ROLES
+                ),
+                "",
+            )
+            result.append(MailboxInfo(name, delimiter, flags_part, role=role))
         return result
 
     def select(self, mailbox: str, is_readonly: bool = True) -> int:

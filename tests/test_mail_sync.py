@@ -48,6 +48,7 @@ from postcard.mail_sync import (
     send_message,
     sent_folder,
     server_uids,
+    sidebar_key,
 )
 
 CREDENTIAL = Credential("ada@example.com", "hunter2")
@@ -147,17 +148,35 @@ def test_a_role_word_inside_another_word_is_not_that_role(name):
 
 def test_mailbox_with_role_finds_the_provider_s_own_spelling():
     assert (
-        mailbox_with_role(["INBOX", "Sent Items", "Trash"], FolderRole.SENT)
+        mailbox_with_role(mailboxes("INBOX", "Sent Items", "Trash"), FolderRole.SENT)
         == "Sent Items"
     )
     assert (
-        mailbox_with_role(["INBOX", "[Gmail]/Sent Mail"], FolderRole.SENT)
+        mailbox_with_role(mailboxes("INBOX", "[Gmail]/Sent Mail"), FolderRole.SENT)
         == "[Gmail]/Sent Mail"
     )
 
 
+def test_mailbox_with_role_trusts_a_stated_role_over_the_name():
+    boxes = [
+        MailboxInfo("INBOX", "/", ""),
+        MailboxInfo("Gesendete Objekte", "/", "\\HasNoChildren \\Sent", role="sent"),
+    ]
+
+    assert mailbox_with_role(boxes, FolderRole.SENT) == "Gesendete Objekte"
+
+
+def test_mailbox_with_role_prefers_a_stated_role_to_a_name_listed_first():
+    boxes = [
+        MailboxInfo("Sent Items", "/", ""),
+        MailboxInfo("Gesendet", "/", "\\Sent", role="sent"),
+    ]
+
+    assert mailbox_with_role(boxes, FolderRole.SENT) == "Gesendet"
+
+
 def test_mailbox_with_role_returns_none_when_the_server_lists_none():
-    assert mailbox_with_role(["INBOX", "Notes"], FolderRole.SENT) is None
+    assert mailbox_with_role(mailboxes("INBOX", "Notes"), FolderRole.SENT) is None
 
 
 def test_role_for_folder_returns_a_folder_role_member():
@@ -240,12 +259,12 @@ def test_sent_folder_creates_one_before_the_first_sync(db_account):
 
 
 def test_inbox_name_prefers_the_server_s_own_spelling():
-    assert inbox_name(["Sent", "Inbox", "Trash"]) == "Inbox"
+    assert inbox_name(mailboxes("Sent", "Inbox", "Trash")) == "Inbox"
 
 
 def test_inbox_name_falls_back_when_the_server_lists_none():
     assert inbox_name([]) == "INBOX"
-    assert inbox_name(["Sent"]) == "INBOX"
+    assert inbox_name(mailboxes("Sent")) == "INBOX"
 
 
 def test_parent_mailbox_name():
@@ -961,9 +980,9 @@ def test_is_outgoing_reads_the_stated_role():
 def test_sent_and_drafts_folders_are_found_by_stated_role(db_account):
     db, account_id = db_account
     sent = db.get_or_create_folder(account_id, "AAMkSent")
-    db.set_folder_identity(sent.id, "sent", "Gesendete Elemente")
+    db.set_folder_identity(sent.id, "sent", "Gesendete Elemente", "folder-symbolic")
     drafts = db.get_or_create_folder(account_id, "AAMkDrafts")
-    db.set_folder_identity(drafts.id, "drafts", "Entwürfe")
+    db.set_folder_identity(drafts.id, "drafts", "Entwürfe", "folder-symbolic")
 
     assert sent_folder(db, account_id).id == sent.id
     assert drafts_folder(db, account_id).id == drafts.id
@@ -980,6 +999,22 @@ def test_imap_mailboxes_are_stored_shortest_name_first():
     boxes = mailboxes("Work/Acme", "Work", "INBOX")
 
     assert [box.name for box in creation_order(boxes)] == ["Work", "INBOX", "Work/Acme"]
+
+
+def test_sidebar_puts_role_folders_first_then_the_rest_by_name():
+    names = ["Uni", "Junk", "Sent", "WebDE", "Trash", "INBOX", "Drafts", "Archive"]
+    folders = [stored_folder(name) for name in names]
+
+    assert [f.name for f in sorted(folders, key=sidebar_key)] == [
+        "INBOX",
+        "Drafts",
+        "Sent",
+        "Archive",
+        "Junk",
+        "Trash",
+        "Uni",
+        "WebDE",
+    ]
 
 
 def test_graph_mailboxes_keep_the_order_they_came_in():

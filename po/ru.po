@@ -1,0 +1,1064 @@
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the postcard package.
+#
+# SPDX-FileCopyrightText: 2026 Olesya Gerasimenko <goa@altlinux.org>
+msgid ""
+msgstr ""
+"Project-Id-Version: postcard\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-18 09:24+0530\n"
+"PO-Revision-Date: 2026-11-17 16:53+0300\n"
+"Last-Translator: Olesya Gerasimenko <goa@altlinux.org>\n"
+"Language-Team: Basealt Translation Team\n"
+"Language: ru_RU\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<="
+"4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"X-Generator: Lokalize 26.08.2\n"
+
+#: data/in.gxanshu.postcard.desktop.in:2
+#: data/in.gxanshu.postcard.metainfo.xml.in:7 src/ui/main-window.blp:5
+#: src/ui/main-window.blp:104
+msgid "Postcard"
+msgstr "Postcard"
+
+#: data/in.gxanshu.postcard.desktop.in:3
+msgid "Mail Client"
+msgstr "Почтовый клиент"
+
+#: data/in.gxanshu.postcard.desktop.in:4
+msgid "Read and send your email"
+msgstr "Чтение и отправка писем"
+
+#: data/in.gxanshu.postcard.desktop.in:10
+msgid "GTK;Email;E-mail;Mail;IMAP;SMTP;Inbox;"
+msgstr ""
+"GTK;Email;E-mail;Mail;IMAP;SMTP;Inbox;электронная почта;почта;письмо;входящие;"
+
+#: data/in.gxanshu.postcard.gschema.xml:6
+msgid "Notify about new mail"
+msgstr "Уведомлять о новых письмах"
+
+#: data/in.gxanshu.postcard.gschema.xml:7
+msgid "Show a desktop notification when new mail arrives."
+msgstr "Показывать уведомление на рабочем столе при получении новых писем."
+
+#: data/in.gxanshu.postcard.gschema.xml:11
+msgid "Load remote images"
+msgstr "Загружать сетевые изображения"
+
+#: data/in.gxanshu.postcard.gschema.xml:12
+msgid "Load remote images in messages by default instead of asking."
+msgstr ""
+"По умолчанию загружать сетевые изображения в сообщениях "
+"(не спрашивать пользователя)."
+
+#: data/in.gxanshu.postcard.gschema.xml:16
+msgid "Load sender avatars"
+msgstr "Загружать аватары отправителей"
+
+#: data/in.gxanshu.postcard.gschema.xml:17
+msgid ""
+"Fetch sender pictures from Gravatar, falling back to the sender's website "
+"icon. This tells those services who emails you."
+msgstr ""
+"Получать изображения отправителей от Gravatar (в качестве резервного варианта "
+"используется значок веб-сайта отправителя). Таким образом, соответствующие "
+"службы получают данные о том, кто отправляет вам письма."
+
+#: data/in.gxanshu.postcard.gschema.xml:21
+msgid "Show account names in the sidebar"
+msgstr "Показывать имена учётных записей на боковой панели"
+
+#: data/in.gxanshu.postcard.gschema.xml:22
+msgid ""
+"Show each account's display name in the folder sidebar instead of its email "
+"address."
+msgstr ""
+"Показывать отображаемое имя (а не адрес эл. почты) каждой учётной записи "
+"на боковой панели папок."
+
+#: data/in.gxanshu.postcard.gschema.xml:26
+msgid "Keep running in the background"
+msgstr "Продолжать работу в фоновом режиме"
+
+#: data/in.gxanshu.postcard.gschema.xml:27
+msgid "Keep checking for new mail after the window is closed."
+msgstr "Продолжать проверку наличия новых писем после закрытия окна программы."
+
+#: data/in.gxanshu.postcard.gschema.xml:31
+msgid "Start Postcard at login"
+msgstr "Запускать Postcard при входе в систему"
+
+#: data/in.gxanshu.postcard.gschema.xml:32
+msgid ""
+"Whether Postcard has been set to start hidden at login. The desktop portal "
+"owns the autostart entry where it has one, otherwise Postcard writes it; "
+"this only records the result."
+msgstr ""
+"Следует ли запускать Postcard в скрытом режиме при входе в систему. "
+"Если имеется портал для автозапуска, окружение рабочего стола "
+"создаёт запись автозапуска; в ином случае эту запись создаёт Postcard. "
+"Здесь просто фиксируется результат."
+
+#: data/in.gxanshu.postcard.gschema.xml:36
+msgid "Background notice already shown"
+msgstr "Уведомление о работе в фоновом режиме уже показано"
+
+#: data/in.gxanshu.postcard.gschema.xml:37
+msgid ""
+"Whether the notice about the app still checking for mail after the window is "
+"closed has been shown. It is only shown once."
+msgstr ""
+"Было ли показано уведомление о продолжении проверки почты приложением "
+"после закрытия окна. Оно показывается только один раз."
+
+#: data/in.gxanshu.postcard.gschema.xml:42
+msgid "Sync interval in minutes"
+msgstr "Интервал синхронизации в минутах"
+
+#: data/in.gxanshu.postcard.gschema.xml:43
+msgid "How often to check for new mail. Set to 0 to check manually only."
+msgstr ""
+"Как часто проверять наличие новых писем. Установите «0», "
+"чтобы выполнять проверку только вручную."
+
+#: data/in.gxanshu.postcard.gschema.xml:47
+msgid "Append a signature"
+msgstr "Добавлять подпись"
+
+#: data/in.gxanshu.postcard.gschema.xml:48
+msgid "Add a signature to the bottom of outgoing messages."
+msgstr "Добавлять подпись под исходящими сообщениями."
+
+#: data/in.gxanshu.postcard.gschema.xml:52
+msgid "Signature text"
+msgstr "Текст подписи"
+
+#: data/in.gxanshu.postcard.gschema.xml:53
+msgid "The signature appended to outgoing messages."
+msgstr "Подпись, добавляемая к исходящим сообщениям."
+
+#: data/in.gxanshu.postcard.gschema.xml:57
+msgid "Main window width"
+msgstr "Ширина главного окна"
+
+#: data/in.gxanshu.postcard.gschema.xml:61
+msgid "Main window height"
+msgstr "Высота главного окна"
+
+#: data/in.gxanshu.postcard.gschema.xml:65
+msgid "Main window maximized"
+msgstr "Развёрнутое главное окно"
+
+#: data/in.gxanshu.postcard.gschema.xml:70
+msgid "Folder sidebar width"
+msgstr "Ширина боковой панели папок"
+
+#: data/in.gxanshu.postcard.gschema.xml:75
+msgid "Conversation list width"
+msgstr "Ширина списка переписок"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:8
+msgid "A modern email client for GNOME"
+msgstr "Современный клиент электронной почты для GNOME"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:10
+msgid ""
+"Postcard is a fast, modern email client for the GNOME desktop, built with "
+"GTK 4 and libadwaita. It follows the same three-pane layout as Geary — "
+"folders, conversations, and reading pane — with a clean, native feel and "
+"nothing to configure to get started beyond your account details."
+msgstr ""
+"Postcard — быстрый и современный клиент электронной почты для "
+"окружения рабочего стола GNOME, собранный с использованием "
+"библиотек GTK 4 и libadwaita. В программе используется та же "
+"трёхпанельная компоновка, что и в Geary — папки, переписки и "
+"область чтения. Интерфейс прост и интуитивно понятен; для начала "
+"работы с программой нужно только настроить параметры своей "
+"учётной записи."
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:16
+msgid "Features include:"
+msgstr "Среди возможностей программы:"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:18
+msgid "Multiple IMAP/SMTP accounts, with TLS or STARTTLS"
+msgstr "Несколько учётных записей IMAP/SMTP (с TLS или STARTTLS)"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:19
+msgid "Conversations grouped into threads, nested folders shown as a tree"
+msgstr ""
+"Переписки сгруппированы в ветки, вложенные папки отображаются в виде дерева"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:20
+msgid "Instant full-text search across your mail"
+msgstr "Мгновенный полнотекстовый поиск в почте"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:21
+msgid ""
+"Offline reading from a local cache, and syncing that carries on in the "
+"background"
+msgstr ""
+"Чтение из локального кэша в автономном режиме и продолжающаяся "
+"в фоновом режиме синхронизация"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:23
+msgid ""
+"HTML and plain-text mail, with remote images blocked until you allow them"
+msgstr ""
+"Письма в формате HTML и обычного текста (сетевые изображения "
+"блокируются, пока их не разрешит пользователь)"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:24
+msgid ""
+"Rich-text composer with formatting, lists, links, and recipient autocomplete"
+msgstr ""
+"Редактор форматированного текста со списками, ссылками и "
+"автодополнением получателей"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:25
+msgid ""
+"Optional sender avatars from Gravatar, falling back to the sender's site icon"
+msgstr ""
+"Опциональные аватары отправителей от Gravatar (резервный вариант — "
+"значок сайта отправителя)"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:26
+msgid ""
+"Compose, reply, and forward, with Cc/Bcc, a signature, and a Drafts/Outbox "
+"that never loses a message"
+msgstr ""
+"Написание, ответ и пересылка, функции «Копия» и «Скрытая копия», подпись, "
+"а также папки «Черновики»/«Исходящие», где никогда не пропадают сообщения"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:28
+msgid "Archive, trash, move, and undo, with desktop notifications for new mail"
+msgstr ""
+"Архивирование, удаление в корзину, перемещение и отмена, а также "
+"уведомления о новых письмах на рабочем столе"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:33
+msgid "Anshu"
+msgstr "Anshu"
+
+#: data/in.gxanshu.postcard.metainfo.xml.in:56
+msgid "The three-pane layout with folders, conversations, and reader"
+msgstr "Трёхпанельная компоновка с папками, переписками и областью чтения"
+
+#: src/postcard/accounts_dialog.py:40
+msgid "Remove Account"
+msgstr "Удалить учётную запись"
+
+#: src/postcard/application.py:50
+msgid "Start in the background without showing a window"
+msgstr "Запускать в фоновом режиме без вывода окна"
+
+#: src/postcard/application.py:153
+msgid "translator-credits"
+msgstr "Olesya Gerasimenko (goa@altlinux.org)"
+
+#: src/postcard/composer_window.py:345
+msgid "Hide Cc and Bcc fields"
+msgstr "Скрыть поля «Копия» и «Скрытая копия»"
+
+#: src/postcard/composer_window.py:345
+msgid "Show Cc and Bcc fields"
+msgstr "Показать поля «Копия» и «Скрытая копия»"
+
+#: src/postcard/composer_window.py:440 src/ui/composer-window.blp:200
+msgid "Insert Link"
+msgstr "Вставить ссылку"
+
+#: src/postcard/composer_window.py:441 src/postcard/window.py:2151
+#: src/ui/account-dialog.blp:17 src/ui/composer-window.blp:18
+msgid "Cancel"
+msgstr "Отмена"
+
+#: src/postcard/composer_window.py:442
+msgid "Insert"
+msgstr "Вставить"
+
+#: src/postcard/composer_window.py:485
+msgid "(no recipient)"
+msgstr "(получателя нет)"
+
+#: src/postcard/composer_window.py:528
+msgid "Remove Attachment"
+msgstr "Удалить вложение"
+
+#: src/postcard/composer_window.py:647 src/postcard/window.py:880
+#: src/postcard/window.py:1305 src/postcard/window.py:2028
+#: src/postcard/window.py:2391
+msgid "Could not sign in to this account."
+msgstr "Не удалось войти в эту учётную запись."
+
+#: src/postcard/composer_window.py:691
+#, python-brace-format
+msgid "Couldn't send: {msg}. Saved to Outbox."
+msgstr "Не удалось отправить: {msg}. Сохранено в папку «Исходящие»."
+
+#: src/postcard/core/net/errors.py:29
+#, python-brace-format
+msgid "Couldn't establish a secure connection to {host}."
+msgstr "Не удалось установить защищённое соединение с {host}."
+
+#: src/postcard/core/net/errors.py:34
+#, python-brace-format
+msgid "Can't find {host}. Check the server address or your connection."
+msgstr "Не удалось найти {host}. Проверьте адрес сервера или ваше соединение."
+
+#: src/postcard/core/net/errors.py:37
+#, python-brace-format
+msgid "{host} refused the connection. Check the port."
+msgstr "Отказ в соединении от {host}. Проверьте порт."
+
+#: src/postcard/core/net/errors.py:41
+#, python-brace-format
+msgid "Connecting to {host} timed out."
+msgstr "Время на установку соединения с {host} истекло."
+
+#: src/postcard/core/net/errors.py:45
+msgid "Sign-in failed. Check the account password."
+msgstr "Не удалось войти. Проверьте пароль от учётной записи."
+
+#: src/postcard/core/net/errors.py:48
+msgid "Couldn't reach the mail server. Check your connection."
+msgstr ""
+"Не удалось подключиться к почтовому серверу. Проверьте ваше соединение."
+
+#: src/postcard/mail_sync.py:605
+#, python-brace-format
+msgid "Today {time}"
+msgstr "Сегодня {time}"
+
+#: src/postcard/mail_sync.py:607
+msgid "Yesterday"
+msgstr "Вчера"
+
+#: src/postcard/message_view.py:102
+#, python-brace-format
+msgid "to {address}"
+msgstr "{address}"
+
+#: src/postcard/message_view.py:198
+msgid "Loading…"
+msgstr "Загрузка…"
+
+#: src/postcard/message_view.py:214
+msgid "Couldn't load this message."
+msgstr "Не удалось загрузить это сообщение."
+
+#: src/postcard/message_view.py:243 src/ui/composer-window.blp:49
+msgid "From"
+msgstr "От"
+
+#: src/postcard/message_view.py:244 src/ui/composer-window.blp:53
+msgid "To"
+msgstr "Кому"
+
+#: src/postcard/message_view.py:245 src/ui/composer-window.blp:90
+msgid "Cc"
+msgstr "Копия"
+
+#: src/postcard/message_view.py:246 src/ui/composer-window.blp:96
+msgid "Bcc"
+msgstr "Скрытая копия"
+
+#: src/postcard/message_view.py:247
+msgid "Date"
+msgstr "Дата"
+
+#: src/postcard/message_view.py:262
+msgid "Details"
+msgstr "Подробности"
+
+#: src/postcard/message_view.py:274
+msgid "You're subscribed to this mailing list."
+msgstr "Вы подписаны на этот список рассылки."
+
+#: src/postcard/message_view.py:275 src/postcard/window.py:2152
+msgid "Unsubscribe"
+msgstr "Отменить подписку"
+
+#: src/postcard/message_view.py:294
+msgid "Remote images are blocked to protect your privacy."
+msgstr ""
+"Сетевые изображения заблокированы для обеспечения вашей конфиденциальности."
+
+#: src/postcard/message_view.py:295
+msgid "Show Images"
+msgstr "Показать изображения"
+
+#: src/postcard/message_view.py:379 src/ui/composer-window.blp:132
+msgid "Attachments"
+msgstr "Вложения"
+
+#: src/postcard/message_view.py:392
+msgid "Open with the default app"
+msgstr "Открыть в приложении по умолчанию"
+
+#: src/postcard/message_view.py:400
+msgid "Save Attachment"
+msgstr "Сохранить вложение"
+
+#: src/postcard/online_accounts_dialog.py:63
+#, python-brace-format
+msgid "{provider} accounts don't allow IMAP mail access"
+msgstr "Учётные записи {provider} не позволяют использовать протокол IMAP"
+
+#: src/postcard/online_accounts_dialog.py:69
+msgid "Use Add Account to set this one up"
+msgstr "Воспользуйтесь опцией «Добавить учётную запись» для настройки"
+
+#: src/postcard/online_accounts_dialog.py:72
+msgid "Added"
+msgstr "Добавлено"
+
+#: src/postcard/online_accounts_dialog.py:75 src/ui/account-dialog.blp:22
+msgid "Add"
+msgstr "Добавить"
+
+#: src/postcard/online_accounts_dialog.py:123
+msgid "Could not open Settings."
+msgstr "Не удалось открыть «Параметры»."
+
+#: src/postcard/preferences_dialog.py:15
+msgid "Manually"
+msgstr "Вручную"
+
+#: src/postcard/preferences_dialog.py:16
+msgid "Every 5 minutes"
+msgstr "Каждые 5 минут"
+
+#: src/postcard/preferences_dialog.py:17
+msgid "Every 15 minutes"
+msgstr "Каждые 15 минут"
+
+#: src/postcard/preferences_dialog.py:18
+msgid "Every 30 minutes"
+msgstr "Каждые 30 минут"
+
+#: src/postcard/preferences_dialog.py:19
+msgid "Every hour"
+msgstr "Каждый час"
+
+#: src/postcard/preferences_dialog.py:135
+msgid "Postcard checks for new mail after you log in."
+msgstr ""
+"Postcard проверяет наличие новых писем после входа пользователя в систему."
+
+#: src/postcard/preferences_dialog.py:173
+#: src/postcard/preferences_dialog.py:203
+msgid "Could not change whether Postcard starts at login."
+msgstr ""
+"Не удалось изменить значение параметра запуска Postcard при входе в систему."
+
+#: src/postcard/tray.py:113
+msgid "Open Postcard"
+msgstr "Открыть Postcard"
+
+#: src/postcard/tray.py:114
+msgid "Compose"
+msgstr "Написать письмо"
+
+#: src/postcard/tray.py:115 src/ui/main-window.blp:127
+msgid "Refresh Inbox"
+msgstr "Обновить папку «Входящие»"
+
+#: src/postcard/tray.py:116
+msgid "Quit"
+msgstr "Выход"
+
+#: src/postcard/window.py:89
+#, python-brace-format
+msgid "Archived"
+msgid_plural "Archived {n} conversations"
+msgstr[0] "Отправлено в архив: {n} переписка"
+msgstr[1] "Отправлено в архив: {n} переписки"
+msgstr[2] "Отправлено в архив: {n} переписок"
+
+#: src/postcard/window.py:91
+#, python-brace-format
+msgid "Unarchived"
+msgid_plural "Unarchived {n} conversations"
+msgstr[0] "Восстановлено из архива: {n} переписка"
+msgstr[1] "Восстановлено из архива: {n} переписки"
+msgstr[2] "Восстановлено из архива: {n} переписок"
+
+#: src/postcard/window.py:92
+#, python-brace-format
+msgid "Deleted"
+msgid_plural "Deleted {n} conversations"
+msgstr[0] "Удалено: {n} переписка"
+msgstr[1] "Удалено: {n} переписки"
+msgstr[2] "Удалено: {n} переписок"
+
+#: src/postcard/window.py:301
+msgid "All Inboxes"
+msgstr "Все папки «Входящие»"
+
+#: src/postcard/window.py:888
+#, python-brace-format
+msgid "Action failed: {msg}"
+msgstr "Не удалось выполнить действие: {msg}"
+
+#: src/postcard/window.py:964 src/postcard/window.py:1916
+#: src/ui/main-window.blp:225
+msgid "Mark Read"
+msgstr "Отметить как прочитанное"
+
+#: src/postcard/window.py:966 src/postcard/window.py:1919
+msgid "Mark Unread"
+msgstr "Отметить как непрочитанное"
+
+#: src/postcard/window.py:968 src/postcard/window.py:1923
+msgid "Unstar"
+msgstr "Убрать звезду"
+
+#: src/postcard/window.py:968 src/postcard/window.py:1926
+#: src/ui/main-window.blp:232
+msgid "Star"
+msgstr "Добавить звезду"
+
+#: src/postcard/window.py:975 src/ui/main-window.blp:260
+msgid "Delete"
+msgstr "Удалить"
+
+#: src/postcard/window.py:979
+msgid "Move to"
+msgstr "Переместить"
+
+#: src/postcard/window.py:999
+msgid "Unarchive"
+msgstr "Восстановить из архива"
+
+#: src/postcard/window.py:1000 src/ui/main-window.blp:249
+#: src/ui/main-window.blp:254
+msgid "Archive"
+msgstr "Архивировать"
+
+#: src/postcard/window.py:1036
+#, python-brace-format
+msgid "Moved to {name}"
+msgid_plural "Moved {n} conversations to {name}"
+msgstr[0] "Перемещено в {name}: {n} переписка"
+msgstr[1] "Перемещено в {name}: {n} переписки"
+msgstr[2] "Перемещено в {name}: {n} переписок"
+
+#: src/postcard/window.py:1063
+#, python-brace-format
+msgid "No {role} folder for {account}."
+msgstr "Для {account} нет папки {role}."
+
+#. High priority: a normal toast queues behind whatever is on screen (a
+#. "no such folder" warning, say), and its 5s wait is the whole undo
+#. window -- Undo would appear only once the move had already gone out.
+#: src/postcard/window.py:1164
+msgid "Undo"
+msgstr "Отменить"
+
+#: src/postcard/window.py:1299 src/postcard/window.py:1313
+#, python-brace-format
+msgid "Move failed: {msg}"
+msgstr "Не удалось переместить: {msg}"
+
+#. No UID and no cached copy: nothing to fetch until the next sync.
+#: src/postcard/window.py:1993
+msgid "This message hasn't finished syncing yet."
+msgstr "Синхронизация этого сообщения ещё не завершена."
+
+#: src/postcard/window.py:1998
+msgid "This message's mailbox is no longer available."
+msgstr "Почтовый ящик этого сообщения больше недоступен."
+
+#: src/postcard/window.py:2086
+#, python-brace-format
+msgid "Couldn't save {name}: {msg}"
+msgstr "Не удалось сохранить {name}: {msg}"
+
+#: src/postcard/window.py:2092
+#, python-brace-format
+msgid "Saved {name}."
+msgstr "Выполнено сохранение {name}."
+
+#: src/postcard/window.py:2107 src/postcard/window.py:2128
+#, python-brace-format
+msgid "Couldn't open {name}."
+msgstr "Не удалось открыть {name}."
+
+#: src/postcard/window.py:2146
+msgid "Unsubscribe from this list?"
+msgstr "Отменить подписку на эту рассылку?"
+
+#: src/postcard/window.py:2147
+#, python-brace-format
+msgid "A request will be sent to {destination}."
+msgstr "Запрос будет отправлен по адресу {destination}."
+
+#: src/postcard/window.py:2191
+msgid "Couldn't unsubscribe. The list didn't accept the request."
+msgstr "Не удалось отменить подписку. Рассылка не приняла запрос."
+
+#: src/postcard/window.py:2194
+msgid "Unsubscribed. It can take a few days to take effect."
+msgstr ""
+"Выполнена отмена подписки. На её вступление в силу может "
+"потребоваться несколько дней."
+
+#: src/postcard/window.py:2304
+#, python-brace-format
+msgid "Sent {n} queued message(s)."
+msgstr "Отправлены сообщения из очереди ({n})."
+
+#: src/postcard/window.py:2315
+#, python-brace-format
+msgid "Couldn't send a queued message. {reason}"
+msgid_plural "Couldn't send {n} queued messages. {reason}"
+msgstr[0] "Не удалось отправить {n} сообщение из очереди. {reason}"
+msgstr[1] "Не удалось отправить {n} сообщения из очереди. {reason}"
+msgstr[2] "Не удалось отправить {n} сообщений из очереди. {reason}"
+
+#: src/postcard/window.py:2551
+#, python-brace-format
+msgid "{n} new message"
+msgid_plural "{n} new messages"
+msgstr[0] "{n} новое сообщение"
+msgstr[1] "{n} новых сообщения"
+msgstr[2] "{n} новых сообщений"
+
+#: src/postcard/window.py:2576
+#, python-brace-format
+msgid "{n} new messages"
+msgstr "Новые сообщения: {n}"
+
+#. Auth failures aren't worth a Retry button (same password); everything
+#. else is a transient connection problem the user can retry.
+#: src/postcard/window.py:2599
+msgid "Retry"
+msgstr "Повторить попытку"
+
+#: src/postcard/window.py:2608
+msgid "You're offline. Postcard will reconnect when your connection returns."
+msgstr ""
+"Работа в автономном режиме. Postcard выполнит подключение заново, "
+"когда соединение будет восстановлено."
+
+#: src/postcard/window.py:2645
+msgid "Postcard is running in the background"
+msgstr "Postcard работает в фоновом режиме"
+
+#: src/postcard/window.py:2646
+msgid "It will keep checking for new mail. Quit to stop."
+msgstr ""
+"Программа продолжит проверять наличие новых писем. "
+"Выполните выход, чтобы остановить проверку."
+
+#: src/ui/account-dialog.blp:5 src/ui/accounts-dialog.blp:31
+#: src/ui/main-window.blp:37
+msgid "Add Account"
+msgstr "Добавить учётную запись"
+
+#: src/ui/account-dialog.blp:32
+msgid "Account"
+msgstr "Учётная запись"
+
+#: src/ui/account-dialog.blp:33
+msgid ""
+"Most servers sign you in with your email address. Change the username if "
+"yours expects a different one."
+msgstr ""
+"Для входа на большинство серверов указывается адрес электронной почты. "
+"Измените имя пользователя, если вашим сервером ожидается другой вариант."
+
+#: src/ui/account-dialog.blp:36
+msgid "Display Name"
+msgstr "Отображаемое имя"
+
+#: src/ui/account-dialog.blp:40
+msgid "Email Address"
+msgstr "Адрес эл. почты"
+
+#: src/ui/account-dialog.blp:45
+msgid "Username"
+msgstr "Имя пользователя"
+
+#: src/ui/account-dialog.blp:49
+msgid "Password"
+msgstr "Пароль"
+
+#: src/ui/account-dialog.blp:54
+msgid "Incoming Mail (IMAP)"
+msgstr "Входящая почта (IMAP)"
+
+#: src/ui/account-dialog.blp:57 src/ui/account-dialog.blp:79
+msgid "Server"
+msgstr "Сервер"
+
+#: src/ui/account-dialog.blp:61 src/ui/account-dialog.blp:83
+msgid "Port"
+msgstr "Порт"
+
+#: src/ui/account-dialog.blp:67 src/ui/account-dialog.blp:89
+msgid "Connection Security"
+msgstr "Защита соединения"
+
+#: src/ui/account-dialog.blp:76
+msgid "Outgoing Mail (SMTP)"
+msgstr "Исходящая почта (SMTP)"
+
+#: src/ui/accounts-dialog.blp:5
+msgid "Accounts"
+msgstr "Учётные записи"
+
+#: src/ui/accounts-dialog.blp:16
+msgid "Mail Accounts"
+msgstr "Учётные записи почты"
+
+#: src/ui/accounts-dialog.blp:24
+msgid "Add from Online Accounts"
+msgstr "Добавить из учётных записей в Интернете"
+
+#: src/ui/composer-window.blp:5 src/ui/main-window.blp:78
+msgid "New Message"
+msgstr "Новое сообщение"
+
+#: src/ui/composer-window.blp:23
+msgid "Send"
+msgstr "Отправить"
+
+#: src/ui/composer-window.blp:108
+msgid "Subject"
+msgstr "Тема"
+
+#: src/ui/composer-window.blp:113
+msgid "Separate multiple addresses with commas"
+msgstr "Если адресов несколько, они должны отделяться друг от друга запятыми"
+
+#: src/ui/composer-window.blp:154
+msgid "Bold"
+msgstr "Полужирный"
+
+#: src/ui/composer-window.blp:161
+msgid "Italic"
+msgstr "Наклонный"
+
+#: src/ui/composer-window.blp:168
+msgid "Underline"
+msgstr "Подчёркнутый"
+
+#: src/ui/composer-window.blp:175
+msgid "Strikethrough"
+msgstr "Зачёркнутый"
+
+#: src/ui/composer-window.blp:184
+msgid "Bulleted List"
+msgstr "Маркированный список"
+
+#: src/ui/composer-window.blp:191
+msgid "Numbered List"
+msgstr "Нумерованный список"
+
+#: src/ui/composer-window.blp:207
+msgid "Add Attachment"
+msgstr "Добавить вложение"
+
+#: src/ui/main-window.blp:29
+msgid "Welcome to Postcard"
+msgstr "Добро пожаловать в Postcard"
+
+#: src/ui/main-window.blp:30
+msgid "Add a mail account to get started."
+msgstr "Добавьте учётную запись почты, чтобы начать работу."
+
+#: src/ui/main-window.blp:43
+msgid "Use Online Accounts"
+msgstr "Использовать учётные записи в Интернете"
+
+#: src/ui/main-window.blp:60
+msgid "Folders"
+msgstr "Папки"
+
+#: src/ui/main-window.blp:68
+msgid "Resize folder sidebar"
+msgstr "Изменить размер боковой панели папок"
+
+#: src/ui/main-window.blp:87
+msgid "Main Menu"
+msgstr "Главное меню"
+
+#: src/ui/main-window.blp:109
+msgid "Conversations"
+msgstr "Переписки"
+
+#: src/ui/main-window.blp:117
+msgid "Resize conversation list"
+msgstr "Изменить размер списка переписок"
+
+#: src/ui/main-window.blp:133
+msgid "Show Unread Only"
+msgstr "Показывать только непрочитанные"
+
+#: src/ui/main-window.blp:139
+msgid "Search"
+msgstr "Поиск"
+
+#: src/ui/main-window.blp:149
+msgid "Search mail"
+msgstr "Поиск писем"
+
+#: src/ui/main-window.blp:169
+msgid "No Messages"
+msgstr "Сообщений нет"
+
+#: src/ui/main-window.blp:170
+msgid "This folder is empty."
+msgstr "Эта папка пуста."
+
+#: src/ui/main-window.blp:177
+msgid "Checking for Mail…"
+msgstr "Проверка почты…"
+
+#: src/ui/main-window.blp:192
+msgid "Reader"
+msgstr "Область чтения"
+
+#: src/ui/main-window.blp:202
+msgid "Reply"
+msgstr "Ответить"
+
+#: src/ui/main-window.blp:208
+msgid "Reply All"
+msgstr "Ответить всем"
+
+#: src/ui/main-window.blp:214
+msgid "Forward"
+msgstr "Переслать"
+
+#: src/ui/main-window.blp:239
+msgid "Move to Folder"
+msgstr "Переместить в папку"
+
+#: src/ui/main-window.blp:270
+msgid "Select a Conversation"
+msgstr "Выбор переписки"
+
+#: src/ui/main-window.blp:271
+msgid "Pick a message from the list to read it here."
+msgstr "Выберите сообщение из списка, чтобы прочесть его здесь."
+
+#: src/ui/main-window.blp:278
+msgid "Loading Message…"
+msgstr "Загрузка сообщения…"
+
+#: src/ui/main-window.blp:350
+msgid "_Add Account"
+msgstr "_Добавить учётную запись"
+
+#: src/ui/main-window.blp:354
+msgid "_Online Accounts"
+msgstr "_Учётные записи в Интернете"
+
+#: src/ui/main-window.blp:358
+msgid "_Manage Accounts"
+msgstr "_Управление учётными записями"
+
+#: src/ui/main-window.blp:365
+msgid "_Preferences"
+msgstr "_Параметры"
+
+#: src/ui/main-window.blp:369
+msgid "_Keyboard Shortcuts"
+msgstr "_Сочетания клавиш"
+
+#: src/ui/main-window.blp:373
+msgid "_About Postcard"
+msgstr "_О программе Postcard"
+
+#: src/ui/main-window.blp:380
+msgid "_Quit"
+msgstr "_Выход"
+
+#: src/ui/online-accounts-dialog.blp:5
+msgid "Online Accounts"
+msgstr "Учётные записи в Интернете"
+
+#: src/ui/online-accounts-dialog.blp:19
+msgid "Accounts in GNOME Settings"
+msgstr "Учётные записи в «Параметрах GNOME»"
+
+#: src/ui/online-accounts-dialog.blp:20
+msgid "Postcard signs in to these for you, so there is no password to enter."
+msgstr "Postcard выполняет вход за вас, поэтому вводить пароль не требуется."
+
+#: src/ui/online-accounts-dialog.blp:25 src/ui/online-accounts-dialog.blp:41
+msgid "Open Online Accounts"
+msgstr "Открыть учётные записи в Интернете"
+
+#: src/ui/online-accounts-dialog.blp:38
+msgid "No Online Accounts"
+msgstr "Учётных записей в Интернете нет"
+
+#: src/ui/online-accounts-dialog.blp:39
+msgid "Connect an account in GNOME Settings and it will show up here."
+msgstr "Подключите учётную запись в «Параметрах GNOME», и она появится здесь."
+
+#: src/ui/preferences-dialog.blp:5
+msgid "Preferences"
+msgstr "Параметры"
+
+#: src/ui/preferences-dialog.blp:9 src/ui/shortcuts-dialog.blp:6
+msgid "General"
+msgstr "Общие"
+
+#: src/ui/preferences-dialog.blp:12
+msgid "New Mail Notifications"
+msgstr "Уведомления о новых письмах"
+
+#: src/ui/preferences-dialog.blp:13
+msgid "Show a notification when new mail arrives"
+msgstr "Показывать уведомление при получении новых писем"
+
+#: src/ui/preferences-dialog.blp:17
+msgid "Load Remote Images"
+msgstr "Загружать сетевые изображения"
+
+#: src/ui/preferences-dialog.blp:18
+msgid "Load images from the internet without asking"
+msgstr "Загружать изображения из Интернета без запроса"
+
+#: src/ui/preferences-dialog.blp:22
+msgid "Load Sender Avatars"
+msgstr "Загружать аватары отправителей"
+
+#: src/ui/preferences-dialog.blp:23
+msgid "Fetch sender pictures from Gravatar, which tells them who emails you"
+msgstr ""
+"Получать изображения отправителей от Gravatar (таким образом, "
+"соответствующие службы получают данные о том, кто отправляет "
+"вам письма)"
+
+#: src/ui/preferences-dialog.blp:27
+msgid "Show Account Names"
+msgstr "Показывать имена учётных записей"
+
+#: src/ui/preferences-dialog.blp:28
+msgid ""
+"Name accounts in the sidebar by their display name instead of their address"
+msgstr ""
+"Использовать в качестве названий учётных записей на боковой панели "
+"их отображаемые имена, а не адреса"
+
+#: src/ui/preferences-dialog.blp:32
+msgid "Run in Background"
+msgstr "Запускать в фоновом режиме"
+
+#: src/ui/preferences-dialog.blp:33
+msgid "Keep checking for mail after the window is closed"
+msgstr "Продолжать проверять почту после закрытия окна программы"
+
+#: src/ui/preferences-dialog.blp:37
+msgid "Start at Login"
+msgstr "Запускать при входе в систему"
+
+#: src/ui/preferences-dialog.blp:38
+msgid "Start hidden when you log in and keep checking for mail"
+msgstr ""
+"Запускать в скрытом режиме при входе пользователя в систему "
+"и продолжать проверять почту"
+
+#: src/ui/preferences-dialog.blp:42
+msgid "Check for Mail"
+msgstr "Проверять почту"
+
+#: src/ui/preferences-dialog.blp:43
+msgid "How often to look for new mail"
+msgstr "Как часто проверять наличие новых писем"
+
+#: src/ui/preferences-dialog.blp:48
+msgid "Signature"
+msgstr "Подпись"
+
+#: src/ui/preferences-dialog.blp:51
+msgid "Append Signature"
+msgstr "Добавлять подпись"
+
+#: src/ui/preferences-dialog.blp:52
+msgid "Add a signature to messages you send"
+msgstr "Добавлять подпись к отправляемым пользователем сообщениям"
+
+#: src/ui/shortcuts-dialog.blp:8
+msgctxt "shortcut window"
+msgid "New Window"
+msgstr "Новое окно"
+
+#: src/ui/shortcuts-dialog.blp:13
+msgctxt "shortcut window"
+msgid "Preferences"
+msgstr "Параметры"
+
+#: src/ui/shortcuts-dialog.blp:18
+msgctxt "shortcut window"
+msgid "Show Shortcuts"
+msgstr "Показать сочетания клавиш"
+
+#: src/ui/shortcuts-dialog.blp:23
+msgctxt "shortcut window"
+msgid "Quit"
+msgstr "Выход"
+
+#: src/ui/shortcuts-dialog.blp:29
+msgid "Mail"
+msgstr "Почта"
+
+#: src/ui/shortcuts-dialog.blp:31
+msgctxt "shortcut window"
+msgid "New Message"
+msgstr "Новое сообщение"
+
+#: src/ui/shortcuts-dialog.blp:36
+msgctxt "shortcut window"
+msgid "Reply"
+msgstr "Ответить"
+
+#: src/ui/shortcuts-dialog.blp:41
+msgctxt "shortcut window"
+msgid "Reply All"
+msgstr "Ответить всем"
+
+#: src/ui/shortcuts-dialog.blp:46
+msgctxt "shortcut window"
+msgid "Forward"
+msgstr "Переслать"
+
+#: src/ui/shortcuts-dialog.blp:51
+msgctxt "shortcut window"
+msgid "Refresh"
+msgstr "Обновить"
+
+#: src/ui/shortcuts-dialog.blp:56
+msgctxt "shortcut window"
+msgid "Search"
+msgstr "Поиск"
+
+#: src/ui/shortcuts-dialog.blp:61
+msgctxt "shortcut window"
+msgid "Mark Read/Unread"
+msgstr "Отметить как прочитанное/непрочитанное"
+
+#: src/ui/shortcuts-dialog.blp:66
+msgctxt "shortcut window"
+msgid "Star"
+msgstr "Добавить звезду"
+
+#: src/ui/shortcuts-dialog.blp:71
+msgctxt "shortcut window"
+msgid "Archive"
+msgstr "Архивировать"
+
+#: src/ui/shortcuts-dialog.blp:76
+msgctxt "shortcut window"
+msgid "Delete"
+msgstr "Удалить"
